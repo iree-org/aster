@@ -112,6 +112,8 @@ LogicalResult Graph::computeQuotient(const llvm::IntEqClasses &eqClasses) {
   for (const Edge &e : edgeSet) {
     int32_t srcClass = static_cast<int32_t>(eqClasses[e.first]);
     int32_t tgtClass = static_cast<int32_t>(eqClasses[e.second]);
+    if (srcClass == tgtClass)
+      continue; // intra-class edges collapse in the quotient
     newEdgeSet.insert({srcClass, tgtClass});
   }
 

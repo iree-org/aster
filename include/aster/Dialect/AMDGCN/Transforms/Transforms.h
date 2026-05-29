@@ -13,10 +13,9 @@
 #define ASTER_DIALECT_AMDGCN_TRANSFORMS_TRANSFORMS_H
 
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
-#include "llvm/ADT/EquivalenceClasses.h"
-#include "llvm/ADT/IntEqClasses.h"
-
-#include <optional>
+#include "aster/Support/Graph.h"
+#include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
 class Operation;
@@ -28,35 +27,30 @@ namespace amdgcn {
 /// run before calling this function.
 void registerDCE(Operation *op, DataFlowSolver &solver);
 
-/// Class holding coalescing information for register coloring.
+/// The interference graph remapped through equivalence classes, with
+/// coalescing information for register coloring.
 struct CoalescingInfo {
-  /// Optimize the register interference graph and return equivalence classes
-  /// (e.g. for coalescing). Returns std::nullopt if optimization does not
-  /// apply or fails. The dataflow solver is expected to be loaded with the
-  /// reaching definitions analysis tracking only loads.
-  static std::optional<CoalescingInfo>
-  optimizeGraph(Operation *op, RegisterInterferenceGraph &graph,
-                DataFlowSolver &solver);
+  /// Optimize the register interference graph by coalescing non-interfering
+  /// registers connected by move operations, and return the resulting quotient
+  /// graph. Returns failure if move analysis encounters an unexpected register
+  /// form.
+  static FailureOr<CoalescingInfo>
+  optimizeGraph(Operation *op, RegisterInterferenceGraph &graph);
 
-  /// Get the range information for a node ID. For any node returns the leader
-  /// node ID, and the range constraint.
-  std::pair<int32_t, RangeConstraint *>
-  getRangeInfo(RegisterInterferenceGraph &graph, int32_t nodeId) {
-    return graph.getRangeInfo(nodeClasses.findLeader(nodeId));
-  }
-
-  /// Get the leader of the equivalence class for the given node ID.
-  int32_t getLeader(int32_t nodeId) const {
-    return nodeClasses.findLeader(nodeId);
-  }
-
-  /// Equivalence classes for coalescing.
-  llvm::EquivalenceClasses<int32_t> eqClasses;
-
-private:
-  /// This contains the same equivalence classes as eqClasses, but it has the
-  /// guarantee that the leader of each class is the smallest member.
-  llvm::IntEqClasses nodeClasses;
+  /// The interference graph remapped through equivalence classes (undirected).
+  Graph graph{/*directed=*/false};
+  /// Representative value for each quotient node.
+  SmallVector<Value> values;
+  /// Range constraint for each quotient node (nullptr if singleton).
+  SmallVector<RangeConstraint *> constraints;
+  /// Flat storage of original node IDs grouped by quotient class, in
+  /// ascending order within each class. Class qid occupies
+  /// memberData[memberOffsets[qid] .. memberOffsets[qid+1]).
+  /// memberData[memberOffsets[qid]] is the minimum (representative) of qid.
+  SmallVector<int32_t> memberData;
+  SmallVector<int32_t> memberOffsets;
+  /// nodeClass[origId] is the quotient class ID of original node origId.
+  SmallVector<int32_t> nodeClass;
 };
 } // namespace amdgcn
 } // namespace aster

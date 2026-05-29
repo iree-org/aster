@@ -1,14 +1,10 @@
 // RUN: aster-opt %s --amdgcn-reg-alloc | FileCheck %s
-// RUN: aster-opt %s --amdgcn-reg-alloc="mode=full optimize=false" | FileCheck %s --check-prefix=CHECK-FULL
 
 amdgcn.module @reg_alloc target = <gfx942> {
   // CHECK-LABEL: reg_alloc
-  // CHECK-FULL-LABEL: reg_alloc
   func.func private @rand() -> i1
   // CHECK-NOT: alloca : !amdgcn.vgpr<1>
   // CHECK: alloca : !amdgcn.vgpr<0>
-  // CHECK-FULL-DAG: alloca : !amdgcn.vgpr<1>
-  // CHECK-FULL-DAG: alloca : !amdgcn.vgpr<0>
   kernel @reg_alloc {
     %0 = func.call @rand() : () -> i1
     %1 = alloca : !amdgcn.vgpr

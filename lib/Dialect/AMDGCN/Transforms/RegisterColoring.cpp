@@ -8,6 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "GraphColoring.h"
 #include "aster/Dialect/AMDGCN/Analysis/RangeConstraintAnalysis.h"
 #include "aster/Dialect/AMDGCN/Analysis/RegisterInterferenceGraph.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
@@ -17,8 +18,7 @@
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/EquivalenceClasses.h"
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/Support/DebugLog.h"
 
 #define DEBUG_TYPE "amdgcn-register-coloring"
@@ -35,7 +35,6 @@ using namespace mlir::aster;
 using namespace mlir::aster::amdgcn;
 
 namespace {
-using EqClasses = llvm::EquivalenceClasses<int32_t>;
 static constexpr std::string_view kCastOpTag = "__amdgcn_register_coloring__";
 //===----------------------------------------------------------------------===//
 // RegisterColoring pass
@@ -48,92 +47,6 @@ public:
 
   /// Run the transformation on the given function.
   LogicalResult run(FunctionOpInterface funcOp);
-};
-
-//===----------------------------------------------------------------------===//
-// RegisterAllocator
-//===----------------------------------------------------------------------===//
-/// A memory allocation.
-struct Allocation {
-  int16_t begin;
-  int16_t size;
-  RegisterKind kind;
-
-  Allocation(int16_t begin, int16_t size, RegisterKind kind)
-      : begin(begin), size(size), kind(kind) {}
-
-  Allocation(AMDGCNRegisterTypeInterface regTy, int64_t numRegs)
-      : begin(regTy.getAsRange().begin().getRegister()), size(numRegs),
-        kind(regTy.getRegisterKind()) {}
-
-  Register getBegin() const { return Register(begin); }
-  Register getEnd() const { return Register(begin + size); }
-  RegisterRange getRange() const { return RegisterRange(getBegin(), size, 1); }
-  int16_t end() const { return begin + size; }
-
-  bool operator<(const Allocation &other) const {
-    return std::make_tuple(kind, begin) <
-           std::make_tuple(other.kind, other.begin);
-  }
-};
-
-/// The allocation constraints.
-struct AllocConstraints {
-  AllocConstraints(int32_t numVGPR = 256, int32_t numAGPR = 256)
-      : numVGPR(numVGPR), numAGPR(numAGPR) {}
-
-  /// Insert a given allocation.
-  void insert(Allocation alloc);
-
-  /// Allocate memory for a given node, returns failure if no suitable region
-  /// could be found.
-  FailureOr<Allocation> alloc(AMDGCNRegisterTypeInterface regTy,
-                              int16_t numRegs, int16_t alignment);
-
-  /// Clear all allocations.
-  void clear();
-
-  /// Print the allocation constraints.
-  void print(raw_ostream &os) const;
-
-private:
-  /// The number of SGPRs.
-  const int32_t numSGPR = 102;
-  /// The number of VGPRs.
-  const int32_t numVGPR;
-  /// The number of AGPRs.
-  const int32_t numAGPR;
-  /// The allocation constraints.
-  std::set<Allocation> constraints;
-};
-
-/// A greedy allocator for registers based on the interference graph.
-/// The allocator traverses nodes in breadth-first order and assigns registers.
-struct RegisterAllocator {
-  RegisterAllocator(RegisterInterferenceGraph &graph,
-                    std::optional<CoalescingInfo> &&coalescingInfo,
-                    MLIRContext *ctx, int32_t numVGPRs = 256,
-                    int32_t numAGPRs = 256)
-      : graph(graph), constraints(numVGPRs, numAGPRs),
-        coalescingInfo(coalescingInfo), rewriter(ctx) {}
-
-  /// Run the allocator on all nodes, returns failure if an allocation request
-  /// cannot be satisfied.
-  LogicalResult run(FunctionOpInterface op);
-
-private:
-  /// Collect the allocation constraints for the given node.
-  LogicalResult collectConstraints(int32_t nodeId, ArrayRef<Value> nodes);
-  /// Allocate memory for a register node.
-  LogicalResult alloc(int32_t nodeId, Value alloca);
-
-  RegisterInterferenceGraph &graph;
-  AllocConstraints constraints;
-  std::optional<CoalescingInfo> coalescingInfo;
-  IRRewriter rewriter;
-  llvm::DenseSet<int32_t> visited;
-  /// Insertion point, updated as allocations are inserted.
-  OpBuilder::InsertPoint ip;
 };
 
 //===----------------------------------------------------------------------===//
@@ -163,266 +76,16 @@ struct RegInterferenceOpPattern : public OpRewritePattern<RegInterferenceOp> {
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// AllocConstraints
-//===----------------------------------------------------------------------===//
-
-void AllocConstraints::insert(Allocation alloc) { constraints.insert(alloc); }
-
-FailureOr<Allocation> AllocConstraints::alloc(AMDGCNRegisterTypeInterface regTy,
-                                              int16_t numRegs,
-                                              int16_t alignment) {
-  LDBG() << "  Allocating " << numRegs << " registers of kind "
-         << regTy.getRegisterKind() << " with alignment " << alignment;
-  int16_t start = 0;
-  auto getStartAligned = [&](int64_t addr) {
-    return ((addr + alignment - 1) / alignment) * alignment;
-  };
-
-  int16_t maxRegs = 0;
-  switch (regTy.getRegisterKind()) {
-  case RegisterKind::SGPR:
-    maxRegs = numSGPR;
-    break;
-  case RegisterKind::VGPR:
-    maxRegs = numVGPR;
-    break;
-  case RegisterKind::AGPR:
-    maxRegs = numAGPR;
-    break;
-  default:
-    maxRegs = 1;
-  }
-
-  auto lb = constraints.lower_bound({0, 1, regTy.getRegisterKind()});
-  auto ub = constraints.upper_bound({maxRegs, 1, regTy.getRegisterKind()});
-
-  for (const Allocation &alloc : llvm::make_range(lb, ub)) {
-    // Check if we can fit before this allocation.
-    if (start + numRegs <= alloc.begin) {
-      Allocation result = {start, numRegs, alloc.kind};
-      constraints.insert(result);
-      return result;
-    }
-    start = getStartAligned(alloc.end());
-  }
-
-  // Check if we can fit at the end.
-  if (start + numRegs <= maxRegs) {
-    Allocation result = {start, numRegs, regTy.getRegisterKind()};
-    constraints.insert(result);
-    return result;
-  }
-
-  return failure();
-}
-
-void AllocConstraints::clear() { constraints.clear(); }
-
-void AllocConstraints::print(raw_ostream &os) const {
-  os << "{";
-  llvm::interleaveComma(constraints, os, [&](const Allocation &alloc) {
-    os << alloc.getRange() << " : " << stringifyRegisterKind(alloc.kind);
-  });
-  os << "}";
-}
-
-//===----------------------------------------------------------------------===//
-// RegisterAllocator
-//===----------------------------------------------------------------------===//
-
-LogicalResult RegisterAllocator::collectConstraints(int32_t nodeId,
-                                                    ArrayRef<Value> nodes) {
-  LDBG() << " Collecting constraints for node[" << nodeId
-         << "]: " << nodes[nodeId];
-
-  auto addConstraints = [&](int32_t node) -> LogicalResult {
-    for (auto [src, tgt] : graph.edges(node)) {
-      LDBG() << "  Inspecting neighbor[" << tgt << "]: " << nodes[tgt];
-      Value tgtNode = nodes[tgt];
-      AMDGCNRegisterTypeInterface regTy =
-          dyn_cast<AMDGCNRegisterTypeInterface>(tgtNode.getType());
-      // Skip if the node is not a register type.
-      if (!regTy)
-        continue;
-
-      // Error if the node is a value register.
-      if (regTy.hasValueSemantics())
-        return emitError(tgtNode.getLoc()) << "found unexpected value register";
-
-      // Skip if the node is not an allocated register.
-      if (!regTy.hasAllocatedSemantics())
-        continue;
-
-      assert(regTy.getAsRange().size() == 1 && "expected single register");
-      constraints.insert(Allocation(regTy, 1));
-    }
-    return success();
-  };
-
-  auto [rangeId, constraint] = coalescingInfo
-                                   ? coalescingInfo->getRangeInfo(graph, nodeId)
-                                   : graph.getRangeInfo(nodeId);
-
-  for (int32_t
-           nodeId = rangeId,
-           end = rangeId + (constraint ? constraint->allocations.size() : 1);
-       nodeId < end; ++nodeId) {
-    // If there are no coalescing classes, just add the constraints for the
-    // node.
-    if (!coalescingInfo) {
-      if (failed(addConstraints(nodeId)))
-        return failure();
-      continue;
-    }
-
-    // Otherwise, add the constraints for all members of the coalescing class.
-    for (int32_t member : coalescingInfo->eqClasses.members(nodeId)) {
-      if (failed(addConstraints(member)))
-        return failure();
-    }
-  }
-  return success();
-}
-
-LogicalResult RegisterAllocator::alloc(int32_t nodeId, Value alloca) {
-  auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(alloca.getType());
-  int64_t numRegs = 1;
-  int64_t alignment = 1;
-  ValueRange allocas = alloca;
-  // If the alloca has a range constraint, use the constraint to allocate the
-  // register.
-  auto [rangeId, constraint] = coalescingInfo
-                                   ? coalescingInfo->getRangeInfo(graph, nodeId)
-                                   : graph.getRangeInfo(nodeId);
-  if (constraint) {
-    numRegs = constraint->allocations.size();
-    alignment = constraint->alignment;
-    allocas = constraint->allocations;
-  }
-
-  OpBuilder::InsertionGuard guard(rewriter);
-
-  // Try to allocate the registers.
-  FailureOr<Allocation> alloc = constraints.alloc(regTy, numRegs, alignment);
-  if (failed(alloc))
-    return emitError(alloca.getLoc()) << "failed to allocate the registers";
-
-  // Helper to update the IR, and allocator after allocation.
-  auto updateAllocator = [&](int32_t node, Value castValue, Value alloca) {
-    // Update the graph with the new value.
-    Value oldAlloca = std::exchange(graph.getValues()[node], alloca);
-
-    // Replace all uses of the old alloca with the new alloca.
-    rewriter.replaceAllUsesWith(oldAlloca, castValue);
-
-    // Make sure we mark the node as visited since we have already allocated it.
-    visited.insert(node);
-  };
-
-  // Replace the alloca with the new alloca.
-  for (auto [i, alloca] : llvm::enumerate(allocas)) {
-    // Get the node ID for the alloca, this is the range leader + the index
-    // of the alloca in the range by construction.
-    int32_t node = rangeId + i;
-
-    // Get the alloca and set the insertion point.
-    auto allocaOp = cast<AllocaOp>(alloca.getDefiningOp());
-
-    // Set the insertion point to the last saved position.
-    assert(ip.isSet() && "insertion point is not set");
-    rewriter.restoreInsertionPoint(ip);
-
-    // Create the new alloca.
-    Register reg = alloc->getBegin().getWithOffset(i);
-    AllocaOp newAlloca = AllocaOp::create(rewriter, allocaOp.getLoc(),
-                                          regTy.cloneRegisterType(reg));
-
-    // Cast back to the original type.
-    auto cOp = UnrealizedConversionCastOp::create(rewriter, allocaOp.getLoc(),
-                                                  regTy, newAlloca.getResult());
-    cOp->setAttr(kCastOpTag, rewriter.getUnitAttr());
-
-    // Update the insertion point to the new alloca.
-    // NOTE: This checkpoint has to happen after the creation of the cast
-    // operation so that the iteration is never invalid.
-    rewriter.setInsertionPointAfter(newAlloca.getOperation());
-    ip = rewriter.saveInsertionPoint();
-
-    // Update the IR and the allocator.
-    if (!coalescingInfo) {
-      updateAllocator(node, cOp.getResult(0), newAlloca);
-      continue;
-    }
-    for (int32_t member : coalescingInfo->eqClasses.members(node))
-      updateAllocator(member, cOp.getResult(0), newAlloca);
-  }
-  return success();
-}
-
-static bool needsAllocation(Value node) {
-  auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(node.getType());
-  return regTy && !regTy.hasAllocatedSemantics();
-}
-
-LogicalResult RegisterAllocator::run(FunctionOpInterface op) {
-  Region &body = op.getFunctionBody();
-  if (body.empty())
-    return success();
-
-  // Set the insertion point to the start of the entry block. This is used to
-  // insert the allocas at the correct position and in the order they are
-  // allocated.
-  Block *entryBlock = &body.front();
-  rewriter.setInsertionPointToStart(entryBlock);
-  ip = rewriter.saveInsertionPoint();
-
-  ArrayRef<Value> nodes = graph.getValues();
-  for (auto [i, node] : llvm::enumerate(nodes)) {
-    // Skip already visited or allocated nodes.
-    if (!visited.insert(i).second || !needsAllocation(node))
-      continue;
-
-    LDBG() << "Allocating node[" << i << "]: " << node;
-
-    // Collect the neighbors constraints.
-    constraints.clear();
-    if (failed(collectConstraints(i, nodes)))
-      return failure();
-
-    LDBG_OS([&](raw_ostream &os) {
-      os << " Initial constraints: ";
-      constraints.print(os);
-    });
-
-    // Allocate the node.
-    if (failed(alloc(i, node)))
-      return failure();
-
-    LDBG_OS([&](raw_ostream &os) {
-      os << " Final constraints: ";
-      constraints.print(os);
-    });
-  }
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // Rewrite patterns
 //===----------------------------------------------------------------------===//
 
 LogicalResult
 InstRewritePattern::matchAndRewrite(InstOpInterface op,
                                     PatternRewriter &rewriter) const {
-  bool mutatedIns = false;
-  bool mutatedOuts = false;
-
-  // Bail out if the instruction has results.
-  if (!op.getInstResults().empty()) {
+  if (!op.getInstResults().empty())
     return rewriter.notifyMatchFailure(
         op, "expected instruction with register semantics");
-  }
 
-  // Helper to handle an operand.
   auto handleOperand = [&](Value operand) -> Value {
     auto cOp =
         dyn_cast_or_null<UnrealizedConversionCastOp>(operand.getDefiningOp());
@@ -431,28 +94,24 @@ InstRewritePattern::matchAndRewrite(InstOpInterface op,
     return cOp.getInputs().front();
   };
 
-  // Check if any operand or result needs to be updated.
-  SmallVector<Value> newIns = llvm::to_vector(op.getInstIns());
+  bool mutated = false;
   SmallVector<Value> newOuts = llvm::to_vector(op.getInstOuts());
-  for (Value &operand : newOuts) {
-    Value nV = handleOperand(operand);
-    mutatedOuts |= (nV != nullptr);
-    if (nV)
-      operand = nV;
-  }
-  for (Value &operand : newIns) {
-    Value nV = handleOperand(operand);
-    mutatedIns |= (nV != nullptr);
-    if (nV)
-      operand = nV;
-  }
-
-  // Early exit if nothing changed.
-  if (!mutatedIns && !mutatedOuts)
+  SmallVector<Value> newIns = llvm::to_vector(op.getInstIns());
+  for (Value &v : newOuts)
+    if (Value nV = handleOperand(v)) {
+      v = nV;
+      mutated = true;
+    }
+  for (Value &v : newIns)
+    if (Value nV = handleOperand(v)) {
+      v = nV;
+      mutated = true;
+    }
+  if (!mutated)
     return failure();
 
   // Create the new instruction.
-  auto newInst = op.cloneInst(rewriter, newOuts, newIns);
+  InstOpInterface newInst = op.cloneInst(rewriter, newOuts, newIns);
   if (!newInst)
     return failure();
 
@@ -486,6 +145,85 @@ RegInterferenceOpPattern::matchAndRewrite(RegInterferenceOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// Phase 2 helpers
+//===----------------------------------------------------------------------===//
+
+/// Emit one AllocaOp and a tagged cast for value, using allocatedType as the
+/// physical register type, then replace all uses of value with the cast result.
+/// Advances ip past the new AllocaOp so subsequent calls insert in IR order.
+static void emitAllocAndReplace(Value value,
+                                AMDGCNRegisterTypeInterface allocatedType,
+                                IRRewriter &rewriter,
+                                OpBuilder::InsertPoint &ip) {
+  assert(value.getDefiningOp() && isa<AllocaOp>(value.getDefiningOp()) &&
+         "expected alloca op for coalescing class member");
+  auto allocaOp = cast<AllocaOp>(value.getDefiningOp());
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(ip);
+
+  AllocaOp newAlloca =
+      AllocaOp::create(rewriter, allocaOp.getLoc(), allocatedType);
+
+  // Cast back to the original unallocated type so existing uses remain valid
+  // until the downstream rewrite patterns peel the cast.
+  auto cOp = UnrealizedConversionCastOp::create(
+      rewriter, allocaOp.getLoc(), value.getType(), newAlloca.getResult());
+  cOp->setDiscardableAttr(kCastOpTag, rewriter.getUnitAttr());
+
+  // Advance ip past the new AllocaOp so subsequent allocas are inserted in
+  // textual IR order.
+  rewriter.setInsertionPointAfter(newAlloca.getOperation());
+  ip = rewriter.saveInsertionPoint();
+
+  rewriter.replaceAllUsesWith(value, cOp.getResult(0));
+}
+
+/// Derive the allocated type for range position pos relative to the leader
+/// type. The leader type carries physical register begin; position pos uses
+/// begin+pos.
+static AMDGCNRegisterTypeInterface
+getOffsetType(AMDGCNRegisterTypeInterface leaderType, int32_t pos) {
+  if (pos == 0)
+    return leaderType;
+  Register reg =
+      leaderType.getAsRange().begin().getWithOffset(static_cast<int16_t>(pos));
+  return cast<AMDGCNRegisterTypeInterface>(leaderType.cloneRegisterType(reg));
+}
+
+/// Coalescing fan-out: expand each changed quotient node to all members of its
+/// equivalence classes in the original interference graph.
+static void rewriteCoalescing(RegisterInterferenceGraph &graph,
+                              CoalescingInfo &coalescingInfo,
+                              ArrayRef<NodeConstraint> nodeConsts,
+                              ArrayRef<AMDGCNRegisterTypeInterface> types,
+                              const llvm::SmallBitVector &wasUnallocated,
+                              IRRewriter &rewriter,
+                              OpBuilder::InsertPoint &ip) {
+  int32_t m = static_cast<int32_t>(types.size());
+  for (int32_t i = 0; i < m; ++i) {
+    if (!wasUnallocated[static_cast<unsigned>(i)])
+      continue;
+    int32_t numRegs = nodeConsts[i].numRegs;
+    // Non-leader range positions in the quotient graph (numRegs == 0) are
+    // handled by their leader's fan-out loop; skip them here.
+    if (numRegs == 0)
+      continue;
+
+    for (int32_t pos = 0; pos < numRegs; ++pos) {
+      // Members for quotient slot i+pos are stored in memberData at the
+      // slice [memberOffsets[i+pos], memberOffsets[i+pos+1]).
+      int32_t qid = i + pos;
+      AMDGCNRegisterTypeInterface allocatedType = getOffsetType(types[i], pos);
+      for (int32_t j = coalescingInfo.memberOffsets[qid],
+                   end = coalescingInfo.memberOffsets[qid + 1];
+           j < end; ++j)
+        emitAllocAndReplace(graph.getValue(coalescingInfo.memberData[j]),
+                            allocatedType, rewriter, ip);
+    }
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // RegisterColoring pass
 //===----------------------------------------------------------------------===//
 
@@ -510,7 +248,7 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
 
   // Create the dataflow solver but don't run an analysis.
   // The coalescing-priority query in OptimizeInterferenceGraph::collectMov is
-  // answered on demand via/ hasReachingLoadDefinition (per-MOV backwards walk),
+  // answered on demand via hasReachingLoadDefinition (per-MOV backwards walk),
   // eliminating the global dataflow fixpoint that previously dominated compile
   // time.
   SymbolTableCollection symbolTable;
@@ -520,20 +258,83 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
   FailureOr<RegisterInterferenceGraph> graph =
       RegisterInterferenceGraph::create(funcOp, solver, symbolTable,
                                         *rangeAnalysis, buildMode);
-  if (failed(graph)) {
+  if (failed(graph))
     return funcOp.emitError() << "failed to create register interference graph";
+
+  // Optimize the graph and get the coalescing classes.
+  FailureOr<CoalescingInfo> coalescingInfo =
+      CoalescingInfo::optimizeGraph(funcOp, *graph);
+  if (failed(coalescingInfo))
+    return funcOp.emitError() << "failed to optimize interference graph";
+
+  //===--------------------------------------------------------------------===//
+  // Phase 1: Materialize constraints and types; run colorGraph.
+  //===--------------------------------------------------------------------===//
+
+  ArrayRef<RangeConstraint *> qConsts = coalescingInfo->constraints;
+  int32_t m = static_cast<int32_t>(qConsts.size());
+
+  SmallVector<NodeConstraint> nodeConsts;
+  SmallVector<AMDGCNRegisterTypeInterface> types;
+  nodeConsts.reserve(m);
+  types.reserve(m);
+  llvm::SmallBitVector wasUnallocated(static_cast<unsigned>(m));
+
+  // Track the end of the active range so that non-leader positions (those
+  // falling inside a preceding leader's range) are marked with numRegs == 0.
+  //
+  // This relies on the invariant that, after compress(), the quotient IDs for
+  // the non-leader positions of a range are consecutive and immediately
+  // follow the leader's quotient ID. The invariant holds because:
+  //  1. Ranges are constructed with consecutive original node IDs.
+  //  2. Coalescing always merges the smaller range into the larger (or equal)
+  //     one, so the larger range's original IDs are always smaller and
+  //     IntEqClasses::join makes them the leader.
+  //  3. compress() scans original IDs in ascending order, so the leading
+  //     range's positions receive consecutive quotient IDs.
+  int32_t rangeEnd = 0;
+  for (int32_t i = 0; i < m; ++i) {
+    RangeConstraint *c = qConsts[i];
+    if (c != nullptr) {
+      nodeConsts.push_back(
+          {static_cast<int32_t>(c->allocations.size()), c->alignment});
+      rangeEnd = i + static_cast<int32_t>(c->allocations.size());
+    } else if (i < rangeEnd) {
+      // Non-leader position within an active range; the leader's colorNode
+      // call will write types[i] and mark this node visited.
+      nodeConsts.push_back({0, 1});
+    } else {
+      nodeConsts.push_back({1, 1});
+    }
+    Value v = coalescingInfo->values[i];
+    auto regTy = cast<AMDGCNRegisterTypeInterface>(v.getType());
+    if (regTy.hasValueSemantics()) {
+      emitError(v.getLoc()) << "found unexpected value register";
+      return funcOp.emitError() << "failed to run register allocator";
+    }
+    types.push_back(regTy);
+    if (!regTy.hasAllocatedSemantics())
+      wasUnallocated.set(static_cast<unsigned>(i));
   }
 
-  // Optionally optimize the graph and get the coalescing classes.
-  std::optional<CoalescingInfo> coalescingInfo;
-  if (optimize)
-    coalescingInfo = CoalescingInfo::optimizeGraph(funcOp, *graph, solver);
-
-  // Create and run the register allocator.
-  RegisterAllocator allocator(*graph, std::move(coalescingInfo),
-                              funcOp->getContext(), numVGPRs, numAGPRs);
-  if (failed(allocator.run(funcOp)))
+  if (failed(colorGraph(coalescingInfo->graph, nodeConsts, types,
+                        funcOp.getLoc(), numVGPRs, numAGPRs, numSGPRs)))
     return funcOp.emitError() << "failed to run register allocator";
+
+  //===--------------------------------------------------------------------===//
+  // Phase 2: IR rewrite.
+  //===--------------------------------------------------------------------===//
+
+  Region &body = funcOp.getFunctionBody();
+  if (!body.empty()) {
+    IRRewriter rewriter(funcOp->getContext());
+    Block *entryBlock = &body.front();
+    rewriter.setInsertionPointToStart(entryBlock);
+    OpBuilder::InsertPoint ip = rewriter.saveInsertionPoint();
+
+    rewriteCoalescing(*graph, *coalescingInfo, nodeConsts, types,
+                      wasUnallocated, rewriter, ip);
+  }
 
   RewritePatternSet patterns(&getContext());
   patterns.add<InstRewritePattern, MakeRegisterRangeOpPattern,

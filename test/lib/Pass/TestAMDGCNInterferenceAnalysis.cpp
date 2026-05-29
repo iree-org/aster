@@ -24,6 +24,7 @@
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
@@ -90,10 +91,21 @@ struct TestAMDGCNInterferenceAnalysis
       }
 
       // Print the interference graph (and optionally the quotient after
-      // running optimizeGraph).
+      // running optimizeGraph). Only print the quotient when coalescing
+      // actually merged at least two original nodes; otherwise the quotient
+      // is isomorphic to the original and printing it would be noise.
       std::optional<CoalescingInfo> coalescingInfo;
-      if (optimize)
-        coalescingInfo = CoalescingInfo::optimizeGraph(kernel, *graph, solver);
+      if (optimize) {
+        FailureOr<CoalescingInfo> info =
+            CoalescingInfo::optimizeGraph(kernel, *graph);
+        if (failed(info)) {
+          kernel.emitError("failed to optimize interference graph");
+          return signalPassFailure();
+        }
+        int64_t numQuotient = static_cast<int64_t>(info->values.size());
+        if (numQuotient > 0 && numQuotient < graph->sizeNodes())
+          coalescingInfo = std::move(*info);
+      }
       if (coalescingInfo) {
         graph->print(os);
         os << "\nRange constraints:";
@@ -106,31 +118,52 @@ struct TestAMDGCNInterferenceAnalysis
              << "] alignment = " << range.alignment;
         }
         os << "\n";
-        // Print equivalence classes sorted by smallest member.
-        int64_t numNodes = graph->sizeNodes();
-        DenseSet<int32_t> printed;
+        // Print equivalence classes sorted by smallest member. Each class is
+        // stored as a sorted slice in memberData;
+        // memberData[memberOffsets[qid]] is the minimum member.
+        int32_t numQuotient =
+            static_cast<int32_t>(coalescingInfo->memberOffsets.size()) - 1;
+
+        // Returns the minimum original node ID in the quotient class of node.
+        auto getMinMember = [&](int32_t node) {
+          return coalescingInfo->memberData
+              [coalescingInfo->memberOffsets[coalescingInfo->nodeClass[node]]];
+        };
+
         os << "EquivalenceClasses {\n";
-        for (int32_t i = 0; i < numNodes; ++i) {
-          int32_t leader = coalescingInfo->eqClasses.getLeaderValue(i);
-          if (!printed.insert(leader).second)
-            continue;
-          SmallVector<int32_t> members(coalescingInfo->eqClasses.members(i));
-          llvm::sort(members);
+        for (int32_t qid = 0; qid < numQuotient; ++qid) {
           os << "  [";
-          llvm::interleave(members, os, [&](int32_t m) { os << m; }, ", ");
+          llvm::interleave(
+              llvm::ArrayRef(coalescingInfo->memberData)
+                  .slice(coalescingInfo->memberOffsets[qid],
+                         coalescingInfo->memberOffsets[qid + 1] -
+                             coalescingInfo->memberOffsets[qid]),
+              os, [&](int32_t m) { os << m; }, ", ");
           os << "]\n";
         }
         os << "}\n";
-        graph->print(os, coalescingInfo->eqClasses);
+
+        // Reconstruct an EquivalenceClasses for graph->print, which requires
+        // it for colouring nodes by class.
+        llvm::EquivalenceClasses<int32_t> eqForPrint;
+        for (int32_t qid = 0; qid < numQuotient; ++qid) {
+          int32_t rep =
+              coalescingInfo->memberData[coalescingInfo->memberOffsets[qid]];
+          for (int32_t j = coalescingInfo->memberOffsets[qid],
+                       end = coalescingInfo->memberOffsets[qid + 1];
+               j < end; ++j)
+            eqForPrint.unionSets(rep, coalescingInfo->memberData[j]);
+        }
+        graph->print(os, eqForPrint);
         os << "\nPost range constraints:";
-        printed.clear();
+        DenseSet<int32_t> printed;
         for (const RangeConstraint &range : rangeAnalysis->getRanges()) {
-          int32_t startId = coalescingInfo->getLeader(
-              graph->getNodeId(range.allocations.front()));
+          int32_t startId =
+              getMinMember(graph->getNodeId(range.allocations.front()));
           if (!printed.insert(startId).second)
             continue;
-          int32_t endId = coalescingInfo->getLeader(
-              graph->getNodeId(range.allocations.back()));
+          int32_t endId =
+              getMinMember(graph->getNodeId(range.allocations.back()));
           os << "\n  [" << startId << "-" << endId
              << "] alignment = " << range.alignment;
         }

@@ -1130,3 +1130,35 @@ func.func @redundant_s_mov_b64() {
   amdgcn.s_mov_b64 outs(%r1) ins(%r0) : outs(!amdgcn.sgpr<[? : ? + 2]>) ins(!amdgcn.sgpr<[? : ? + 2]>)
   return
 }
+
+// -----
+
+// Verify that a 4-register range with alignment=4 (the default for size=4)
+// skips past a pre-allocated neighbour at register 1 and lands at the next
+// aligned slot (4). Without alignment the allocator would greedily try 0, find
+// that register 1 is blocked by the live neighbour, advance start to 2, and
+// then, because alignment rounds 2 up to 4, land at [4:8).
+//
+// CHECK-LABEL:   func.func @alignment_skip() {
+// CHECK:           %[[A0:.*]] = amdgcn.alloca : !amdgcn.vgpr<4>
+// CHECK:           %[[A1:.*]] = amdgcn.alloca : !amdgcn.vgpr<5>
+// CHECK:           %[[A2:.*]] = amdgcn.alloca : !amdgcn.vgpr<6>
+// CHECK:           %[[A3:.*]] = amdgcn.alloca : !amdgcn.vgpr<7>
+// CHECK:           %[[RANGE:.*]] = amdgcn.make_register_range %[[A0]], %[[A1]], %[[A2]], %[[A3]] : !amdgcn.vgpr<4>, !amdgcn.vgpr<5>, !amdgcn.vgpr<6>, !amdgcn.vgpr<7>
+// CHECK:           amdgcn.test_inst ins %[[RANGE]] : (!amdgcn.vgpr<[4 : 8]>) -> ()
+// CHECK:           return
+// CHECK:         }
+func.func @alignment_skip() {
+  %0 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %1 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %2 = amdgcn.alloca : !amdgcn.vgpr<?>
+  %3 = amdgcn.alloca : !amdgcn.vgpr<?>
+  // Pre-allocated neighbour at register 1; live simultaneously with the range,
+  // blocking slots [0:4) from being chosen (start=0 fails, rounds up to 4).
+  %nbr = amdgcn.alloca : !amdgcn.vgpr<1>
+  %r = amdgcn.make_register_range %0, %1, %2, %3
+      : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  amdgcn.test_inst ins %r : (!amdgcn.vgpr<[? : ? + 4]>) -> ()
+  amdgcn.reg_interference %0, %nbr : !amdgcn.vgpr<?>, !amdgcn.vgpr<1>
+  return
+}

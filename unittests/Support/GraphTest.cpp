@@ -151,9 +151,8 @@ TEST(GraphTest, ComputeQuotientAllNodesInOneClass) {
 
   EXPECT_TRUE(succeeded(g.computeQuotient(eqClasses)));
   EXPECT_EQ(g.sizeNodes(), 1);
-  EXPECT_EQ(g.sizeEdges(), 1);
-  // All edges collapse to self-loop 0->0
-  EXPECT_TRUE(g.hasEdge(0, 0));
+  // Intra-class edges are dropped; the quotient has no edges.
+  EXPECT_EQ(g.sizeEdges(), 0);
 }
 
 } // namespace
