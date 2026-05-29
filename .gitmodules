@@ -1,3 +1,5 @@
+# If git submodule update --init does not work, try:
+# git submodule update --init --force third_party/or-tools
 [submodule "third_party/or-tools"]
 	path = third_party/or-tools
 	url = https://github.com/google/or-tools.git
