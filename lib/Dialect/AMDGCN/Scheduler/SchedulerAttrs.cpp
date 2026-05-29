@@ -13,6 +13,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Scheduler/Scheduler.h"
+#include "aster/Dialect/AMDGCN/Scheduler/SchedulerCostModel.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/IR/MLIRContext.h"
@@ -104,56 +105,6 @@ struct OpCodeLabelerAttrImpl
 // LowLevelSchedulerAttr - SchedBuilderAttrInterface external model
 //===----------------------------------------------------------------------===//
 
-// LGKM covers all LDS reads/writes and SMEM loads. Reads and writes have
-// different raw latencies but in practice the lgkmcnt counter aggregates both,
-// so distinguishing the two is not actionable (at least on CDNA3).
-namespace {
-enum class QueueType : int32_t { VALU, XDL, SALU, VMEM, LGKM, Unknown };
-} // namespace
-
-/// Parse sched.queue attr: "valu", "xdl", "salu", "vmem", "lgkm".
-// TODO: put this in instruction definition directly in tablegen.
-static std::optional<QueueType> parseQueueAttr(Operation *op) {
-  auto attr = op->getAttrOfType<StringAttr>("sched.queue");
-  if (!attr)
-    return std::nullopt;
-  return StringSwitch<std::optional<QueueType>>(attr.getValue())
-      .Case("valu", QueueType::VALU)
-      .Case("xdl", QueueType::XDL)
-      .Case("salu", QueueType::SALU)
-      .Case("vmem", QueueType::VMEM)
-      .Case("lgkm", QueueType::LGKM)
-      .Default(std::nullopt);
-}
-
-static QueueType classifyOp(Operation *op) {
-  // sched.queue overrides InstProp classification (useful for test_inst).
-  if (auto qt = parseQueueAttr(op))
-    return *qt;
-
-  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  if (!instOp || instOp.getOpCode() == OpCode::Invalid)
-    return QueueType::Unknown;
-
-  // SOPP (s_waitcnt, s_barrier, branches) must be scheduling barriers.
-  if (instOp.hasProp(InstProp::Sopp))
-    return QueueType::Unknown;
-  // Any LDS op or SMEM load -> LGKM bucket.
-  if (instOp.hasAnyProps({InstProp::Ds, InstProp::Smem}))
-    return QueueType::LGKM;
-  if (instOp.hasProp(InstProp::IsVmem))
-    return QueueType::VMEM;
-  // Check before VALU: MFMA ops carry both Mma and IsValu props.
-  if (instOp.hasAnyProps({InstProp::Mma, InstProp::ScaledMma}))
-    return QueueType::XDL;
-  if (instOp.hasProp(InstProp::Salu))
-    return QueueType::SALU;
-  if (instOp.hasProp(InstProp::IsValu))
-    return QueueType::VALU;
-
-  return QueueType::Unknown;
-}
-
 static bool isTokenOfKind(Type type, MemoryInstructionKind kind) {
   if (auto rt = dyn_cast<ReadTokenType>(type))
     return rt.getKind() == kind;
@@ -169,236 +120,6 @@ static bool isFlatToken(Type type) {
 static bool isLgkmToken(Type type) {
   return isTokenOfKind(type, MemoryInstructionKind::Shared) ||
          isTokenOfKind(type, MemoryInstructionKind::Constant);
-}
-
-namespace {
-//===----------------------------------------------------------------------===//
-// Architecture latencies estimates from execution + scheduling-policy constants
-//===----------------------------------------------------------------------===//
-
-struct CDNA3Latencies {
-  // -- Exec latencies estimates from execution (hw cycles) --------------------
-  int64_t valuExec = 4;
-  int64_t saluExec = 4;
-  int64_t vmemExec = 128; // fallback for VMEM ops we do not classify
-  // -- VMEM load latencies (return path), per-dword-count ---------------------
-  // Larger payloads return later because the GMEM->L1 transfer pulls more
-  // bytes; the wave is only ready when the last beat lands in VGPRs.
-  int64_t vmemLoadDwordExec = 80;
-  int64_t vmemLoadDwordx2Exec = 96;
-  int64_t vmemLoadDwordx3Exec = 112;
-  int64_t vmemLoadDwordx4Exec = 128;
-  // -- VMEM store latencies (commit / vmcnt-decrement), per-dword-count -------
-  // Stores are assumed to be fire-and-forget into the write FIFO, use lower
-  // latency than for loads.
-  int64_t vmemStoreDwordExec = 8;
-  int64_t vmemStoreDwordx2Exec = 12;
-  int64_t vmemStoreDwordx3Exec = 16;
-  int64_t vmemStoreDwordx4Exec = 24;
-  int64_t xdlExec4Pass = 16;    // 16x16x* MFMA family
-  int64_t xdlExec8Pass = 32;    // 32x32x* MFMA family
-  int64_t xdlExec16Pass = 64;   // 32x32x{1_2B,2,4_2B}
-  int64_t dsReadExec = 32;      // LDS bank arb + return path to VGPR
-  int64_t dsWriteExec = 12;     // port-held write completion
-  int64_t lgkmDefaultExec = 16; // SMEM / other LGKM
-  int64_t unknownExec = 4;
-
-  // -- Issue costs (hw cycles the issue port is held) -------------------------
-  int64_t defaultIssueCost = 4;  // wave-scheduler cadence
-  int64_t dsWriteIssueCost = 12; // wave-wide ds_write_b128 (1024B / 128B/c)
-
-  // -- Queue depths estimateion (in-flight slots per queue) -------------------
-  int64_t vmemQueueDepth = 16;   // per-CU
-  int64_t defaultQueueDepth = 8; // per-SIMD
-
-  // -- Score: approx. priority bonuses by kind --------------------------------
-  int vmemPriority = 800;
-  int xdlPriority = 400;
-  int lgkmPriority = 200;
-  int otherPriority = 100;
-
-  // -- Score: approx. stall weight + cap --------------------------------------
-  int stallWeight = 25;  // points per cycle of queue saturation
-  int64_t stallCap = 64; // single-stall ceiling
-
-  // -- Score: approx per-kind burst penalty (lookback, penalty/occ) -----------
-  size_t vmemBurstLookback = 16;
-  int vmemBurstPenalty = 100;
-  size_t lgkmBurstLookback = 4;
-  int lgkmBurstPenalty = 200;
-  size_t xdlBurstLookback = 2;
-  int xdlBurstPenalty = 350;
-
-  // -- Score: VALU/SALU <-> LGKM/VMEM adjacency NOP penalty ------------
-  int adjacencyPenalty = 400;
-
-  // -- Score: VMEM density cap inside the recent-kinds window ----------
-  int64_t vmemInWindowLimit = 3; // > N VMEM in window -> heavy penalty
-  int vmemDensityPenalty = 1500;
-
-  // -- Score: XDL with LGKM-pred consumer in ready set -----------------
-  int consumerReadyBonus = 200;
-
-  // -- Score: amdgcn.wait deferral -------------------------------------
-  int waitMemoryLatency = 2700; // MI300X DRAM round-trip (conservative)
-  int waitLgkmExecLatency = 32; // DS read exec latency upper bound
-  int waitHideTimePerOp = 4;    // wave-scheduler cadence approximation
-
-  // -- Score: VMEM in-flight saturation cap (VMCNT is 4 bits) ----------
-  // Threshold below the 4-bit cap (15) with headroom for intermixed loads.
-  int64_t vmemSaturationThreshold = 8;
-  int vmemSaturationPenalty = 250;
-
-  // -- Score: VMEM store bonus (fire-and-forget, no in-kernel consumer) -
-  int vmemStoreBonus = 1200;
-
-  // -- Score: VMEM store-feeder bonus (address VALU feeding a store) ----
-  // Small enough not to preempt non-chain MFMAs (xdlPriority 400).
-  int vmemStoreFeederBonus = 150;
-
-  // -- Score: XDL chain-continuation stall estimate ---------------------
-  // RAW on the accumulator (~12-16 cycles, CDNA3 16x16); kept below
-  // xdlBurstPenalty so burst stays the dominant XDL-queue pressure.
-  int xdlChainStallEstimate = 100;
-  size_t xdlChainLookback = 4;
-};
-
-/// Preset 1: wider LGKM burst lookback (6) keeps the LGKM penalty active longer
-struct CDNA3PresetMfmaHiding : CDNA3Latencies {
-  CDNA3PresetMfmaHiding() { lgkmBurstLookback = 6; }
-};
-
-/// CDNA4 (gfx950 / MI350). Structurally identical to CDNA3 today.
-struct CDNA4Latencies : CDNA3Latencies {
-  CDNA4Latencies() {}
-};
-
-} // namespace
-
-/// Active per-architecture latency / policy table.
-///
-/// `preset` selects a pre-tuned magic-number set:
-///   1 = mfma-hiding default
-///   2..N = future presets (add a new struct above + a new case here).
-static CDNA3Latencies latencies(ISAVersion isa, int preset) {
-  if (isa == ISAVersion::CDNA4)
-    return CDNA4Latencies();
-  switch (preset) {
-  case 1:
-    return CDNA3PresetMfmaHiding();
-  default:
-    return CDNA3PresetMfmaHiding();
-  }
-}
-
-/// Per-opcode XDL exec latency from CDNA3 ISA Table 28 (MI300 manual p.42)
-/// and CDNA4 ISA Table 28 (gfx950 manual p.43).
-/// Returns 0 if the opcode is not an XDL instruction we model specifically.
-static int64_t getXdlExecLatency(OpCode op, const CDNA3Latencies &L) {
-  switch (op) {
-  // 4-pass: 16-cycle MFMAs (16x16x16 and 16x16x32 family).
-  case OpCode::v_mfma_f32_16x16x16_f16:
-  case OpCode::v_mfma_f32_16x16x16_bf16:
-  case OpCode::v_mfma_f32_16x16x32_f16:
-  case OpCode::v_mfma_f32_16x16x32_bf16:
-  case OpCode::v_mfma_f32_16x16x32_fp8_fp8:
-  case OpCode::v_mfma_f32_16x16x32_fp8_bf8:
-  case OpCode::v_mfma_f32_16x16x32_bf8_fp8:
-  case OpCode::v_mfma_f32_16x16x32_bf8_bf8:
-  // CDNA4-only 4-pass: i32 16x16x64.
-  case OpCode::v_mfma_i32_16x16x64_i8:
-    return L.xdlExec4Pass;
-  // 8-pass: 32-cycle MFMAs (32x32x8 / 32x32x16 family).
-  case OpCode::v_mfma_f32_32x32x8_f16:
-  case OpCode::v_mfma_f32_32x32x8_bf16:
-  case OpCode::v_mfma_f32_32x32x16_f16:
-  case OpCode::v_mfma_f32_32x32x16_bf16:
-  case OpCode::v_mfma_f32_32x32x16_fp8_fp8:
-  case OpCode::v_mfma_f32_32x32x16_fp8_bf8:
-  case OpCode::v_mfma_f32_32x32x16_bf8_fp8:
-  case OpCode::v_mfma_f32_32x32x16_bf8_bf8:
-  case OpCode::v_mfma_i32_16x16x32_i8:
-  case OpCode::v_mfma_i32_32x32x16_i8:
-  // F8F6F4 16x16x128: 16cy (F6/F4) or 32cy (FP8). Conservative: 32cy.
-  case OpCode::v_mfma_f32_16x16x128_f8f6f4:
-  case OpCode::v_mfma_scale_f32_16x16x128_f8f6f4:
-  // CDNA4-only 8-pass: i32 32x32x32.
-  case OpCode::v_mfma_i32_32x32x32_i8:
-    return L.xdlExec8Pass;
-  // 16-pass: 64-cycle MFMAs (32x32x{1_2B,2,4_2B}, F64 16x16x4, F8F6F4
-  // 32x32x64).
-  case OpCode::v_mfma_f32_32x32x1_2b_f32:
-  case OpCode::v_mfma_f32_32x32x2_f32:
-  case OpCode::v_mfma_f32_32x32x4_2b_f16:
-  case OpCode::v_mfma_f32_32x32x4_2b_bf16:
-  case OpCode::v_mfma_i32_32x32x4_2b_i8:
-  case OpCode::v_mfma_f64_16x16x4_f64:
-  // F8F6F4 32x32x64: 32cy (F6/F4) or 64cy (FP8). Conservative: 64cy.
-  case OpCode::v_mfma_f32_32x32x64_f8f6f4:
-  case OpCode::v_mfma_scale_f32_32x32x64_f8f6f4:
-    return L.xdlExec16Pass;
-  default:
-    return 0;
-  }
-}
-
-/// Returns exec latency in hw cycles. sched.exec_latency overrides defaults.
-static int64_t getExecLatency(Operation *op, QueueType qt,
-                              const CDNA3Latencies &L) {
-  if (auto attr = op->getAttrOfType<IntegerAttr>("sched.exec_latency"))
-    return attr.getInt();
-  switch (qt) {
-  case QueueType::VALU:
-    return L.valuExec;
-  case QueueType::XDL:
-    if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
-      if (int64_t lat = getXdlExecLatency(instOp.getOpCode(), L))
-        return lat;
-    return L.xdlExec4Pass; // default to 4-pass
-  case QueueType::SALU:
-    return L.saluExec;
-  case QueueType::VMEM: {
-    // Pick per-width latency based on op mnemonic suffix.
-    StringRef name = op->getName().getStringRef();
-    bool isStore =
-        isa<GlobalStoreDwordInstOpInterface, BufferStoreInstOpInterface>(op);
-    if (name.contains("dwordx4"))
-      return isStore ? L.vmemStoreDwordx4Exec : L.vmemLoadDwordx4Exec;
-    if (name.contains("dwordx3"))
-      return isStore ? L.vmemStoreDwordx3Exec : L.vmemLoadDwordx3Exec;
-    if (name.contains("dwordx2"))
-      return isStore ? L.vmemStoreDwordx2Exec : L.vmemLoadDwordx2Exec;
-    if (name.contains("dword"))
-      return isStore ? L.vmemStoreDwordExec : L.vmemLoadDwordExec;
-    return L.vmemExec;
-  }
-  case QueueType::LGKM:
-    if (isa<DSWriteInstOpInterface>(op))
-      return L.dsWriteExec;
-    if (isa<DSReadInstOpInterface>(op))
-      return L.dsReadExec;
-    return L.lgkmDefaultExec;
-  case QueueType::Unknown:
-    return L.unknownExec;
-  }
-  llvm_unreachable("unhandled queue type");
-}
-
-/// Queue depth (number of in-flight slots).
-static int64_t getQueueDepth(QueueType qt, const CDNA3Latencies &L) {
-  // TODO: 4 is an approximation here, it depends on predication + stagger (e.g.
-  // in ping-pong or wave-specialized schedules).
-  int64_t numSimdActive = 4;
-  return qt == QueueType::VMEM ? L.vmemQueueDepth / numSimdActive
-                               : L.defaultQueueDepth;
-}
-
-/// Per-op issue cost in hw cycles -- how long the issue port is held.
-static int64_t getIssueCost(Operation *op, QueueType qt,
-                            const CDNA3Latencies &L) {
-  if (qt == QueueType::LGKM && isa<DSWriteInstOpInterface>(op))
-    return L.dsWriteIssueCost;
-  return L.defaultIssueCost;
 }
 
 static StringRef getQueueName(QueueType qt) {
@@ -575,14 +296,12 @@ void SchedState::onIssued(int32_t chosen) {
 void SchedState::classifyOps(const SchedGraph &schedGraph,
                              const CDNA3Latencies &L) {
   int32_t nNodes = schedGraph.sizeNodes();
-  queueTypes.resize(nNodes);
-  execLatencies.resize(nNodes);
-  issueCosts.resize(nNodes);
+  NodeCostInfo info = classifyGraph(schedGraph.getOps(), L);
+  queueTypes = std::move(info.queueTypes);
+  execLatencies = std::move(info.execLatencies);
+  issueCosts = std::move(info.issueCosts);
   waitKind.assign(nNodes, WK_NotWait);
   for (auto [i, op] : llvm::enumerate(schedGraph.getOps())) {
-    queueTypes[i] = classifyOp(op);
-    execLatencies[i] = getExecLatency(op, queueTypes[i], L);
-    issueCosts[i] = getIssueCost(op, queueTypes[i], L);
     if (auto waitOp = dyn_cast<WaitOp>(op)) {
       bool wvm = waitOp.getVmCnt() != WaitOp::kNoWaitCount;
       bool wlgkm = waitOp.getLgkmCnt() != WaitOp::kNoWaitCount;
