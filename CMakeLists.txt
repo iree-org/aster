@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.23)
 project(aster VERSION 1.0)
 
-# TODO: Remove this once we are on production
-set(CMAKE_BUILD_TYPE DEBUG)
-
 # Set CXX requirements
 set(CMAKE_CXX_STANDARD 17)
 
