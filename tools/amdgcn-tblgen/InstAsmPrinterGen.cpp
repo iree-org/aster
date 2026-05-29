@@ -114,7 +114,8 @@ ASMPrinterHandler::ASMPrinterHandler(const llvm::Record *rec) : instOp(rec) {
     }
   }
   // Collect block operands from successors.
-  for (auto [i, arg] : llvm::enumerate(instOp.getSuccessors().getAsRange())) {
+  Dag successors = instOp.getSuccessors();
+  for (auto [i, arg] : llvm::enumerate(successors.getAsRange())) {
     if (!ASMArgFormat::isa(arg.getAsRecord()))
       continue;
     arguments[arg.getName()] = {arg, ASMArgFormat(arg.getAsRecord())};

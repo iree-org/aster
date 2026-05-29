@@ -14,3 +14,5 @@
 /examples/trace_*
 /examples/*zip
 /llvm/llvm-project/
+.claude/
+plan/
