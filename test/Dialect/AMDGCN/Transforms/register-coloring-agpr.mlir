@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --amdgcn-register-coloring --cse --split-input-file | FileCheck %s
+// RUN: aster-opt %s --amdgcn-register-coloring --amdgcn-post-reg-alloc-legalization --cse --split-input-file | FileCheck %s
 
 // CHECK-LABEL: amdgcn.kernel @agpr_no_interference {
 // CHECK:         %[[A0:.*]] = alloca : !amdgcn.agpr<0>

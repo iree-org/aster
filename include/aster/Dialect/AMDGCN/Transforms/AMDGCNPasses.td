@@ -70,8 +70,7 @@ def AMDGCNBufferization : Pass<"aster-amdgcn-bufferization"> {
   }];
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect",
-    "mlir::aster::lsir::LSIRDialect",
-    "mlir::cf::ControlFlowDialect"
+    "mlir::aster::lsir::LSIRDialect"
   ];
 }
 
@@ -111,6 +110,22 @@ def PreColoringLegalization : Pass<"amdgcn-pre-coloring-legalization"> {
   let dependentDialects = [
     "mlir::aster::amdgcn::AMDGCNDialect",
     "mlir::arith::ArithDialect"
+  ];
+}
+
+def PostRegAllocLegalization : Pass<"amdgcn-post-reg-alloc-legalization"> {
+  let summary = "Legalize operations after register allocation";
+  let description = [{
+    This pass performs post-register-allocation legalization. It expands
+    lsir.copy operations into the appropriate hardware mov instructions
+    (s_mov_b32, v_mov_b32, v_accvgpr_mov_b32) and erases redundant mov
+    instructions whose source and destination are the same physical register.
+
+    Pre-condition: #amdgcn.all_registers_allocated
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::aster::lsir::LSIRDialect"
   ];
 }
 

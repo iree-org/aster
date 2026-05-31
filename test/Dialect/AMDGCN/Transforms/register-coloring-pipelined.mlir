@@ -1,4 +1,4 @@
-// RUN: aster-opt --amdgcn-register-coloring --cse --split-input-file %s | FileCheck %s
+// RUN: aster-opt --amdgcn-register-coloring --amdgcn-post-reg-alloc-legalization --cse --split-input-file %s | FileCheck %s
 
 func.func private @rand() -> i1
 // CHECK-LABEL:   func.func @two_stage_load_basic() {
