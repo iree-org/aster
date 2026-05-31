@@ -4,6 +4,7 @@ add_mlir_library(AMDGCNTransforms
   ConvertLDSBuffers.cpp
   ConvertWaits.cpp
   ExpandMetadataOps.cpp
+  GraphColoring.cpp
   HoistIterArgWaits.cpp
   HoistOps.cpp
   InstructionSchedulingAutoschedulePass.cpp

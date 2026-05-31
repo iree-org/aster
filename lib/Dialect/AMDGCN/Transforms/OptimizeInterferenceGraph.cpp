@@ -19,6 +19,8 @@
 #include "llvm/ADT/IntEqClasses.h"
 #include "llvm/Support/DebugLog.h"
 
+#include <limits>
+
 #define DEBUG_TYPE "amdgcn-interference-opt"
 
 using namespace mlir;
@@ -41,13 +43,12 @@ struct MovDesc {
 };
 
 struct OptimizeGraphImpl {
-  OptimizeGraphImpl(RegisterInterferenceGraph &graph, DataFlowSolver &solver,
-                    EqClasses &eqClasses, llvm::IntEqClasses &nodeClasses)
-      : graph(graph), solver(solver), eqClasses(eqClasses),
-        nodeClasses(nodeClasses) {}
+  OptimizeGraphImpl(RegisterInterferenceGraph &graph, EqClasses &eqClasses,
+                    llvm::IntEqClasses &nodeClasses)
+      : graph(graph), eqClasses(eqClasses), nodeClasses(nodeClasses) {}
 
   /// Build equivalence classes for the interference graph.
-  bool run(Operation *root);
+  LogicalResult run(Operation *root);
 
   /// Collect a move operation: resolve its allocas and assign a coalescing
   /// priority (0 = load-sourced, preferred; 1 = default).
@@ -57,7 +58,6 @@ struct OptimizeGraphImpl {
   void optimizeGraph();
 
   RegisterInterferenceGraph &graph;
-  DataFlowSolver &solver;
   EqClasses &eqClasses;
   llvm::IntEqClasses &nodeClasses;
   SmallVector<MovDesc> movOps;
@@ -254,7 +254,7 @@ void OptimizeGraphImpl::optimizeGraph() {
   }
 }
 
-bool OptimizeGraphImpl::run(Operation *root) {
+LogicalResult OptimizeGraphImpl::run(Operation *root) {
   WalkResult result = root->walk([&](Operation *op) -> WalkResult {
     FailureOr<std::pair<Value, Value>> moveInfo = getMoveInfo(op);
     if (failed(moveInfo))
@@ -277,7 +277,7 @@ bool OptimizeGraphImpl::run(Operation *root) {
     return WalkResult::advance();
   });
   if (result.wasInterrupted())
-    return false;
+    return failure();
 
   // Sort the moves by priority. Stable sort is used to preserve the order of
   // moves with the same priority.
@@ -291,24 +291,77 @@ bool OptimizeGraphImpl::run(Operation *root) {
   for (int32_t i = 0; i < numNodes; ++i)
     eqClasses.insert(i);
   optimizeGraph();
-  if (eqClasses.getNumClasses() == static_cast<unsigned>(numNodes))
-    return false;
-
-  // Compress and uncompress the leader classes for faster lookup. Note that we
-  // can't use a compress class as it would point to a class rather than a node.
   nodeClasses.compress();
-  nodeClasses.uncompress();
-  return true;
+  return success();
 }
 
-std::optional<CoalescingInfo>
-CoalescingInfo::optimizeGraph(Operation *op, RegisterInterferenceGraph &graph,
-                              DataFlowSolver &solver) {
-  if (!graph.isCompressed())
-    return std::nullopt;
+/// Build a CoalescingInfo from the interference graph and equivalence classes.
+/// nodeClasses must already be compressed. For each quotient node the
+/// representative is the minimum-ID original node in that class, which is
+/// always the range leader because ranges have consecutive IDs by construction.
+static CoalescingInfo buildCoalescingInfo(RegisterInterferenceGraph &graph,
+                                          llvm::IntEqClasses &nodeClasses) {
+  int32_t numQuotient = static_cast<int32_t>(nodeClasses.getNumClasses());
+  int32_t numNodes = graph.sizeNodes();
   CoalescingInfo info;
-  OptimizeGraphImpl impl(graph, solver, info.eqClasses, info.nodeClasses);
-  if (!impl.run(op))
-    return std::nullopt;
+
+  // Build the forward map (nodeClass) and count class sizes for the CSR
+  // offset array.
+  info.nodeClass.resize(numNodes);
+  info.memberOffsets.resize(numQuotient + 1, 0);
+  for (int32_t i = 0; i < numNodes; ++i) {
+    int32_t qid = static_cast<int32_t>(nodeClasses[i]);
+    info.nodeClass[i] = qid;
+    ++info.memberOffsets[qid + 1];
+  }
+  // Prefix-sum the sizes to get offsets.
+  for (int32_t qid = 0; qid < numQuotient; ++qid)
+    info.memberOffsets[qid + 1] += info.memberOffsets[qid];
+
+  // Fill memberData in one pass. Nodes are visited in ascending order so each
+  // class's slice is already sorted and its first element is the
+  // representative.
+  info.memberData.resize(numNodes);
+  SmallVector<int32_t> cursor(info.memberOffsets.begin(),
+                              info.memberOffsets.begin() + numQuotient);
+  for (int32_t i = 0; i < numNodes; ++i) {
+    int32_t qid = info.nodeClass[i];
+    info.memberData[cursor[qid]++] = i;
+  }
+
+  // Populate values and constraints using the minimum member of each class as
+  // the representative.
+  info.values.resize(numQuotient);
+  info.constraints.resize(numQuotient);
+  for (int32_t qid = 0; qid < numQuotient; ++qid) {
+    int32_t leader = info.memberData[info.memberOffsets[qid]];
+    info.values[qid] = graph.getValue(leader);
+    auto [rangeId, constraint] = graph.getRangeInfo(leader);
+    // Only store the constraint when the leader is also the range leader so
+    // that allocation iterates the range exactly once per quotient node.
+    info.constraints[qid] = (rangeId == leader) ? constraint : nullptr;
+  }
+
+  // Build the quotient graph by remapping edges directly, without copying the
+  // original edge set into an intermediate graph first.
+  info.graph = Graph(/*directed=*/false);
+  info.graph.setNumNodes(numQuotient);
+  for (auto [src, tgt] : graph.edges()) {
+    int32_t s = static_cast<int32_t>(nodeClasses[src]);
+    int32_t t = static_cast<int32_t>(nodeClasses[tgt]);
+    if (s != t)
+      info.graph.addEdge(s, t);
+  }
+  info.graph.compress();
   return info;
+}
+
+FailureOr<CoalescingInfo>
+CoalescingInfo::optimizeGraph(Operation *op, RegisterInterferenceGraph &graph) {
+  assert(graph.isCompressed() && "graph must be compressed");
+  EqClasses eqClasses;
+  llvm::IntEqClasses nodeClasses;
+  if (failed(OptimizeGraphImpl(graph, eqClasses, nodeClasses).run(op)))
+    return failure();
+  return buildCoalescingInfo(graph, nodeClasses);
 }

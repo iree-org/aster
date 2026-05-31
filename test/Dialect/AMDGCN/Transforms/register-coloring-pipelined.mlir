@@ -443,3 +443,25 @@ func.func @two_loads_to_compute() {
   amdgcn.test_inst outs %7 ins %4, %6 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   return
 }
+
+// -----
+// Verify that B and C, coalesced via lsir.copy, are assigned a register
+// other than 2 because pre-allocated neighbour A occupies vgpr<2> in the
+// quotient graph. The allocator must honour A's constraint when collecting
+// interference for the {B, C} quotient node.
+// CHECK-LABEL: func.func @coalescing_preallocated_neighbor() {
+// CHECK:         %[[BC:.*]] = amdgcn.alloca : !amdgcn.vgpr<0>
+// CHECK:         %[[A:.*]] = amdgcn.alloca : !amdgcn.vgpr<2>
+// CHECK:         amdgcn.test_inst outs %[[BC]] : (!amdgcn.vgpr<0>) -> ()
+// CHECK:         amdgcn.test_inst ins %[[A]], %[[BC]] : (!amdgcn.vgpr<2>, !amdgcn.vgpr<0>) -> ()
+// CHECK:         return
+// CHECK:       }
+func.func @coalescing_preallocated_neighbor() {
+  %a = amdgcn.alloca : !amdgcn.vgpr<2>
+  %b = amdgcn.alloca : !amdgcn.vgpr<?>
+  %c = amdgcn.alloca : !amdgcn.vgpr<?>
+  amdgcn.test_inst outs %b : (!amdgcn.vgpr<?>) -> ()
+  lsir.copy %c, %b : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+  amdgcn.test_inst ins %a, %c : (!amdgcn.vgpr<2>, !amdgcn.vgpr<?>) -> ()
+  return
+}

@@ -36,10 +36,6 @@ struct RegAllocPipelineOptions
       *this, "mode",
       llvm::cl::desc("Graph build mode: \"minimal\" (default) or \"full\""),
       llvm::cl::init("minimal")};
-  mlir::detail::PassOptions::Option<bool> optimize{
-      *this, "optimize",
-      llvm::cl::desc("Run optimizeGraph to coalesce non-interfering nodes"),
-      llvm::cl::init(true)};
   mlir::detail::PassOptions::Option<int32_t> numVGPRs{
       *this, "num-vgprs",
       llvm::cl::desc("Maximum VGPRs for allocation (default 256)"),
@@ -48,6 +44,10 @@ struct RegAllocPipelineOptions
       *this, "num-agprs",
       llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
       llvm::cl::init(256)};
+  mlir::detail::PassOptions::Option<int32_t> numSGPRs{
+      *this, "num-sgprs",
+      llvm::cl::desc("Maximum SGPRs for allocation (default 102)"),
+      llvm::cl::init(102)};
   mlir::detail::PassOptions::Option<bool> hoistIterArgWaits{
       *this, "hoist-iter-arg-waits",
       llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
@@ -94,9 +94,9 @@ static void buildRegAllocPassPipeline(OpPassManager &pm,
   pm.addPass(createPreColoringLegalization());
   RegisterColoringOptions coloringOpts;
   coloringOpts.buildMode = options.buildMode;
-  coloringOpts.optimize = options.optimize;
   coloringOpts.numVGPRs = options.numVGPRs;
   coloringOpts.numAGPRs = options.numAGPRs;
+  coloringOpts.numSGPRs = options.numSGPRs;
   pm.addPass(createRegisterColoring(coloringOpts));
   pm.addPass(createPostRegAllocLegalization());
   pm.addPass(createHoistOps());
