@@ -123,3 +123,80 @@ amdgcn.module @scc_vcc_independent target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 }
+
+// -----
+
+amdgcn.module @m0_raw target = #amdgcn.target<gfx950> {
+  // CHECK-LABEL: Kernel: @m0_raw
+  // CHECK:       digraph SchedGraph
+  // CHECK-DAG:     label = "s_mov_b32 -> buffer_load_lds_dword"
+  // CHECK:       }
+  amdgcn.kernel @m0_raw {
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
+    %c0 = arith.constant 0 : i32
+    amdgcn.s_mov_b32 outs(%m0) ins(%c0) : outs(!amdgcn.m0<0>) ins(i32)
+    %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
+    %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
+    %s2 = amdgcn.alloca : !amdgcn.sgpr<2>
+    %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
+    %rsrc = amdgcn.make_register_range %s0, %s1, %s2, %s3 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>, !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
+    %soff = amdgcn.alloca : !amdgcn.sgpr<4>
+    %voff = amdgcn.alloca : !amdgcn.vgpr<0>
+    %tok = amdgcn.buffer_load_lds_dword addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff) + c(%c0) {offen} : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.m0<0>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
+    amdgcn.end_kernel
+  }
+}
+
+// -----
+
+amdgcn.module @m0_war target = #amdgcn.target<gfx950> {
+  // CHECK-LABEL: Kernel: @m0_war
+  // CHECK:       digraph SchedGraph
+  // CHECK-DAG:     label = "s_mov_b32 -> buffer_load_lds_dword"
+  // CHECK-DAG:     label = "buffer_load_lds_dword -> s_mov_b32"
+  // CHECK:       }
+  amdgcn.kernel @m0_war {
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
+    %c0 = arith.constant 0 : i32
+    %c1 = arith.constant 1024 : i32
+    amdgcn.s_mov_b32 outs(%m0) ins(%c0) : outs(!amdgcn.m0<0>) ins(i32)
+    %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
+    %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
+    %s2 = amdgcn.alloca : !amdgcn.sgpr<2>
+    %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
+    %rsrc = amdgcn.make_register_range %s0, %s1, %s2, %s3 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>, !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
+    %soff = amdgcn.alloca : !amdgcn.sgpr<4>
+    %voff = amdgcn.alloca : !amdgcn.vgpr<0>
+    %tok = amdgcn.buffer_load_lds_dword addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff) + c(%c0) {offen} : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.m0<0>, !amdgcn.sgpr<4>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<flat>
+    amdgcn.s_mov_b32 outs(%m0) ins(%c1) : outs(!amdgcn.m0<0>) ins(i32)
+    amdgcn.end_kernel
+  }
+}
+
+// -----
+
+amdgcn.module @m0_indep_not_fenced target = #amdgcn.target<gfx950> {
+  // CHECK-LABEL: Kernel: @m0_indep_not_fenced
+  // CHECK:       digraph SchedGraph
+  // CHECK-DAG:     label = "s_mov_b32 -> buffer_load_lds_dword"
+  // CHECK-NOT:     label = "v_mov_b32 -> s_mov_b32"
+  // CHECK-NOT:     label = "s_mov_b32 -> v_mov_b32"
+  // CHECK:       }
+  amdgcn.kernel @m0_indep_not_fenced {
+    %v0 = amdgcn.alloca : !amdgcn.vgpr<0>
+    %v1 = amdgcn.alloca : !amdgcn.vgpr<1>
+    amdgcn.v_mov_b32 outs(%v1) ins(%v0) : outs(!amdgcn.vgpr<1>) ins(!amdgcn.vgpr<0>)
+    %m0 = amdgcn.alloca : !amdgcn.m0<0>
+    %c0 = arith.constant 0 : i32
+    amdgcn.s_mov_b32 outs(%m0) ins(%c0) : outs(!amdgcn.m0<0>) ins(i32)
+    %s0 = amdgcn.alloca : !amdgcn.sgpr<0>
+    %s1 = amdgcn.alloca : !amdgcn.sgpr<1>
+    %s2 = amdgcn.alloca : !amdgcn.sgpr<2>
+    %s3 = amdgcn.alloca : !amdgcn.sgpr<3>
+    %rsrc = amdgcn.make_register_range %s0, %s1, %s2, %s3 : !amdgcn.sgpr<0>, !amdgcn.sgpr<1>, !amdgcn.sgpr<2>, !amdgcn.sgpr<3>
+    %soff = amdgcn.alloca : !amdgcn.sgpr<4>
+    %voff = amdgcn.alloca : !amdgcn.vgpr<2>
+    %tok = amdgcn.buffer_load_lds_dword addr %rsrc m0 %m0 offset u(%soff) + off_idx(%voff) + c(%c0) {offen} : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.m0<0>, !amdgcn.sgpr<4>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.read_token<flat>
+    amdgcn.end_kernel
+  }
+}
