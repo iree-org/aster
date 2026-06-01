@@ -13,11 +13,13 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
@@ -232,6 +234,20 @@ static void handleBlockId(RewriterBase &rewriter, KernelOp op,
     Value id = createAllocation(
         rewriter, blockId.getLoc(),
         SGPRType::get(rewriter.getContext(), Register(offset + packedIdx)));
+    // Block id will be preallocated as part of expand-metadata. When such a
+    // value flows into a branch successor operand, it needs an explicit copy
+    // to satisfy typing requirements.
+    bool carriedThroughBranch =
+        llvm::any_of(blockId->getUses(), [](OpOperand &use) {
+          return isa<BranchOpInterface>(use.getOwner());
+        });
+    if (carriedThroughBranch) {
+      Value genericDst =
+          createAllocation(rewriter, blockId.getLoc(),
+                           SGPRType::get(rewriter.getContext(), Register()));
+      id = lsir::CopyOp::create(rewriter, blockId.getLoc(), genericDst, id)
+               .getDestResult();
+    }
     rewriter.replaceOp(blockId, id);
   }
 }
