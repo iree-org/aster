@@ -190,6 +190,87 @@ getOffsetType(AMDGCNRegisterTypeInterface leaderType, int32_t pos) {
   return cast<AMDGCNRegisterTypeInterface>(leaderType.cloneRegisterType(reg));
 }
 
+/// A pre-colored member at slot `pos` in its leader's range pins the range
+/// base to (member.register - pos). Returns nullopt when the implied base is
+/// negative (invalid position).
+static std::optional<AMDGCNRegisterTypeInterface>
+getPinnedRangeBase(AMDGCNRegisterTypeInterface fixedMemberTy, int32_t pos) {
+  int32_t baseReg =
+      static_cast<int32_t>(fixedMemberTy.getAsRange().begin().getRegister()) -
+      pos;
+  if (baseReg < 0)
+    return std::nullopt;
+  return cast<AMDGCNRegisterTypeInterface>(
+      fixedMemberTy.cloneRegisterType(Register(static_cast<int16_t>(baseReg))));
+}
+
+/// Result of scanning a coalesced range for pre-colored members.
+struct RangePinAnalysis {
+  std::optional<AMDGCNRegisterTypeInterface> base;
+  bool hasUnallocatedMember = false;
+};
+
+/// Scan all members of a coalesced range to find the implied physical base.
+/// Returns failure on conflicting fixed registers within the same range.
+static FailureOr<RangePinAnalysis>
+analyzePinnedRange(int32_t leaderIdx, int32_t numRegs,
+                   const RegisterInterferenceGraph &graph,
+                   const CoalescingInfo &coalescingInfo, Location loc) {
+  RangePinAnalysis result;
+  for (int32_t pos = 0; pos < numRegs; ++pos) {
+    int32_t qid = leaderIdx + pos;
+    for (int32_t j = coalescingInfo.memberOffsets[qid],
+                 end = coalescingInfo.memberOffsets[qid + 1];
+         j < end; ++j) {
+      auto memberTy = cast<AMDGCNRegisterTypeInterface>(
+          graph.getValue(coalescingInfo.memberData[j]).getType());
+      if (!memberTy.hasAllocatedSemantics()) {
+        result.hasUnallocatedMember = true;
+        continue;
+      }
+      auto candidate = getPinnedRangeBase(memberTy, pos);
+      if (!candidate)
+        return RangePinAnalysis{};
+      if (result.base && *result.base != *candidate) {
+        emitError(loc)
+            << "coalesced class contains conflicting fixed registers";
+        return failure();
+      }
+      result.base = *candidate;
+    }
+  }
+  return result;
+}
+
+/// Pre-colored members in a coalesced class pin the leader's physical range.
+/// Run before graph coloring so the colorer treats whole pinned ranges as
+/// already-allocated.
+static LogicalResult pinCoalescedClassesToFixedRegisters(
+    int32_t numNodes, ArrayRef<NodeConstraint> nodeConsts,
+    const RegisterInterferenceGraph &graph,
+    const CoalescingInfo &coalescingInfo,
+    SmallVectorImpl<AMDGCNRegisterTypeInterface> &types,
+    llvm::SmallBitVector &wasUnallocated, Location loc) {
+  for (int32_t i = 0; i < numNodes; ++i) {
+    if (nodeConsts[i].numRegs == 0)
+      continue;
+    int32_t numRegs = nodeConsts[i].numRegs;
+
+    FailureOr<RangePinAnalysis> pin =
+        analyzePinnedRange(i, numRegs, graph, coalescingInfo, loc);
+    if (failed(pin))
+      return failure();
+    if (!pin->base)
+      continue;
+
+    for (int32_t pos = 0; pos < numRegs; ++pos)
+      types[i + pos] = getOffsetType(*pin->base, pos);
+    if (pin->hasUnallocatedMember)
+      wasUnallocated.set(static_cast<unsigned>(i));
+  }
+  return success();
+}
+
 /// Coalescing fan-out: expand each changed quotient node to all members of its
 /// equivalence classes in the original interference graph.
 static void rewriteCoalescing(RegisterInterferenceGraph &graph,
@@ -316,6 +397,12 @@ LogicalResult RegisterColoring::run(FunctionOpInterface funcOp) {
     if (!regTy.hasAllocatedSemantics())
       wasUnallocated.set(static_cast<unsigned>(i));
   }
+
+  // Pre-colored members in a coalesced class pin the leader's physical range.
+  if (failed(pinCoalescedClassesToFixedRegisters(
+          m, nodeConsts, *graph, *coalescingInfo, types, wasUnallocated,
+          funcOp.getLoc())))
+    return failure();
 
   if (failed(colorGraph(coalescingInfo->graph, nodeConsts, types,
                         funcOp.getLoc(), numVGPRs, numAGPRs, numSGPRs)))
