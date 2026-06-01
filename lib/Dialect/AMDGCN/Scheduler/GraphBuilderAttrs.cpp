@@ -80,14 +80,14 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
     // If the operation has no side-effect we need to treat it as a possible
     // sync point. Same for non-pure operations.
     //
-    // Exclude SOP2 SALU arithmetic ops (s_add_*, ...) arithmetic ops from sync
-    // points. The implicit read/write effects on architectural registers SCC
-    // are captured by the RAW/WAR edges added in buildNonSSADeps.
-    // Treating as fences would serialize independent arithmetic chains.
+    // Exclude SOP1 mov ops and SOP2 SALU arithmetic ops (s_add_*, ...) from
+    // sync points. The implicit read/write effects on architectural registers
+    // SCC are captured by the RAW/WAR edges added in buildNonSSADeps. Treating
+    // as fences would serialize independent arithmetic chains.
     bool isReorderableArith = false;
     if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
-      isReorderableArith =
-          instOp.hasAnyProps({InstProp::Sop2, InstProp::IsValu});
+      isReorderableArith = instOp.hasAnyProps(
+          {InstProp::Sop1, InstProp::Sop2, InstProp::IsValu});
     if ((!hasEffects || !mlir::isPure(op)) && !isReorderableArith &&
         !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
       LDBG() << "Adding sync point: " << i;
@@ -111,9 +111,11 @@ template <>
 struct IsModeledArchReg<SCCType> : std::true_type {};
 template <>
 struct IsModeledArchReg<VCCType> : std::true_type {};
+template <>
+struct IsModeledArchReg<M0Type> : std::true_type {};
 
 /// Returns the read/write effects of `op` on the architectural register
-/// `RegType` (currently SCC or VCC). The register is referenced as a DPS
+/// `RegType` (currently SCC, VCC, or M0). The register is referenced as a DPS
 /// alloca operand: an outs operand of `RegType` means the op writes the
 /// register; an ins operand of `RegType` means the op reads it. Ops without
 /// AMDGCNInstOpInterface have no architectural-register effects modeled here.
@@ -121,7 +123,7 @@ template <typename RegType>
 static void getArchRegEffects(Operation *op, bool &reads, bool &writes) {
   static_assert(IsModeledArchReg<RegType>::value,
                 "getArchRegEffects only supports modeled architectural "
-                "registers (SCC, VCC)");
+                "registers (SCC, VCC, M0)");
   reads = false;
   writes = false;
   auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
@@ -149,7 +151,7 @@ template <typename RegType>
 static void addArchRegEffectEdges(SchedGraph &graph, Block *block) {
   static_assert(IsModeledArchReg<RegType>::value,
                 "addArchRegEffectEdges only supports modeled architectural "
-                "registers (SCC, VCC)");
+                "registers (SCC, VCC, M0)");
   SmallVector<Operation *> writers;
   SmallVector<Operation *> readers;
   for (Operation &op : *block) {
@@ -211,10 +213,16 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
     }
   }
 
-  // RAW / WAR edges for read/write effects on the architectural registers
-  // SCC and VCC.
+  // RAW / WAR / WAW edges for read/write effects on architectural registers
+  // SCC, VCC, and M0.
   addArchRegEffectEdges<SCCType>(graph, block);
   addArchRegEffectEdges<VCCType>(graph, block);
+  // Note: M0 flows through DPS alloca operands (an ins on !amdgcn.m0 ins for
+  // buffer_load_lds / ds ops, an outs on s_mov_b32), so no SSA chain captures
+  // the ordering between an M0 writer and its readers.
+  // Modeling M0 here lets the s_mov M0 setup drop out of the conservative
+  // sync-point fence set (see buildSSADeps) without losing M0 ordering.
+  addArchRegEffectEdges<M0Type>(graph, block);
 }
 
 static bool isTokenOfKind(Type type, MemoryInstructionKind kind) {
