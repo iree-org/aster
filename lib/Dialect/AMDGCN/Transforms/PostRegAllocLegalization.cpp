@@ -112,6 +112,18 @@ CopyExpansionPattern::matchAndRewrite(lsir::CopyOp op,
   if (!srcTy || !tgtTy)
     return failure();
 
+  // Copy involving VCC needs special 64b handling.
+  if (isa<VCCType>(srcTy) || isa<VCCType>(tgtTy)) {
+    assert((isa<VCCType>(srcTy) ||
+            srcTy.getRegisterKind() == RegisterKind::SGPR) &&
+           (isa<VCCType>(tgtTy) ||
+            tgtTy.getRegisterKind() == RegisterKind::SGPR) &&
+           "VCC copy: the other side must be SGPR-class (s_mov_b64)");
+    SMovB64::create(rewriter, op.getLoc(), op.getTarget(), op.getSource());
+    rewriter.eraseOp(op);
+    return success();
+  }
+
   // Bail if the copy cannot be performed.
   if (srcTy.getRegisterKind() != RegisterKind::SGPR &&
       tgtTy.getRegisterKind() == RegisterKind::SGPR) {
