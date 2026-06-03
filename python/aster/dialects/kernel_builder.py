@@ -959,7 +959,7 @@ class KernelBuilder:
         const_offset: Optional[ir.Value] = None,
     ) -> tuple[ir.Value, ir.Value]:
         """Global load of 1 dword."""
-        dest = self._make_register_range([self.alloca_vgpr()])
+        dest = self.alloca_vgpr()
         op = self._global_load_op("global_load_dword", dest, addr, const_offset)
         return op.results[0], op.results[1]
 

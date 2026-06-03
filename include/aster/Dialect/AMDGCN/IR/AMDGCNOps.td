@@ -520,6 +520,7 @@ def AMDGCN_SplitRegisterRangeOp : AMDGCN_Op<"split_register_range", [
   let arguments = (ins CompositeRegisterLike:$input);
   let results = (outs Variadic<RegisterLike>:$results);
   let assemblyFormat = "$input attr-dict `:` type($input)";
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//

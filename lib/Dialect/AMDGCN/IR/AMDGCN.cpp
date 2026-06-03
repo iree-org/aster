@@ -461,6 +461,28 @@ SplitRegisterRangeOp::livenessTransferFunction(LivenessCallback insertCallback,
   return success();
 }
 
+/// Fold split(make(x0, ..., xN)) -> {x0, ..., xN}.
+LogicalResult
+SplitRegisterRangeOp::fold(FoldAdaptor,
+                           SmallVectorImpl<OpFoldResult> &results) {
+  auto makeOp = getInput().getDefiningOp<MakeRegisterRangeOp>();
+  if (!makeOp)
+    return failure();
+  ValueRange inputs = makeOp.getInputs();
+  if (getResults().empty() || inputs.size() != getResults().size())
+    return failure();
+  // Bail if not allocated registers: in unallocated world, MakeRegisterRangeOp
+  // carries alignment and contiguity constraints that would be lost.
+  for (auto [result, input] : llvm::zip(getResults(), inputs)) {
+    if (result.getType() != input.getType())
+      return failure();
+    if (!cast<RegisterTypeInterface>(result.getType()).hasAllocatedSemantics())
+      return failure();
+    results.push_back(input);
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // RegInterferenceOp
 //===----------------------------------------------------------------------===//

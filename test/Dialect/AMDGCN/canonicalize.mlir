@@ -269,3 +269,26 @@ func.func @no_merge_negative_const_offset(%ptr: !amdgcn.vgpr<[? + 2]>) -> !amdgc
   %outer = amdgcn.ptr_add %inner c_off = -16 : !amdgcn.vgpr<[? + 2]>
   return %outer : !amdgcn.vgpr<[? + 2]>
 }
+
+// split(make(x0..xN)) folds to the original pieces when registers are pinned.
+// CHECK-LABEL: kernel @split_make_pinned_fold
+//  CHECK-NOT:   make_register_range
+//  CHECK-NOT:   split_register_range
+//      CHECK:   test_inst ins %{{.*}} : (!amdgcn.vgpr<40>)
+amdgcn.module @split_make_fold_mod target = <gfx942> {
+  amdgcn.kernel @split_make_pinned_fold attributes {grid_dims = array<i32: 1, 1, 1>} {
+    %c0 = arith.constant 0 : i32
+    %0 = amdgcn.alloca : !amdgcn.vgpr<40>
+    %1 = amdgcn.alloca : !amdgcn.vgpr<41>
+    %2 = amdgcn.alloca : !amdgcn.vgpr<42>
+    %3 = amdgcn.alloca : !amdgcn.vgpr<43>
+    amdgcn.v_mov_b32 outs(%0) ins(%c0) : outs(!amdgcn.vgpr<40>) ins(i32)
+    amdgcn.v_mov_b32 outs(%1) ins(%c0) : outs(!amdgcn.vgpr<41>) ins(i32)
+    amdgcn.v_mov_b32 outs(%2) ins(%c0) : outs(!amdgcn.vgpr<42>) ins(i32)
+    amdgcn.v_mov_b32 outs(%3) ins(%c0) : outs(!amdgcn.vgpr<43>) ins(i32)
+    %r = amdgcn.make_register_range %0, %1, %2, %3 : !amdgcn.vgpr<40>, !amdgcn.vgpr<41>, !amdgcn.vgpr<42>, !amdgcn.vgpr<43>
+    %s:4 = amdgcn.split_register_range %r : !amdgcn.vgpr<[40 : 44]>
+    test_inst ins %s#0 : (!amdgcn.vgpr<40>) -> ()
+    amdgcn.end_kernel
+  }
+}
