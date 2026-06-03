@@ -270,6 +270,10 @@ _VOP_NEW_OPS_MAD = {
     "v_mad_u64_u32": VMadU64U32,
 }
 
+_VOP_NEW_OPS_1IN = {
+    "v_mov_b32": VMovB32,
+}
+
 
 def _create_new_vop(
     opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None
@@ -356,6 +360,11 @@ def _create_new_vop(
         )
         return op.dst0_res
 
+    cls = _VOP_NEW_OPS_1IN.get(canonical)
+    if cls is not None:
+        op = cls(dst0=dest, src0=src0, results=[dest.type], loc=loc, ip=ip)
+        return op.dst0_res
+
     cls = _VOP_NEW_OPS_CVT.get(canonical)
     if cls is not None:
         op = cls(dst0=dest, src0=src0, results=[dest.type], loc=loc, ip=ip)
@@ -367,6 +376,15 @@ def _create_new_vop(
         return op.dst0_res
 
     return None
+
+
+def vop1(opcode, dest, src0, *, loc=None, ip=None):
+    """Create amdgcn.vop1 (routes migrated opcodes to new per-instruction ops)."""
+    result = _create_new_vop(opcode, dest, src0, None, loc=loc, ip=ip)
+    if result is not None:
+        return result
+    op = _create_inst_op("amdgcn.vop1", opcode, outs=[dest], ins=[src0], loc=loc, ip=ip)
+    return op.results[0]
 
 
 def vop2(opcode, dest, src0, src1, *, dst1=None, src2=None, loc=None, ip=None):
