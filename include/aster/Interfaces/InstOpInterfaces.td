@@ -19,31 +19,6 @@ include "mlir/IR/OpBase.td"
 include "aster/Interfaces/InstOpInterface.td"
 
 //===----------------------------------------------------------------------===//
-// Select instruction interface
-//===----------------------------------------------------------------------===//
-
-def SelectInstOpInterface : OpInterface<"SelectInstOpInterface",
-    [InstOpInterface]> {
-  let cppNamespace = "::mlir::aster";
-  let description = [{
-    Interface for select-like instructions that choose between two values
-    based on a condition.
-  }];
-  let methods = [
-    InterfaceMethod<"Get the destination operand.",
-      "::mlir::aster::Operand", "getDestOperand">,
-    InterfaceMethod<"Get the destination result.",
-      "::mlir::Value", "getDestResult">,
-    InterfaceMethod<"Get the condition operand.",
-      "::mlir::aster::Operand", "getConditionOperand">,
-    InterfaceMethod<"Get the true-value operand.",
-      "::mlir::aster::Operand", "getTrueValueOperand">,
-    InterfaceMethod<"Get the false-value operand.",
-      "::mlir::aster::Operand", "getFalseValueOperand">
-  ];
-}
-
-//===----------------------------------------------------------------------===//
 // Mov instruction interface
 //===----------------------------------------------------------------------===//
 
