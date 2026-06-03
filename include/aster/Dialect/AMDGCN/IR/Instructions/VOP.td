@@ -1384,7 +1384,7 @@ def VCmpNeI32 : VCmpInst<"v_cmp_ne_i32"> {
 
 #ifndef VCNDMASKB32_DEF
 #define VCNDMASKB32_DEF
-def VCndmaskB32 : AMDISAInstruction<"v_cndmask_b32", [SelectInstOpInterface]> {
+def VCndmaskB32 : AMDISAInstruction<"v_cndmask_b32"> {
   let props = [IsVALU];
   let archs = [CDNA3Isa, CDNA4Isa];
   let description = [{
@@ -1416,13 +1416,6 @@ def VCndmaskB32 : AMDISAInstruction<"v_cndmask_b32", [SelectInstOpInterface]> {
     ASMString<[ENC_VOP2_CDNA3, ENC_VOP2_CDNA4], "${mnemonic} $dst0, $src0, $src1, $src2">,
     ASMString<[ENC_VOP3_CDNA3], "${mnemonic}_e64 $dst0, $src0, $src1, $src2">
   ];
-  let instExtraClassDeclaration = [{
-    ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
-    ::mlir::Value getDestResult() { return getDst0Res(); }
-    ::mlir::aster::Operand getConditionOperand() { return getSrc2Mutable(); }
-    ::mlir::aster::Operand getTrueValueOperand() { return getSrc1Mutable(); }
-    ::mlir::aster::Operand getFalseValueOperand() { return getSrc0Mutable(); }
-  }];
 }
 #endif // VCNDMASKB32_DEF
 

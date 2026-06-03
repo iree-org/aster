@@ -808,7 +808,7 @@ def LSIR_RemUIOp : BinaryIOp<"remui"> {
 //===----------------------------------------------------------------------===//
 
 def LSIR_SelectOp : LSIR_InstOp<"select", [
-    InstInferType, PureInst, SelectInstOpInterface
+    InstInferType, PureInst
   ]> {
   let summary = "Select operation";
   let description = [{
@@ -830,13 +830,6 @@ def LSIR_SelectOp : LSIR_InstOp<"select", [
   let assemblyFormat = [{
     $dst `,` $condition `,` $true_value `,` $false_value attr-dict
     `:` type($dst) `,` type($condition) `,` type($true_value) `,` type($false_value)
-  }];
-  let extraClassDeclaration = [{
-    ::mlir::aster::Operand getDestOperand() { return getDstMutable(); }
-    ::mlir::Value getDestResult() { return getDstRes(); }
-    ::mlir::aster::Operand getConditionOperand() { return getConditionMutable(); }
-    ::mlir::aster::Operand getTrueValueOperand() { return getTrueValueMutable(); }
-    ::mlir::aster::Operand getFalseValueOperand() { return getFalseValueMutable(); }
   }];
 }
 

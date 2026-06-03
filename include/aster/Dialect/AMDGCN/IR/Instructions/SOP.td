@@ -683,21 +683,13 @@ class SOP2Out1In3Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type,
 def SCselectB32 : SOP2Out1In3Inst<"s_cselect_b32",
     /*dst0=*/[OneSGPROrSRegType],
     /*src0=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>],
-    /*src1=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>],
-    /*opTraits=*/[SelectInstOpInterface]
+    /*src1=*/[OneSGPROrSRegOrLitConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>, F32, IntType<32>>]
   > {
   let description = [{
     Select the first input if SCC is true otherwise select the second input,
     then store the selected input into a scalar register.
   }];
   let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001010>];
-  let instExtraClassDeclaration = [{
-    ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
-    ::mlir::Value getDestResult() { return getDst0Res(); }
-    ::mlir::aster::Operand getConditionOperand() { return getSccSrcMutable(); }
-    ::mlir::aster::Operand getTrueValueOperand() { return getSrc0Mutable(); }
-    ::mlir::aster::Operand getFalseValueOperand() { return getSrc1Mutable(); }
-  }];
 }
 #endif // SCSELECTB32_DEF
 
@@ -706,21 +698,13 @@ def SCselectB32 : SOP2Out1In3Inst<"s_cselect_b32",
 def SCselectB64 : SOP2Out1In3Inst<"s_cselect_b64",
     /*dst0=*/[TwoSGPROrSRegType],
     /*src0=*/[TwoSGPROrSRegOrConstType],
-    /*src1=*/[TwoSGPROrSRegOrConstType],
-    /*opTraits=*/[SelectInstOpInterface]
+    /*src1=*/[TwoSGPROrSRegOrConstType]
   > {
   let description = [{
     Select the first input if SCC is true otherwise select the second input,
     then store the selected input into a scalar register.
   }];
   let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001011>];
-  let instExtraClassDeclaration = [{
-    ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
-    ::mlir::Value getDestResult() { return getDst0Res(); }
-    ::mlir::aster::Operand getConditionOperand() { return getSccSrcMutable(); }
-    ::mlir::aster::Operand getTrueValueOperand() { return getSrc0Mutable(); }
-    ::mlir::aster::Operand getFalseValueOperand() { return getSrc1Mutable(); }
-  }];
 }
 #endif // SCSELECTB64_DEF
 
