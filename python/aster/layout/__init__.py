@@ -24,4 +24,4 @@ from aster.layout.algebra import (
     tile,
 )
 from aster.layout.values import LayoutValues, Result
-from aster.layout.tensor import Tensor
+from aster.layout.tensor import CoordProj, CoordTensor, Tensor

@@ -144,7 +144,7 @@ class Layout:
         return 1
 
     def __str__(self) -> str:
-        return f"{self.sizes}:{self.strides}"
+        return f"{self.sizes}:{self.strides}:{self.axes}"
 
     def __repr__(self) -> str:
         return f"Layout(sizes={self.sizes},strides={self.strides})"
