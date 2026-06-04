@@ -22,7 +22,6 @@ The returned module can be passed directly to aster.compiler compile_kernel_modu
 """
 
 from __future__ import annotations
-
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import List, Optional
@@ -194,6 +193,7 @@ class KernelBuilder:
         self.i32_type = ir.IntegerType.get_signless(32, ctx)
         self.any_type = ir.Type.parse("!aster_utils.any")
         self.m0_type = ir.Type.parse("!amdgcn.m0<0>")
+        self.vgpr_type = VGPRType.get(ctx, reg=None)
         self.vx2_type = VGPRRangeType.get(ctx, size=2)
         self.vx4_type = VGPRRangeType.get(ctx, size=4)
         self.ax4_type = AGPRRangeType.get(ctx, size=4)
@@ -567,6 +567,23 @@ class KernelBuilder:
     # ---------------------------------------------------------------------------
     # Vector ALU
     # ---------------------------------------------------------------------------
+
+    def _emit_vop1(self, opcode_str: str, dest: ir.Value, src0) -> ir.Value:
+        """Emit amdgcn.vop1."""
+        from aster.dialects.amdgcn import vop1
+
+        return vop1(
+            opcode=opcode_str,
+            dest=self._as_value(dest),
+            src0=self._as_value(src0),
+            loc=self._loc,
+            ip=self._kip,
+        )
+
+    def vop1(self, opcode: str, src0: ir.Value) -> ir.Value:
+        """Vector ALU 1-operand operation."""
+        dest = self.alloca_vgpr()
+        return self._emit_vop1(opcode, dest, src0)
 
     def vop2(self, opcode: str, src0: ir.Value, src1: ir.Value) -> ir.Value:
         """Vector ALU 2-operand operation."""
