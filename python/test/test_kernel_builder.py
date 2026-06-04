@@ -306,6 +306,35 @@ def test_kernel_builder_tiledmma_structure():
         assert "buffer_load_dwordx2" in asm
 
 
+def _build_buffer_copy_module(*, nt: bool, target: str = "gfx942"):
+    """Minimal buffer_load_dwordx4 -> buffer_store_dwordx4 copy module."""
+    b = KernelBuilder("buf_nt_mod", "buf_nt", target=target)
+    b.add_ptr_arg(AccessKind.ReadOnly)
+    b.add_ptr_arg(AccessKind.WriteOnly)
+    a_ptr, c_ptr = b.load_args()
+    num_records = b.s_mov_b32(1024)
+    soffset = b.s_mov_b32(0)
+    a_rsrc = b.make_buffer_rsrc(a_ptr, num_records, b.constant_i32(0))
+    c_rsrc = b.make_buffer_rsrc(c_ptr, num_records, b.constant_i32(0))
+    voff = b.index_to_vgpr(b.constant_index(0))
+    data = b.buffer_load_dwordx4(a_rsrc, soffset, voff, nt=nt)
+    b.buffer_store_dwordx4(data, c_rsrc, soffset, voff, nt=nt)
+    return b.build()
+
+
+def test_buffer_dwordx4_nt_kwarg():
+    """Nt=True threads through buffer_load/store_dwordx4 to IR and asm."""
+    ctx = _ctx()
+    with ctx:
+        text_nt = str(_build_buffer_copy_module(nt=True))
+        assert text_nt.count("{nt, offen}") == 2, text_nt
+        asm_nt = compile_mlir_module_to_asm(_build_buffer_copy_module(nt=True))
+        assert "buffer_load_dwordx4" in asm_nt and " nt" in asm_nt, asm_nt
+
+        text_default = str(_build_buffer_copy_module(nt=False))
+        assert "{nt" not in text_default, text_default
+
+
 def _kernel_with(fn):
     """Build a minimal kernel, call fn(builder) inside, return module text."""
     ctx = _ctx()
