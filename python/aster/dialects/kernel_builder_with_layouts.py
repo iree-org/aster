@@ -64,6 +64,7 @@ global_load_dwordx4 = Copy("global_load_dwordx4", MemSpace.GLOBAL, MemSpace.REG)
 ds_write_64b = Copy("ds_write_b64", MemSpace.REG, MemSpace.LDS)
 ds_read_64b = Copy("ds_read_b64", MemSpace.LDS, MemSpace.REG)
 g2s_buffer_load_dwordx4 = Copy("g2s_buffer_load_dwordx4", MemSpace.GLOBAL, MemSpace.LDS)
+global_store_dword = Copy("global_store_dword", MemSpace.REG, MemSpace.GLOBAL)
 
 
 @dataclass(frozen=True)
@@ -238,6 +239,26 @@ class KernelBuilderWithLayouts(KernelBuilder):
             for voff in offsets:
                 rd, tok = op(self._addr(tensor.ptr, _total(voff), swizzle))
                 payloads.append(rd)
+                tokens.append(tok)
+        elif src is MemSpace.REG and dst is MemSpace.GLOBAL:
+            assert data is not None, "reg->global transfer needs data"
+            if not isinstance(data, (list, tuple)):
+                data = [data]
+            assert len(data) == n, (
+                f"reg->global transfer: data has {len(data)} payloads but "
+                f"value_layout.size()={n}"
+            )
+            # nt=True matches the legacy store_multi_fragment_to_global default
+            # (streaming C store). AGPR data needs no VGPR copy; the store op
+            # takes it directly.
+            for v, voff in enumerate(offsets):
+                tok = op(
+                    data[v],
+                    tensor.ptr,
+                    dynamic_offset=self.index_to_vgpr(_total(voff)),
+                    nt=True,
+                )
+                payloads.append(None)
                 tokens.append(tok)
         else:
             raise NotImplementedError(f"transfer: {src} -> {dst}")

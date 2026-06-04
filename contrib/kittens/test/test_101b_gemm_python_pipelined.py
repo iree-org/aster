@@ -18,6 +18,7 @@ from aster.dialects.kernel_builder_with_layouts import (
     ds_read_64b,
     ds_write_64b,
     global_load_dwordx4,
+    global_store_dword,
     KernelBuilderWithLayouts as KernelBuilder,
 )
 from aster.dialects.amdgcn import AccessKind
@@ -27,7 +28,7 @@ from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import make_default_pass_pipeline, PipelineConfig
 
-from aster.layout import Layout, Swizzle, Symbol, Tensor, enumerate_flat_coords, tile
+from aster.layout import Layout, LayoutValues, Swizzle, Symbol, Tensor, enumerate_flat_coords, tile
 
 
 # Layout symbols: ``None`` marks fixed modes; only named symbols are bindable.
@@ -117,6 +118,14 @@ def _build_gemm_pipelined(num_tiles_per_wg, K, stride_a, stride_b):
         value_layout=Layout(TILE_K_ELEMS // MFMA_K, MFMA_K * ELT_BYTES),
         swizzle=LDS_SWIZZLE,
     )
+    # C store: MFMA 16x16 accumulator -> row-major fp32 C tile. The lane owns
+    # col = lane%16 and the 4-row block starting at (lane//16)*4; value v is
+    # the row within that block (4 fp32 D-registers per lane).
+    tc_store_c = b.make_tiled_copy_descriptor(
+        global_store_dword,
+        thread_layout=Layout((4, MFMA_N), (4 * stride_c, 4)),
+        value_layout=Layout(4, stride_c),
+    )
 
     # Global A/B tiled. Outer K becomes the per-iter axis (global_k); inner
     # is the per-iter K-tile axis (None = unnamed, iterated by transfer_tiles).
@@ -151,10 +160,6 @@ def _build_gemm_pipelined(num_tiles_per_wg, K, stride_a, stride_b):
     TA = Tensor(a_ptr, layout=A_TILED)
     TB = Tensor(b_ptr, layout=B_TILED)
     TC = Tensor(c_ptr, layout=C_TILED)
-
-    # Global C-store still uses the legacy multi-fragment path.
-    GLOBAL_STORE_TILE_C = Layout((4, MFMA_N, 4), (4 * stride_c, 4, stride_c))
-    GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
 
     n_accs = m_t * n_t
     n_frags = TILE_K_ELEMS // MFMA_K  # MFMA fragments per ds_read tile
@@ -204,18 +209,9 @@ def _build_gemm_pipelined(num_tiles_per_wg, K, stride_a, stride_b):
             b.dealloc_lds(lds_b_h)
         return accs
 
-    # C store: one store_multi_fragment per (mi, ni) acc.
-    # Note: in IR this would be scf.for + aster.constexpr + delinearize
-    for mi, ni in enumerate_flat_coords((m_t, n_t)):
-        ai = mi * n_t + ni
-        b.store_multi_fragment_to_global(
-            accs_final[ai],
-            c_ptr,
-            b.slice(TC, {m: mi, n: ni}).offset,
-            GLOBAL_STORE_TILE_C,
-            GLOBAL_STORE_SUB_TILE_C,
-            b.global_store_dword,
-        )
+    # C store: one tiled copy per (m, n) tile, mirroring the load path.
+    accs_bundle = LayoutValues.from_flat(Layout((m_t, n_t)), payloads=tuple(accs_final))
+    b.transfer_tiles(TC, tc_store_c, unroll_axes=(m, n), data=accs_bundle)
     return b.build()
 
 
