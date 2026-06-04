@@ -17,6 +17,7 @@ from aster.dialects.kernel_builder_with_layouts import (
     ds_read_64b,
     ds_write_64b,
     global_load_dwordx4,
+    global_store_dword,
     KernelBuilderWithLayouts as KernelBuilder,
 )
 from aster.dialects.amdgcn import AccessKind
@@ -26,7 +27,7 @@ from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import make_default_pass_pipeline, PipelineConfig
 
-from aster.layout import Layout, Swizzle, Symbol, Tensor, enumerate_flat_coords, tile
+from aster.layout import Layout, LayoutValues, Swizzle, Symbol, Tensor, enumerate_flat_coords, tile
 from coop import make_coop_load_plan
 
 from kittens_helpers import shuffle_weight
@@ -142,6 +143,14 @@ def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K,
         thread_layout=Layout(WAVE_SIZE, PRESHUFFLE_LANE_STRIDE),
         value_layout=Layout(1, 0),
     )
+    # C store: MFMA 16x16 accumulator -> row-major fp32 C tile. The lane owns
+    # col = lane%16 and the 4-row block starting at (lane//16)*4; value v is
+    # the row within that block (4 fp32 D-registers per lane).
+    tc_store_c = b.make_tiled_copy_descriptor(
+        global_store_dword,
+        thread_layout=Layout((4, MFMA_N), (4 * stride_c, 4)),
+        value_layout=Layout(4, stride_c),
+    )
 
     # Global A layout: same hierarchical shape as test_101e.
     A_TILED = tile(
@@ -197,9 +206,6 @@ def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K,
         Tensor(c_ptr, layout=C_TILED),
         {wg_m: wg_m_idx, wg_n: wg_n_idx, wave_m: wave_m_idx, wave_n: wave_n_idx},
     )
-
-    GLOBAL_STORE_TILE_C = Layout((4, MFMA_N, 4), (4 * stride_c, 4, stride_c))
-    GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
 
     n_accs = m_per_wave * n_per_wave
     n_frags = TILE_K_ELEMS // MFMA_K  # = 2 for MFMA 16x16x16 with TILE_K_ELEMS=32
@@ -258,16 +264,9 @@ def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K,
             b.dealloc_lds(lds_a_h)
         return accs
 
-    for mi, ni in enumerate_flat_coords((m_per_wave, n_per_wave)):
-        ai = mi * n_per_wave + ni
-        b.store_multi_fragment_to_global(
-            accs_final[ai],
-            c_ptr,
-            b.slice(TC, {m: mi, n: ni}).offset,
-            GLOBAL_STORE_TILE_C,
-            GLOBAL_STORE_SUB_TILE_C,
-            b.global_store_dword,
-        )
+    # C store: one tiled copy per (m, n) tile, mirroring the load path.
+    accs_bundle = LayoutValues.from_flat(Layout((m_per_wave, n_per_wave)), payloads=tuple(accs_final))
+    b.transfer_tiles(TC, tc_store_c, unroll_axes=(m, n), data=accs_bundle)
     return b.build()
 
 
