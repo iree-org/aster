@@ -798,7 +798,7 @@ class KernelBuilder:
         "buffer_load_dwordx4": BufferLoadDwordx4,
     }
 
-    def _buffer_load_with_dest(
+    def _buffer_load_op(
         self,
         opcode: str,
         dest: ir.Value,
@@ -806,22 +806,23 @@ class KernelBuilder:
         soffset: ir.Value,
         voffset: ir.Value,
         const_offset: Optional[ir.Value] = None,
-    ) -> ir.Value:
+        nt: bool = False,
+    ):
         """Emit a buffer load using a pre-allocated dest register (or range)."""
         if const_offset is None:
             const_offset = self.constant_i32(0)
         op_cls = self._BUFFER_LOAD_OPS[opcode]
-        op = op_cls(
+        return op_cls(
             dest=dest,
             addr=rsrc,
             soffset=soffset,
             const_offset=const_offset,
             off_or_idx=voffset,
             offen=True,
+            nt=nt,
             loc=self._loc,
             ip=self._kip,
         )
-        return op.results[0]
 
     def buffer_load(
         self,
@@ -832,9 +833,9 @@ class KernelBuilder:
     ) -> ir.Value:
         """Buffer load (buffer_load_dword) -> single VGPR."""
         dest = AllocaOp(VGPRType.get(self._ctx), loc=self._loc, ip=self._kip).result
-        return self._buffer_load_with_dest(
+        return self._buffer_load_op(
             "buffer_load_dword", dest, rsrc, soffset, voffset, const_offset
-        )
+        ).results[0]
 
     def buffer_load_dwordx2(
         self,
@@ -845,9 +846,9 @@ class KernelBuilder:
     ) -> ir.Value:
         """Buffer load of 2 dwords -> VGPRRangeType(size=2)."""
         dest = self.alloc_vgprx2()
-        return self._buffer_load_with_dest(
+        return self._buffer_load_op(
             "buffer_load_dwordx2", dest, rsrc, soffset, voffset, const_offset
-        )
+        ).results[0]
 
     def buffer_load_dwordx4(
         self,
@@ -855,12 +856,13 @@ class KernelBuilder:
         soffset: ir.Value,
         voffset: ir.Value,
         const_offset: Optional[ir.Value] = None,
+        nt: bool = False,
     ) -> ir.Value:
         """Buffer load of 4 dwords -> VGPRRangeType(size=4)."""
         dest = self.alloc_vgprx4()
-        return self._buffer_load_with_dest(
-            "buffer_load_dwordx4", dest, rsrc, soffset, voffset, const_offset
-        )
+        return self._buffer_load_op(
+            "buffer_load_dwordx4", dest, rsrc, soffset, voffset, const_offset, nt=nt
+        ).results[0]
 
     _BUFFER_STORE_OPS = {
         "buffer_store_dword": BufferStoreDword,
@@ -876,6 +878,7 @@ class KernelBuilder:
         soffset: ir.Value,
         voffset: ir.Value,
         const_offset: Optional[ir.Value] = None,
+        nt: bool = False,
     ) -> ir.Value:
         if const_offset is None:
             const_offset = self.constant_i32(0)
@@ -887,6 +890,7 @@ class KernelBuilder:
             const_offset=const_offset,
             off_or_idx=voffset,
             offen=True,
+            nt=nt,
             loc=self._loc,
             ip=self._kip,
         )
@@ -909,11 +913,11 @@ class KernelBuilder:
         )
 
     def buffer_store_dwordx4(
-        self, data, rsrc, soffset, voffset, const_offset=None
+        self, data, rsrc, soffset, voffset, const_offset=None, nt: bool = False
     ) -> ir.Value:
         """Buffer store of 4 dwords."""
         return self._buffer_store(
-            "buffer_store_dwordx4", data, rsrc, soffset, voffset, const_offset
+            "buffer_store_dwordx4", data, rsrc, soffset, voffset, const_offset, nt=nt
         )
 
     # ---------------------------------------------------------------------------
@@ -1647,6 +1651,17 @@ class KernelBuilder:
             results=[i1],
             operands=[lhs, rhs],
             attributes={"predicate": pred_attr},
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0]
+
+    def select(self, cond: ir.Value, if_true: ir.Value, if_false: ir.Value) -> ir.Value:
+        """Select if_true where cond (i1) is true, else if_false."""
+        op = ir.Operation.create(
+            "arith.select",
+            results=[if_true.type],
+            operands=[cond, if_true, if_false],
             loc=self._loc,
             ip=self._kip,
         )

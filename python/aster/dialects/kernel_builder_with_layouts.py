@@ -19,7 +19,7 @@ from aster.layout.algebra import (
     Symbol,
     enumerate_flat_coords,
 )
-from aster.layout.tensor import Tensor
+from aster.layout.tensor import Tensor, TensorLike
 from aster.layout.values import LayoutValues
 
 # Wait arguments to wait_deps:
@@ -61,6 +61,8 @@ class Copy:
 
 
 global_load_dwordx4 = Copy("global_load_dwordx4", MemSpace.GLOBAL, MemSpace.REG)
+buffer_load_dwordx4 = Copy("buffer_load_dwordx4", MemSpace.GLOBAL, MemSpace.REG)
+buffer_store_dwordx4 = Copy("buffer_store_dwordx4", MemSpace.REG, MemSpace.GLOBAL)
 ds_write_64b = Copy("ds_write_b64", MemSpace.REG, MemSpace.LDS)
 ds_read_64b = Copy("ds_read_b64", MemSpace.LDS, MemSpace.REG)
 g2s_buffer_load_dwordx4 = Copy("g2s_buffer_load_dwordx4", MemSpace.GLOBAL, MemSpace.LDS)
@@ -96,6 +98,19 @@ class TransferTileG2S:
     soff: Any
     m0: Any
     per_thread_voff: Any
+
+
+@dataclass(frozen=True, slots=True)
+class TransferTileBuffer:
+    """Buffer transfer resources.
+
+    num_records_bytes is the byte bound from ptr used by the SRD. Use
+    with LogicalTensor.coord for per-dimension bounds checks.
+    """
+
+    rsrc: Any
+    soff: Any
+    num_records_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,32 +177,13 @@ class KernelBuilderWithLayouts(KernelBuilder):
             axes=tuple(layout.axes[i] for i in keep),
         )
 
-    def slice(self, tensor: Tensor, bindings: Bindings) -> Tensor:
-        """Fold bindings into tensor.offset and drop the bound axes from
-        the (flattened) result Tensor's layout."""
+    def slice(self, tensor: TensorLike, bindings: Bindings) -> TensorLike:
+        """Fold bindings into the tensor's offset and drop the bound axes.
 
-        L = tensor.layout
-        assert L is not None and L.axes is not None, (
-            f"slice requires a layout-backed tensor, got {tensor!r}"
-        )
-        named = {ax for ax in L.axes if ax is not None}
-        unbound = set(bindings.keys()) - named
-        assert not unbound, (
-            f"slice bindings {unbound!r} not present in tensor axes "
-            f"{sorted(named, key=repr)!r}"
-        )
-        bound_axes = tuple(bindings.keys())
-        new_off = tensor.offset
-        if bound_axes:
-            sub_layout = self._filter_layout_by_axes(L, bound_axes)
-            bound_values = tuple(
-                self.constant_index(v) if isinstance(v, int) else v
-                for v in bindings.values()
-            )
-            rel = self.layout_apply(bound_values, sub_layout)
-            new_off = rel if new_off is None else self.layout_sum(new_off, rel)
-        new_layout = self._drop_layout_axes(L, set(bound_axes))
-        return Tensor(tensor.ptr, new_off, new_layout)
+        Polymorphic: Tensor.slice / LogicalTensor.slice each return their own
+        type (a LogicalTensor also slices its coordinate tensor).
+        """
+        return tensor.slice(self, bindings)
 
     def alloc_lds_tensor(
         self, size_bytes: int, *, layout: Layout
@@ -197,32 +193,66 @@ class KernelBuilderWithLayouts(KernelBuilder):
         return handle, Tensor(ptr, None, layout)
 
     def _emit_transfer_tile(
-        self, tc: TiledCopy, tensor: Tensor, data: Any = None
+        self,
+        tc: TiledCopy,
+        tensor: TensorLike,
+        data: Any = None,
+        buffer: Optional[TransferTileBuffer] = None,
+        *,
+        nt: bool = True,
     ) -> _TileTransfer:
         """Emit one tiled hardware transfer at tensor.ptr + tensor.offset."""
         copy_atom = tc.copy
         swizzle = tc.swizzle
         offsets = self.thread_value_offsets(tc.pid, tc.thread_layout, tc.value_layout)
         n = len(offsets)
-
-        def _total(voff: ir.Value) -> ir.Value:
-            return (
-                self.layout_sum(tensor.offset, voff)
-                if tensor.offset is not None
-                else voff
-            )
-
         op = getattr(self, copy_atom.op_name)
         src, dst = copy_atom.src_space, copy_atom.dst_space
         payloads: list[Any | None] = []
         tokens: list[Any] = []
         if src is MemSpace.GLOBAL and dst is MemSpace.REG:
-            for voff in offsets:
-                rd, tok = op(
-                    tensor.ptr, dynamic_offset=self.index_to_vgpr(_total(voff))
-                )
-                payloads.append(rd)
-                tokens.append(tok)
+            if buffer is not None:
+                # SRD bound handles ragged tail.
+                for voff in offsets:
+                    off = self.index_to_vgpr(tensor.buffer_voffset(self, buffer, voff))
+                    load = self._buffer_load_op(
+                        copy_atom.op_name,
+                        self.alloc_vgprx4(),
+                        buffer.rsrc,
+                        buffer.soff,
+                        off,
+                        nt=nt,
+                    )
+                    payloads.append(load.results[0])
+                    tokens.append(load.results[1])
+            else:
+                for voff in offsets:
+                    off = self.index_to_vgpr(tensor.byte_offset(self, voff))
+                    rd, tok = op(tensor.ptr, dynamic_offset=off)
+                    payloads.append(rd)
+                    tokens.append(tok)
+        elif src is MemSpace.REG and dst is MemSpace.GLOBAL:
+            assert data is not None, "reg->global transfer needs data"
+            if not isinstance(data, (list, tuple)):
+                data = [data]
+            assert len(data) == n, (
+                f"reg->global transfer: data has {len(data)} payloads but "
+                f"value_layout.size()={n}"
+            )
+            if buffer is not None:
+                # SRD bound handles ragged tail.
+                for v, voff in enumerate(offsets):
+                    off = self.index_to_vgpr(tensor.buffer_voffset(self, buffer, voff))
+                    tok = op(data[v], buffer.rsrc, buffer.soff, off, nt=nt)
+                    payloads.append(None)
+                    tokens.append(tok)
+            else:
+                # Keep direct global store behavior used by existing kernels.
+                for v, voff in enumerate(offsets):
+                    off = self.index_to_vgpr(tensor.byte_offset(self, voff))
+                    tok = op(data[v], tensor.ptr, dynamic_offset=off, nt=True)
+                    payloads.append(None)
+                    tokens.append(tok)
         elif src is MemSpace.REG and dst is MemSpace.LDS:
             assert data is not None, "reg->lds transfer needs data"
             if not isinstance(data, (list, tuple)):
@@ -232,33 +262,15 @@ class KernelBuilderWithLayouts(KernelBuilder):
                 f"value_layout.size()={n}"
             )
             for v, voff in enumerate(offsets):
-                tok = op(data[v], self._addr(tensor.ptr, _total(voff), swizzle))
+                addr = self._addr(tensor.ptr, tensor.byte_offset(self, voff), swizzle)
+                tok = op(data[v], addr)
                 payloads.append(None)
                 tokens.append(tok)
         elif src is MemSpace.LDS and dst is MemSpace.REG:
             for voff in offsets:
-                rd, tok = op(self._addr(tensor.ptr, _total(voff), swizzle))
+                addr = self._addr(tensor.ptr, tensor.byte_offset(self, voff), swizzle)
+                rd, tok = op(addr)
                 payloads.append(rd)
-                tokens.append(tok)
-        elif src is MemSpace.REG and dst is MemSpace.GLOBAL:
-            assert data is not None, "reg->global transfer needs data"
-            if not isinstance(data, (list, tuple)):
-                data = [data]
-            assert len(data) == n, (
-                f"reg->global transfer: data has {len(data)} payloads but "
-                f"value_layout.size()={n}"
-            )
-            # nt=True matches the legacy store_multi_fragment_to_global default
-            # (streaming C store). AGPR data needs no VGPR copy; the store op
-            # takes it directly.
-            for v, voff in enumerate(offsets):
-                tok = op(
-                    data[v],
-                    tensor.ptr,
-                    dynamic_offset=self.index_to_vgpr(_total(voff)),
-                    nt=True,
-                )
-                payloads.append(None)
                 tokens.append(tok)
         else:
             raise NotImplementedError(f"transfer: {src} -> {dst}")
@@ -266,18 +278,17 @@ class KernelBuilderWithLayouts(KernelBuilder):
 
     def transfer_tiles(
         self,
-        tensor: Tensor,
+        tensor: TensorLike,
         tc: TiledCopy,
         *,
         unroll_axes: tuple[Symbol, ...],
         data: Optional[LayoutValues] = None,
+        buffer: Optional[TransferTileBuffer] = None,
+        nt: bool = True,
     ) -> LayoutValues:
-        """Emit one hardware transfer per (unroll_axes-coord, value-coord).
+        """Emit one transfer per unrolled tile coordinate and value coordinate.
 
-        unroll_axes: Symbols from tensor.layout to iterate over.
-        data: per-tile payload bundle from a prior transfer.
-
-        To bind some axes before iterating, pre-slice via slice(t, {...}).
+        Use slice to bind some axes before calling this API.
         """
         L = tensor.layout
         assert L is not None and L.axes is not None, (
@@ -316,12 +327,34 @@ class KernelBuilderWithLayouts(KernelBuilder):
             )
             sub_tensor = Tensor(tensor.ptr, tile_off)
             transfer = self._emit_transfer_tile(
-                tc, sub_tensor, data=per_tile_payloads(coords)
+                tc, sub_tensor, data=per_tile_payloads(coords), buffer=buffer, nt=nt
             )
             flat_payloads.extend(transfer.payloads)
             flat_tokens.extend(transfer.tokens)
         return LayoutValues.from_flat(
             out_layout, payloads=tuple(flat_payloads), tokens=tuple(flat_tokens)
+        )
+
+    def prepare_transfer_tiles_buffer(
+        self,
+        ptr: ir.Value,
+        *,
+        buffer_num_records_bytes: int,
+        srd_flags: int = 0x24924,
+    ) -> TransferTileBuffer:
+        """Build loop-invariant SRD resources for buffer load and store.
+
+        buffer_num_records_bytes sets the byte bound from ptr.
+
+        Example:
+            buf = b.prepare_transfer_tiles_buffer(ptr, buffer_num_records_bytes=nbytes)
+        """
+        nr = self.s_mov_b32(buffer_num_records_bytes)
+        rsrc = self.make_buffer_rsrc(ptr, nr, self.constant_i32(0), flags=srd_flags)
+        return TransferTileBuffer(
+            rsrc=rsrc,
+            soff=self.s_mov_b32(0),
+            num_records_bytes=buffer_num_records_bytes,
         )
 
     def prepare_transfer_tiles_g2s(
@@ -481,13 +514,15 @@ class KernelBuilderWithLayouts(KernelBuilder):
 
     def transfer_tile(
         self,
-        tensor: Tensor,
+        tensor: TensorLike,
         tc: TiledCopy,
         *,
         data: Any = None,
+        buffer: Optional[TransferTileBuffer] = None,
+        nt: bool = True,
     ) -> LayoutValues:
         """Emit hardware transfers for one tiled copy at ``tensor``'s offset."""
-        transfer = self._emit_transfer_tile(tc, tensor, data=data)
+        transfer = self._emit_transfer_tile(tc, tensor, data=data, buffer=buffer, nt=nt)
         return LayoutValues.from_flat(
             tc.value_layout,
             payloads=transfer.payloads,
@@ -497,7 +532,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
     def copy(
         self,
         tc: TiledCopy,
-        tensor: Tensor,
+        tensor: TensorLike,
         data: Any = None,
     ) -> LayoutValues:
         """Deprecated: use ``transfer_tile(tensor, tc, *, data=)``."""
