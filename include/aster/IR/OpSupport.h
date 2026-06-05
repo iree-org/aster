@@ -72,15 +72,9 @@ struct DenseMapInfo<mlir::ValueRange> {
     return mlir::ValueRange(DenseMapInfo<PtrType>::getEmptyKey(), 0);
   }
 
-  static inline mlir::ValueRange getTombstoneKey() {
-    return mlir::ValueRange(DenseMapInfo<PtrType>::getTombstoneKey(), 0);
-  }
-
   static unsigned getHashValue(const mlir::ValueRange &range) {
     assert(range.getBase() != getEmptyKey().getBase() &&
            "Cannot hash the empty key!");
-    assert(range.getBase() != getTombstoneKey().getBase() &&
-           "Cannot hash the tombstone key!");
     return (unsigned)(hash_value(range));
   }
 
@@ -88,8 +82,6 @@ struct DenseMapInfo<mlir::ValueRange> {
                       const mlir::ValueRange &rhs) {
     if (rhs.getBase() == getEmptyKey().getBase())
       return lhs.getBase() == getEmptyKey().getBase();
-    if (rhs.getBase() == getTombstoneKey().getBase())
-      return lhs.getBase() == getTombstoneKey().getBase();
     return lhs == rhs;
   }
 };
