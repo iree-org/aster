@@ -1,0 +1,4 @@
+[submodule "contrib/stinkytofu/third_party/stinkytofu"]
+	path = contrib/stinkytofu/third_party/stinkytofu
+	url = /path/to/rocm-libraries
+	update = none
