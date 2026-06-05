@@ -1,13 +1,8 @@
-"""CDNA4 (MI350, gfx950) multi-tile GEMM using KernelBuilderWithLayouts.
+"""CDNA4 (MI350, gfx950) multi-tile GEMM, LDS operand path, layout-driven API.
 
-LDS operand_path variant only (direct_b paths stripped). Same structure as
-test_102_gemm_python_multitile_cdna4 but constrained to the lds B path:
-  - v_mfma_f32_16x16x32_f16 (doubled-K, 4 VGPR A/B operands)
-  - ds_read_b64 (64-bit LDS reads for vx2 MFMA fragments)
-  - 2 fragment per tile
-
-Memory path: G2S buffer_load_dwordx4_lds -> ds_read_b64 (2x, joined to vx4) -> MFMA.
-All tiles loaded cooperatively by all waves, barrier, then all waves compute.
+Both A and B flow through LDS via cooperative flat loads (g2s -> ds_read64
+-> v_mfma_f32_16x16x16_f16).
+Divisible M/N/K, single K-loop (no persistence), flat loads/store (no buffer OOB).
 """
 
 import dataclasses
@@ -24,13 +19,18 @@ import pytest
 
 from aster import ir
 from aster.dialects.kernel_builder import MFMA_F16_CDNA4
-from aster.dialects.kernel_builder_with_layouts import KernelBuilderWithLayouts as KernelBuilder
+from aster.dialects.kernel_builder_with_layouts import (
+    ds_read_64b,
+    global_store_dword,
+    KernelBuilderWithLayouts as KernelBuilder,
+)
 from aster.dialects.amdgcn import AccessKind
 from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
 from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.utils import system_has_gpu
 from aster.pass_pipelines import make_default_pass_pipeline
-from aster.layout import Layout, Swizzle, make_layout
+from aster.layout import Layout, LayoutValues, Swizzle, Symbol, Tensor, enumerate_flat_coords, tile
+from coop import make_coop_load_plan
 
 from kittens.gemm_config import (
     A as OP_A,
@@ -47,144 +47,99 @@ from kittens.gemm_config import (
 )
 
 
-def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
-    """Build a CDNA4 multi-tile GEMM kernel via G2S direct-to-LDS (lds B path).
+# Compute / WG axes (layout-driven kernel body, mirrors directb template).
+m = Symbol("m")
+n = Symbol("n")
+k_tile = Symbol("k_tile")
+global_k = Symbol("global_k")
+wg_m = Symbol("wg_m")
+wg_n = Symbol("wg_n")
+wave_m = Symbol("wave_m")
+wave_n = Symbol("wave_n")
+# Cooperative A G2S inner-iter axes.
+m_load_a = Symbol("m_load_a")
+k_load_a = Symbol("k_load_a")
+# Cooperative B G2S inner-iter axes.
+n_load_b = Symbol("n_load_b")
+k_load_b = Symbol("k_load_b")
 
-    G2S collapses LOAD + LDS_WRITE into a single stage: tag G2S with
-    STG_A/B_LOAD and ignore A/B_LDS_WRITE entries of the strategy.
+
+def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
+    """Build a CDNA4 multi-tile GEMM kernel: G2S A + G2S B (both -> LDS).
+
+    G2S collapses LOAD + LDS_WRITE into one stage for each operand. A_LDS_WRITE
+    and B_LDS_WRITE parts of the pipeline strategy are unused (no separate
+    ds_write op). Both A and B flow global -> LDS via G2S, then ds_read -> vx4
+    join -> MFMA. B is NOT preshuffled; it goes through LDS exactly like A.
     """
     from kittens_helpers import PIPELINE_STRATEGIES
 
     spec, mapping = cfg.spec, cfg.mapping
-    gs = spec.gemm_size
+
+    # --- Sizes + tile geometry from spec/mapping ---
+    M_total = spec.gemm_size[DIM_M]
+    N_total = spec.gemm_size[DIM_N]
+    K = spec.gemm_size[DIM_K]
+    mfma_m, mfma_n, mfma_k = (
+        spec.mfma_shape[DIM_M],
+        spec.mfma_shape[DIM_N],
+        spec.mfma_shape[DIM_K],
+    )
+    assert (mfma_m, mfma_n) == (16, 16) and mfma_k == 32, (
+        f"CDNA4 g2s_lds kernel only supports MFMA 16x16x32 (got {(mfma_m, mfma_n, mfma_k)})"
+    )
+    elt_bytes_a = spec.elt_bytes_a
+    elt_bytes_b = spec.elt_bytes_b
+
     wg = mapping.num_workgroups_per_kernel
     wpw = mapping.num_waves_per_workgroup
-    tpw = mapping.num_tiles_per_wave
     twg = mapping.num_tiles_per_workgroup
+    wg_m_count, wg_n_count = wg[DIM_M], wg[DIM_N]
+    wpw_m, wpw_n = wpw[DIM_M], wpw[DIM_N]
+    m_t, n_t, k_t = twg[DIM_M], twg[DIM_N], twg[DIM_K]
+    nw = wpw_m * wpw_n
     ws = mapping.wave_size
-    mfma_m, mfma_n, mfma_k = spec.mfma_shape[DIM_M], spec.mfma_shape[DIM_N], spec.mfma_shape[DIM_K]
-    elt_bytes_a, elt_bytes_b = spec.elt_bytes_a, spec.elt_bytes_b
 
-    tile_k_elems = cfg.transfer_tile_k_elems
-    tile_row_bytes = cfg.transfer_tile_row_bytes
-    tile_bytes = cfg.transfer_tile_bytes
+    assert m_t % wpw_m == 0, f"twg_m={m_t} not divisible by wpw_m={wpw_m}"
+    assert n_t % wpw_n == 0, f"twg_n={n_t} not divisible by wpw_n={wpw_n}"
+    m_per_wave = m_t // wpw_m
+    n_per_wave = n_t // wpw_n
 
-    def _exact_div(a, b, ctx=""):
-        assert b != 0, f"division by zero: {ctx}"
-        assert a % b == 0, f"{ctx}: {a} is not divisible by {b}"
-        return a // b
-
-    m_t, n_t, k_t = tpw[DIM_M], tpw[DIM_N], tpw[DIM_K]
-    twg_m, twg_n = twg[DIM_M], twg[DIM_N]
-    nw = mapping.num_waves
-    assert twg_m == wpw[DIM_M] * m_t
-    assert twg_n == wpw[DIM_N] * n_t
-
-    # 2-D cooperative split (same as test_102): distribute WG tiles across waves.
-    def _coop_2d_split(num_tiles, num_waves, kt):
-        waves_s = min(num_tiles, num_waves)
-        waves_k = max(1, math.floor(num_waves / waves_s))
-        coop_s = math.ceil(num_tiles / waves_s)
-        coop_k = math.ceil(kt / waves_k)
-        return waves_s, waves_k, coop_s, coop_k
-
-    a_waves_m, a_waves_k, coop_a_m, coop_a_k = _coop_2d_split(twg_m, nw, k_t)
-    b_waves_n, b_waves_k, coop_b_n, coop_b_k = _coop_2d_split(twg_n, nw, k_t)
-    n_coop_a = coop_a_m * coop_a_k
-    n_coop_b = coop_b_n * coop_b_k
-
-    # Pipeline stage assignments from strategy. A_LDS_WRITE / B_LDS_WRITE
-    # are ignored for G2S (no separate LDS write op).
+    # Pipeline stages -- A_LDS_WRITE / B_LDS_WRITE entries ignored (G2S
+    # collapses LOAD+WRITE for both operands).
     stg = PIPELINE_STRATEGIES[mapping.pipeline_strategy]
     STG_A_LOAD = stg["A_LOAD"]
     STG_A_LDS_READ = stg["A_LDS_READ"]
     STG_B_LOAD = stg["B_LOAD"]
     STG_B_LDS_READ = stg["B_LDS_READ"]
     STG_COMPUTE = stg["COMPUTE"]
+    N_STAGES = STG_COMPUTE + 1
     first_lds_load = min(STG_A_LOAD, STG_B_LOAD)
 
-    ol_a, ol_b, ol_c = spec.operand_layout(OP_A), spec.operand_layout(OP_B), spec.operand_layout(OP_C)
-    stride_a, stride_b = ol_a.strides[0], ol_b.strides[0]
-    stride_c_row, stride_c_col = ol_c.strides[0], ol_c.strides[1]
+    tile_k_elems = cfg.transfer_tile_k_elems
+    tile_row_bytes = cfg.transfer_tile_row_bytes
+    tile_bytes_a = cfg.transfer_tile_bytes
+    tile_bytes_b = tile_bytes_a  # A and B tiles are the same byte geometry.
+    frag_k = mfma_k // 2  # K elements per ds_read fragment (= 16, half-K).
+    n_frags_per_tile = tile_k_elems // frag_k  # = 2
 
     k_step = k_t * tile_k_elems
-    assert gs[DIM_K] % k_step == 0
-    k_iters = gs[DIM_K] // k_step
-    n_accs = m_t * n_t
+    assert K % k_step == 0, f"K={K} not divisible by k_step={k_step}"
+    k_iters = K // k_step
+    assert k_iters >= N_STAGES, f"k_iters={k_iters} < N_STAGES={N_STAGES}; pipeliner needs at least N_STAGES iters"
 
-    # -- Layouts --
+    # Operand strides.
+    ol_a = spec.operand_layout(OP_A)
+    ol_b = spec.operand_layout(OP_B)
+    ol_c = spec.operand_layout(OP_C)
+    stride_a = ol_a.strides[0]
+    stride_b = ol_b.strides[0]
+    stride_c_row, stride_c_col = ol_c.strides[0], ol_c.strides[1]
 
-    lds_swizzle = Swizzle(bits=2, base=4, shift=4)
-    frag_k = mfma_k // 2  # K elements per fragment = 16 (half-K)
-    lds_read_tile_a = Layout((_exact_div(ws, mfma_m, "ws/mfma_m"), mfma_m), (mapping.ds_read_bytes, tile_row_bytes))
-    lds_read_tile_b = Layout((_exact_div(ws, mfma_n, "ws/mfma_n"), mfma_n), (mapping.ds_read_bytes, tile_row_bytes))
-    n_frags_per_tile = _exact_div(tile_k_elems, frag_k, "tile_k/frag_k")
-    lds_read_sub_tile_a = Layout((1, n_frags_per_tile), (0, frag_k * elt_bytes_a))
-    lds_read_sub_tile_b = Layout((1, n_frags_per_tile), (0, frag_k * elt_bytes_b))
-
-    # Per-thread global byte offset within one tile, for the G2S voffset.
-    #
-    # G2S (`buffer_load_dwordx4_lds`) always writes `M0 + TID*16` linearly to LDS.
-    # Swizzle acts on tile-local bits only: compute the tile-local offset with
-    # `tile_row_bytes` row stride (swizzled), then add the row-stride correction
-    # `(stride_a - tile_row_bytes, 0)` unswizzled.
-    TILE_LOCAL_A = Layout((mfma_m, ws // mfma_m), (tile_row_bytes, mapping.global_load_bytes))
-    TILE_LOCAL_B = Layout((mfma_n, ws // mfma_n), (tile_row_bytes, mapping.global_load_bytes))
-    ROW_STRIDE_CORR_A = Layout((mfma_m, ws // mfma_m), (stride_a - tile_row_bytes, 0))
-    ROW_STRIDE_CORR_B = Layout((mfma_n, ws // mfma_n), (stride_b - tile_row_bytes, 0))
-
-    n_agprs = ws // mfma_n
-    GLOBAL_STORE_TILE_C = Layout((n_agprs, mfma_n, n_agprs), (n_agprs * stride_c_row, stride_c_col, stride_c_row))
-    GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
-
-    TILE_COORD_A = Layout((k_t, twg_m), (tile_row_bytes, mfma_m * stride_a))
-    TILE_COORD_B = Layout((k_t, twg_n), (tile_row_bytes, mfma_n * stride_b))
-    LDS_COORD_A = Layout((k_t, twg_m), (twg_m * tile_bytes, tile_bytes))
-    LDS_COORD_B = Layout((k_t, twg_n), (twg_n * tile_bytes, tile_bytes))
-    WAVE_READ_COORD_A = Layout((k_t, m_t), (twg_m * tile_bytes, tile_bytes))
-    WAVE_READ_COORD_B = Layout((k_t, n_t), (twg_n * tile_bytes, tile_bytes))
-    WAVE_M_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (m_t * tile_bytes, 0))
-    WAVE_N_LDS_OFF = Layout((wpw[DIM_M], wpw[DIM_N]), (0, n_t * tile_bytes))
-    # Per-wave LDS read offset = wave-base shift + per-tile (k, m/n) offset.
-    WAVE_READ_FULL_A = make_layout(WAVE_M_LDS_OFF, WAVE_READ_COORD_A)
-    WAVE_READ_FULL_B = make_layout(WAVE_N_LDS_OFF, WAVE_READ_COORD_B)
-    WG_BASE_A = Layout((wg[DIM_M], k_iters), (twg_m * TILE_COORD_A.strides[1], k_t * TILE_COORD_A.strides[0]))
-    WG_BASE_B = Layout((wg[DIM_N], k_iters), (twg_n * TILE_COORD_B.strides[1], k_t * TILE_COORD_B.strides[0]))
-
-    # Per-wave A/B base layouts via make_layout (fused WG_BASE + tile coord).
-    WAVE_BASE_A = make_layout(WG_BASE_A, TILE_COORD_A)
-    WAVE_BASE_B = make_layout(WG_BASE_B, TILE_COORD_B)
-    C_COORD = Layout((m_t, n_t), (mfma_m * stride_c_row, mfma_n * stride_c_col))
-
-    # Global C-tile base in bytes: (wg_m_idx, wave_m_idx, wg_n_idx, wave_n_idx)
-    # -> byte offset of this wave's first C tile.
-    C_BASE = Layout(
-        sizes=((wg[DIM_M], wpw[DIM_M]), (wg[DIM_N], wpw[DIM_N])),
-        strides=(
-            (twg_m * mfma_m * stride_c_row, m_t * mfma_m * stride_c_row),
-            (twg_n * mfma_n * stride_c_col, n_t * mfma_n * stride_c_col),
-        ),
-    )
-    # Per-thread C-tile byte offset = C_BASE + per-tile (m, n) offset.
-    C_OFF = make_layout(C_BASE, C_COORD)
-
-    # Cooperative load layouts (same pattern as test_102).
-    COOP_COORD_A = Layout((coop_a_k, coop_a_m), (tile_row_bytes, mfma_m * stride_a))
-    COOP_COORD_B = Layout((coop_b_k, coop_b_n), (tile_row_bytes, mfma_n * stride_b))
-    COOP_LDS_A = Layout((coop_a_k, coop_a_m), (twg_m * tile_bytes, tile_bytes))
-    COOP_LDS_B = Layout((coop_b_k, coop_b_n), (twg_n * tile_bytes, tile_bytes))
-    max_a_m_start = max(0, twg_m - coop_a_m)
-    max_a_k_start = max(0, k_t - coop_a_k)
-    max_b_n_start = max(0, twg_n - coop_b_n)
-    max_b_k_start = max(0, k_t - coop_b_k)
-
-    n_tiles_a_wg = k_t * twg_m
-    n_tiles_b_wg = k_t * twg_n
-    n_read_a, n_read_b = k_t * m_t, k_t * n_t
-    lds_total_a = n_tiles_a_wg * tile_bytes
-    lds_total_b = n_tiles_b_wg * tile_bytes
-
-    d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+    # Shared per-WG LDS for A and B.
+    lds_total_a = m_t * k_t * tile_bytes_a
+    lds_total_b = n_t * k_t * tile_bytes_b
+    LDS_SWIZZLE = Swizzle(bits=2, base=4, shift=4)
 
     b = KernelBuilder("gemm_cdna4_mod", cfg.kernel_name, target=mapping.mcpu)
     b.set_block_dims(mapping.num_threads)
@@ -194,199 +149,199 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     b.add_ptr_arg(AccessKind.WriteOnly)
     a_ptr, b_ptr, c_ptr = b.load_args()
 
-    # Buffer resource descriptors for G2S.
-    SRD_FLAGS = 0x24924
-    nr_a = b.s_mov_b32(gs[DIM_M] * stride_a)
-    nr_b = b.s_mov_b32(gs[DIM_N] * stride_b)
-    stride_i32 = b.constant_i32(0)
-    a_rsrc = b.make_buffer_rsrc(a_ptr, nr_a, stride_i32, flags=SRD_FLAGS)
-    b_rsrc = b.make_buffer_rsrc(b_ptr, nr_b, stride_i32, flags=SRD_FLAGS)
-    soff = b.s_mov_b32(0)
-    m0 = b.alloc_m0()
-    soff_val = soff
-
-    # Per-thread byte offsets within one tile (loop-invariant).
-    lane = b.lane_id()
-    thread_off_a = b.affine_apply(
-        d0 + d1,
-        [
-            b.layout_apply(lane, TILE_LOCAL_A, swizzle=lds_swizzle),
-            b.layout_apply(lane, ROW_STRIDE_CORR_A),
-        ],
+    # --- TiledCopies (used for LDS read A + LDS read B) ---
+    ds_read_bytes = mapping.ds_read_bytes
+    tc_dsr_a = b.make_tiled_copy_descriptor(
+        ds_read_64b,
+        thread_layout=Layout((ws // mfma_m, mfma_m), (ds_read_bytes, tile_row_bytes)),
+        value_layout=Layout(n_frags_per_tile, frag_k * elt_bytes_a),
+        swizzle=LDS_SWIZZLE,
     )
-    thread_off_b = b.affine_apply(
-        d0 + d1,
-        [
-            b.layout_apply(lane, TILE_LOCAL_B, swizzle=lds_swizzle),
-            b.layout_apply(lane, ROW_STRIDE_CORR_B),
-        ],
+    tc_dsr_b = b.make_tiled_copy_descriptor(
+        ds_read_64b,
+        thread_layout=Layout((ws // mfma_n, mfma_n), (ds_read_bytes, tile_row_bytes)),
+        value_layout=Layout(n_frags_per_tile, frag_k * elt_bytes_b),
+        swizzle=LDS_SWIZZLE,
+    )
+    # C store: MFMA 16x16 accumulator -> row-major fp32 C tile. The lane owns
+    # col = lane%mfma_n and the n_agprs-row block starting at (lane//mfma_n)*n_agprs;
+    # value v is the row within that block (n_agprs fp32 D-registers per lane).
+    n_agprs = ws // mfma_n
+    tc_store_c = b.make_tiled_copy_descriptor(
+        global_store_dword,
+        thread_layout=Layout((n_agprs, mfma_n), (n_agprs * stride_c_row, stride_c_col)),
+        value_layout=Layout(n_agprs, stride_c_row),
     )
 
-    # LDS read helpers.
-    read_ret = [b.any_type] * n_frags_per_tile + [b.lds_read_tok] * n_frags_per_tile
+    # --- Layouts ---
+    A_TILED = tile(
+        Layout((M_total, K), (stride_a, elt_bytes_a)),
+        tile_sizes=((mfma_m, m_t), (tile_k_elems, k_t)),
+        axes=((m, wg_m), (k_tile, global_k)),
+    )
+    B_TILED = tile(
+        Layout((N_total, K), (stride_b, elt_bytes_b)),
+        tile_sizes=((mfma_n, n_t), (tile_k_elems, k_t)),
+        axes=((n, wg_n), (k_tile, global_k)),
+    )
+    C_TILED = tile(
+        Layout((M_total, N_total), (stride_c_row, stride_c_col)),
+        tile_sizes=((mfma_m, m_per_wave, wpw_m), (mfma_n, n_per_wave, wpw_n)),
+        axes=((m, wave_m, wg_m), (n, wave_n, wg_n)),
+    )
+    LDS_A_READ_TILED = tile(
+        Layout((m_t, k_t * tile_bytes_a), (k_t * tile_bytes_a, 1)),
+        tile_sizes=((1, m_per_wave), tile_bytes_a),
+        axes=((m, wave_m), k_tile),
+    )
+    LDS_B_READ_TILED = tile(
+        Layout((n_t, k_t * tile_bytes_b), (k_t * tile_bytes_b, 1)),
+        tile_sizes=((1, n_per_wave), tile_bytes_b),
+        axes=((n, wave_n), k_tile),
+    )
 
-    @b.define_helper("_read_a", [b.idx_type], read_ret)
-    def read_a_fn(bb, lds_off):
-        frags = bb.read_multi_fragment_from_lds(
-            lds_off, lds_read_tile_a, lds_swizzle, lds_read_sub_tile_a, bb.ds_read_b64
-        )
-        return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
-
-    @b.define_helper("_read_b", [b.idx_type], read_ret)
-    def read_b_fn(bb, lds_off):
-        frags = bb.read_multi_fragment_from_lds(
-            lds_off, lds_read_tile_b, lds_swizzle, lds_read_sub_tile_b, bb.ds_read_b64
-        )
-        return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
-
-    # -- Init accumulators --
-    c_buf = b.memref_alloca(b.constant_index(n_accs), b.ax4_type)
-
-    @b.foreach_tile(n_accs)
-    def _(idx):
-        b.memref_store(b.init_agprx4(b.constant_i32(0)), c_buf, idx)
-
-    # -- Distribution --
-    wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg[DIM_M], wg[DIM_N]))
+    # --- Distribution + cooperative-load plans for A and B ---
+    wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg_m_count, wg_n_count))
     wid = b.wave_id()
-    wave_m_idx, wave_n_idx = b.delinearize_index(wid, (wpw[DIM_M], wpw[DIM_N]))
+    wave_m_idx, wave_n_idx = b.delinearize_index(wid, (wpw_m, wpw_n))
 
-    # Cooperative load starts: wave_id -> (spatial_start, k_start) with OOB
-    # clamping. Excess waves clamp to the last valid start and duplicate the
-    # last tile. Same pattern as test_102.
-    coop_a_m_raw, coop_a_k_raw = b.delinearize_index(wid, (a_waves_m, a_waves_k))
-    coop_a_m_start = b.arith_minui(b.affine_apply(d0 * coop_a_m, [coop_a_m_raw]), b.constant_index(max_a_m_start))
-    coop_a_k_start = b.arith_minui(b.affine_apply(d0 * coop_a_k, [coop_a_k_raw]), b.constant_index(max_a_k_start))
-    coop_b_n_raw, coop_b_k_raw = b.delinearize_index(wid, (b_waves_n, b_waves_k))
-    coop_b_n_start = b.arith_minui(b.affine_apply(d0 * coop_b_n, [coop_b_n_raw]), b.constant_index(max_b_n_start))
-    coop_b_k_start = b.arith_minui(b.affine_apply(d0 * coop_b_k, [coop_b_k_raw]), b.constant_index(max_b_k_start))
+    plan_a = make_coop_load_plan(
+        b,
+        wid,
+        num_waves=nw,
+        wg_tile_global=Layout((m_t, k_t), (mfma_m * stride_a, tile_row_bytes)),
+        wg_tile_lds=Layout((m_t, k_t), (k_t * tile_bytes_a, tile_bytes_a)),
+        spatial_axis=m_load_a,
+        k_axis=k_load_a,
+    )
+    plan_b = make_coop_load_plan(
+        b,
+        wid,
+        num_waves=nw,
+        wg_tile_global=Layout((n_t, k_t), (mfma_n * stride_b, tile_row_bytes)),
+        wg_tile_lds=Layout((n_t, k_t), (k_t * tile_bytes_b, tile_bytes_b)),
+        spatial_axis=n_load_b,
+        k_axis=k_load_b,
+    )
 
-    c0, c1 = b.constant_index(0), b.constant_index(1)
-    s0, s1, s2 = [ir.AffineExpr.get_symbol(i) for i in range(3)]
+    # Per-WG sliced tensors.
+    TA = b.slice(Tensor(a_ptr, layout=A_TILED), {wg_m: wg_m_idx})
+    TB = b.slice(Tensor(b_ptr, layout=B_TILED), {wg_n: wg_n_idx})
+    TC = b.slice(
+        Tensor(c_ptr, layout=C_TILED),
+        {wg_m: wg_m_idx, wg_n: wg_n_idx, wave_m: wave_m_idx, wave_n: wave_n_idx},
+    )
 
-    # -- K-loop (pipelined by mapping.pipeline_strategy) --
+    # --- G2S setup (buffer resource + M0 + soff + per-thread tile-local off),
+    # bundled into a TransferTileG2S by prepare_transfer_tiles_g2s.
+    g2s_a = b.prepare_transfer_tiles_g2s(
+        a_ptr,
+        buffer_num_records_bytes=M_total * stride_a,
+        spatial_dim=mfma_m,
+        tile_row_bytes=tile_row_bytes,
+        global_load_bytes=mapping.global_load_bytes,
+        global_row_stride=stride_a,
+        swizzle=LDS_SWIZZLE,
+    )
+    g2s_b = b.prepare_transfer_tiles_g2s(
+        b_ptr,
+        buffer_num_records_bytes=N_total * stride_b,
+        spatial_dim=mfma_n,
+        tile_row_bytes=tile_row_bytes,
+        global_load_bytes=mapping.global_load_bytes,
+        global_row_stride=stride_b,
+        swizzle=LDS_SWIZZLE,
+    )
+
+    # --- Accumulators are explicitly set in c_buf to avoid iter_args register
+    # pressure that blows up regalloc for deep pipelines.
+    from aster._mlir_libs._amdgcn import AGPRRangeType
+
+    n_accs = m_per_wave * n_per_wave
+    ax4_type = AGPRRangeType.get(b._ctx, size=4)
+    c_buf = b.memref_alloca(b.constant_index(n_accs), ax4_type)
+    for i in range(n_accs):
+        b.memref_store(b.init_agprx4(b.constant_i32(0)), c_buf, b.constant_index(i))
+
+    c0 = b.constant_index(0)
+    c1 = b.constant_index(1)
+
     @b.loop(c0, b.constant_index(k_iters), c1)
-    def _(k_iv):
-        # -- LDS ALLOC: A and B (lds B path only). --
+    def body(k_iv):
+        # -- LDS alloc (A and B both go through LDS).
         with b.stage(first_lds_load):
-            lds_a_h, lds_a = b.alloc_lds(lds_total_a)
-            lds_b_h, lds_b = b.alloc_lds(lds_total_b)
+            lds_a_h, sA_full = b.alloc_lds_tensor(lds_total_a, layout=LDS_A_READ_TILED)
+            lds_b_h, sB_full = b.alloc_lds_tensor(lds_total_b, layout=LDS_B_READ_TILED)
 
-        # -- G2S LOAD A (cooperative, 2D split) --
+        # -- G2S LOAD A: cooperative, per-tile loop via transfer_tiles_g2s.
         with b.stage(STG_A_LOAD):
-            a_wave_base = b.layout_apply((wg_m_idx, k_iv, coop_a_k_start, coop_a_m_start), WAVE_BASE_A)
-            coop_a_lds_off = b.layout_apply((coop_a_k_start, coop_a_m_start), LDS_COORD_A)
-            lds_a_wave = b.layout_sum(lds_a, coop_a_lds_off)
+            ta_iter = b.slice(TA, {global_k: k_iv})
+            g2s_toks_a = b.transfer_tiles_g2s(
+                Tensor(
+                    a_ptr,
+                    b.layout_sum(ta_iter.offset, plan_a.global_wave_off),
+                    plan_a.global_layout,
+                ),
+                Tensor(sA_full.ptr, plan_a.lds_wave_off, plan_a.lds_layout),
+                g2s_a,
+                unroll_axes=plan_a.unroll_axes,
+            )
 
-            @b.foreach_tile(n_coop_a, types=[(b.flat_read_tok, 1)])
-            def g2s_toks_a(idx):
-                tile_off = b.layout_apply(idx, COOP_COORD_A)
-                voff = b.affine_apply(s0 + s1 + s2, [], [a_wave_base, thread_off_a, tile_off])
-                lds_off = b.layout_sum(lds_a_wave, b.layout_apply(idx, COOP_LDS_A))
-                b.set_m0(m0, b.index_to_sgpr(lds_off))
-                tok = b.g2s_buffer_load_dwordx4(m0, a_rsrc, soff_val, b.index_to_vgpr(voff))
-                return [tok]
-
-        # -- G2S LOAD B (cooperative, 2D split) --
+        # -- G2S LOAD B: cooperative, per-tile loop via transfer_tiles_g2s.
         with b.stage(STG_B_LOAD):
-            b_wave_base = b.layout_apply((wg_n_idx, k_iv, coop_b_k_start, coop_b_n_start), WAVE_BASE_B)
-            coop_b_lds_off = b.layout_apply((coop_b_k_start, coop_b_n_start), LDS_COORD_B)
-            lds_b_wave = b.layout_sum(lds_b, coop_b_lds_off)
+            tb_iter = b.slice(TB, {global_k: k_iv})
+            g2s_toks_b = b.transfer_tiles_g2s(
+                Tensor(
+                    b_ptr,
+                    b.layout_sum(tb_iter.offset, plan_b.global_wave_off),
+                    plan_b.global_layout,
+                ),
+                Tensor(sB_full.ptr, plan_b.lds_wave_off, plan_b.lds_layout),
+                g2s_b,
+                unroll_axes=plan_b.unroll_axes,
+            )
 
-            @b.foreach_tile(n_coop_b, types=[(b.flat_read_tok, 1)])
-            def g2s_toks_b(idx):
-                tile_off = b.layout_apply(idx, COOP_COORD_B)
-                voff = b.affine_apply(s0 + s1 + s2, [], [b_wave_base, thread_off_b, tile_off])
-                lds_off = b.layout_sum(lds_b_wave, b.layout_apply(idx, COOP_LDS_B))
-                b.set_m0(m0, b.index_to_sgpr(lds_off))
-                tok = b.g2s_buffer_load_dwordx4(m0, b_rsrc, soff_val, b.index_to_vgpr(voff))
-                return [tok]
-
-        # -- LDS READ A: wait G2S + barrier + read + dealloc --
+        # -- LDS READ A: wait G2S + barrier + read via tc_dsr_a + dealloc.
         with b.stage(STG_A_LDS_READ):
-
-            @b.foreach_tile(n_coop_a)
-            def _(i):
-                b.wait_deps(b.memref_load(g2s_toks_a, i))
-
-            @b.foreach_tile(n_coop_b)
-            def _(i):
-                b.wait_deps(b.memref_load(g2s_toks_b, i))
-
+            b.wait_deps(*g2s_toks_a)
+            b.wait_deps(*g2s_toks_b)
             b.s_barrier()
-
-            @b.foreach_tile(n_read_a, types=[(b.any_type, n_frags_per_tile), (b.lds_read_tok, n_frags_per_tile)])
-            def read_a(idx):
-                k, m = b.delinearize_index(idx, (k_t, m_t))
-                off = b.layout_sum(
-                    lds_a,
-                    b.layout_apply((wave_m_idx, wave_n_idx, k, m), WAVE_READ_FULL_A),
-                )
-                return b.call_helper(read_a_fn, [off], read_ret)
-
-            frag_buf_a, rtok_buf_a = read_a
+            sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
             b.dealloc_lds(lds_a_h)
 
-        # -- B FRAGMENTS: LDS read (cooperative) --
+        # -- LDS READ B: read via tc_dsr_b + dealloc.
         with b.stage(STG_B_LDS_READ):
-
-            @b.foreach_tile(n_read_b, types=[(b.any_type, n_frags_per_tile), (b.lds_read_tok, n_frags_per_tile)])
-            def read_b(idx):
-                k, n = b.delinearize_index(idx, (k_t, n_t))
-                off = b.layout_sum(
-                    lds_b,
-                    b.layout_apply((wave_m_idx, wave_n_idx, k, n), WAVE_READ_FULL_B),
-                )
-                return b.call_helper(read_b_fn, [off], read_ret)
-
-            frag_buf_b, rtok_buf_b = read_b
+            sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
+            b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile))
             b.dealloc_lds(lds_b_h)
 
-        # -- COMPUTE: coalesce vx2 fragments into vx4 for CDNA4 MFMA --
+        # -- COMPUTE: join 2 vx2 frags into vx4 for both A and B, then MFMA.
         with b.stage(STG_COMPUTE):
-            nf = n_frags_per_tile
-            assert nf == 2, f"CDNA4 expects 2 vx2 frags per tile, got {nf}"
-
-            # Coarse wait at the top of the COMPUTE stage give more opportunities
-            # to llsched.
-            all_a_tokens = [b.memref_load(rtok_buf_a, b.constant_index(i)) for i in range(k_t * m_t * nf)]
-            all_b_tokens = [b.memref_load(rtok_buf_b, b.constant_index(i)) for i in range(k_t * n_t * nf)]
-            b.wait_deps(*all_a_tokens, *all_b_tokens)
-
-            @b.foreach_tile(k_t * m_t * n_t)
-            def _(idx):
-                kt, mt, nt = b.delinearize_index(idx, (k_t, m_t, n_t))
-                acc_idx = b.linearize_index((mt, nt), (m_t, n_t))
-                a_lo_i = b.linearize_index((kt, mt, b.constant_index(0)), (k_t, m_t, nf))
-                a_hi_i = b.linearize_index((kt, mt, b.constant_index(1)), (k_t, m_t, nf))
-                b_lo_i = b.linearize_index((kt, nt, b.constant_index(0)), (k_t, n_t, nf))
-                b_hi_i = b.linearize_index((kt, nt, b.constant_index(1)), (k_t, n_t, nf))
+            b.wait_deps(a_frags, b_frags)
+            for kt, mi, ni in enumerate_flat_coords((k_t, m_per_wave, n_per_wave)):
+                acc_idx = b.constant_index(mi * n_per_wave + ni)
+                a_lo = a_frags.data_at((mi, kt, 0))
+                a_hi = a_frags.data_at((mi, kt, 1))
+                a_vx4 = b.join_vx2_to_vx4(a_lo, a_hi)
+                b_lo = b_frags.data_at((ni, kt, 0))
+                b_hi = b_frags.data_at((ni, kt, 1))
+                b_vx4 = b.join_vx2_to_vx4(b_lo, b_hi)
                 acc = b.memref_load(c_buf, acc_idx)
-                a_vx4 = b.join_vx2_to_vx4(
-                    b.from_any(b.memref_load(frag_buf_a, a_lo_i), b.vx2_type),
-                    b.from_any(b.memref_load(frag_buf_a, a_hi_i), b.vx2_type),
-                )
-                b_vx4 = b.join_vx2_to_vx4(
-                    b.from_any(b.memref_load(frag_buf_b, b_lo_i), b.vx2_type),
-                    b.from_any(b.memref_load(frag_buf_b, b_hi_i), b.vx2_type),
-                )
                 new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
                 b.memref_store(new_acc, c_buf, acc_idx)
 
-            # WAR sync: without this barrier, a fast wave's next-iter G2S can
+            # WAR sync: without this, a fast wave's next-iter G2S can
             # overwrite LDS offsets that a slow wave is still ds_read'ing.
             b.s_barrier()
 
-    # Store C tiles.
-    @b.foreach_tile(n_accs)
-    def _(idx):
-        m, n = b.delinearize_index(idx, (m_t, n_t))
-        c_off = b.layout_apply((wg_m_idx, wave_m_idx, wg_n_idx, wave_n_idx, m, n), C_OFF)
-        acc = b.memref_load(c_buf, idx)
-        b.store_multi_fragment_to_global(
-            acc, c_ptr, c_off, GLOBAL_STORE_TILE_C, GLOBAL_STORE_SUB_TILE_C, b.global_store_dword
-        )
-
+    # -- Store C tiles -- pass AGPR accs directly (split, no materialize);
+    # transfer_tiles splits each acc into n_agprs D-registers.
+    accs_bundle = LayoutValues.from_flat(
+        Layout((m_per_wave, n_per_wave)),
+        payloads=tuple(b.memref_load(c_buf, b.constant_index(i)) for i in range(n_accs)),
+    )
+    b.transfer_tiles(TC, tc_store_c, unroll_axes=(m, n), data=accs_bundle)
     return b.build()
 
 
@@ -491,7 +446,7 @@ def compile_cdna4_gemm(cfg, output_hsaco_path, **kw):
 
 def execute_cdna4_hsaco(cfg, hsaco_path, num_iterations, A, B, skip_gpu_check=False):
     """Execute a pre-compiled CDNA4 GEMM HSACO (lds B path; B is not preshuffled)."""
-    mcpu = getattr(cfg.mapping, "mcpu", "gfx950")
+    mcpu = cfg.mapping.mcpu
     if not skip_gpu_check and not system_has_gpu(mcpu):
         pytest.skip(f"GPU {mcpu} not available, skip execution")
 
