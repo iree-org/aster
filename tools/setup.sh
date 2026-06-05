@@ -31,6 +31,8 @@ print_help() {
     echo "  --venv=PATH        Use or create a specific Python environment"
     echo "  --venv-prompt=NAME Override the shell prompt shown inside the environment"
     echo "  --no-install       Only build (skip ninja install)"
+    echo "  --with-stinkytofu  Configure aster with -DASTER_ENABLE_STINKYTOFU=ON (contrib/stinkytofu;"
+    echo "                     requires the StinkyTofu submodule, see contrib/stinkytofu/README.md)"
     echo "  --help             Show this help"
     echo ""
     echo "Environment variables (override defaults):"
@@ -124,6 +126,7 @@ VENV_EXPLICIT=""
 VENV_PROMPT_EXPLICIT=""
 PYTHON_EXPLICIT=""
 NO_INSTALL=false
+WITH_STINKYTOFU=false
 
 parse_arguments() {
     for arg in "$@"; do
@@ -142,6 +145,7 @@ parse_arguments() {
             --venv=*)          VENV_EXPLICIT="${arg#*=}" ;;
             --venv-prompt=*)   VENV_PROMPT_EXPLICIT="${arg#*=}" ;;
             --no-install)      NO_INSTALL=true ;;
+            --with-stinkytofu) WITH_STINKYTOFU=true ;;
             --help|-h)
                 print_help
                 exit 0
@@ -817,6 +821,18 @@ phase4_configure_cmake() {
         cpu_flag="-DASTER_ENABLE_CPU=ON"
     fi
 
+    local stinkytofu_flag=""
+    if [ "$WITH_STINKYTOFU" = true ]; then
+        stinkytofu_flag="-DASTER_ENABLE_STINKYTOFU=ON"
+        if [ "$(uname)" = "Darwin" ]; then
+            # macOS has no ROCm: use the no-op comgr stub.
+            stinkytofu_flag="$stinkytofu_flag -DSTINKYTOFU_USE_STUB_COMGR=ON"
+        else
+            # Linux: link the real ROCm comgr.
+            stinkytofu_flag="$stinkytofu_flag -DSTINKYTOFU_USE_STUB_COMGR=OFF"
+        fi
+    fi
+
     if CMAKE_PREFIX_PATH="$CMAKE_PREFIX_CHAIN" "$VIRTUAL_ENV/bin/cmake" \
         -S "$ASTER_DIR" -B "$ASTER_BUILD_DIR" -GNinja \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -829,6 +845,7 @@ phase4_configure_cmake() {
         -DPython3_EXECUTABLE="$VIRTUAL_ENV/bin/python" \
         -DMLIR_BINDINGS_PYTHON_NB_DOMAIN=aster \
         ${cpu_flag} \
+        ${stinkytofu_flag} \
         $ASTER_LINKER_FLAGS \
         $CMAKE_EXTRA_FLAGS; then
         ok "cmake configured"
