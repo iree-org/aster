@@ -25,14 +25,18 @@ def EndKernelOp : AMDISAInstruction<"end_kernel", [
     Terminator, ReturnLike, HasParent<"KernelOp">
   ]> {
   let props = [IsControlFlow, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     End of program; terminate wavefront.
   }];
   let asm_mnemonic = "s_endpgm";
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000001>];
+  let encodings = [
+    InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000001>,
+    InstEnc<[ENC_SOPP_GFX12_50], 0b0110000>
+  ];
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic}">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic}">,
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic}">
   ];
 }
 #endif // SENDPGM_DEF

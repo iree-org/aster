@@ -140,8 +140,8 @@ QueueType classifyOp(Operation *op) {
 ///   1 = mfma-hiding default
 ///   2..N = future presets (add a new struct above + a new case here).
 CDNA3Latencies latencies(ISAVersion isa, int preset) {
-  if (isa == ISAVersion::CDNA4)
-    return CDNA4Latencies();
+  if (isa == ISAVersion::CDNA4 || isa == ISAVersion::GFX12_50)
+    return CDNA4Latencies(); // GFX12.5: CDNA4 placeholder until profiled.
   switch (preset) {
   case 1:
     return CDNA3PresetMfmaHiding();

@@ -813,6 +813,32 @@ def SSetprio : AMDISAInstruction<"s_setprio"> {
 }
 #endif // SSETPRIO_DEF
 
+#ifndef SSETPRIO_INC_WG_DEF
+#define SSETPRIO_INC_WG_DEF
+def SSetprioIncWg : AMDISAInstruction<"s_setprio_inc_wg"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Change wave user priority and increment the workgroup priority counter.
+    Available in gfx1250/gfx1251 (GFX12.5) only atm.
+  }];
+  // tmp SoT: LLVM defm S_SETPRIO_INC_WG : SOPP_Real_32_gfx12_gfx13<0x03e>;
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b0111110>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$imm
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $imm attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $imm">
+  ];
+}
+#endif // SSETPRIO_INC_WG_DEF
+
 
 #ifndef SSLEEP_DEF
 #define SSLEEP_DEF

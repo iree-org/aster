@@ -49,9 +49,16 @@ def CDNA4 : ISAVersion<"cdna4"> { let description = "CDNA 4 ISA version"; }
 
 def RDNA4 : ISAVersion<"rdna4"> { let description = "RDNA 4 ISA version"; }
 
+// TODO: Ideally call this CDNA5 / RDNA5 or UDNA ...
+// don't know what the right teminology is here but this sits at the same level
+// as CDNA4/CDNA4/RDNA4 and should not conflict with
+// GFX940/GFX950/GFX1201/GFX1250/GFX1251 terminology.
+def GFX12_50 : ISAVersion<"gfx12_50"> { let description = "GFX12.5 ISA version (gfx1250/gfx1251)"; }
+
 def IsaVersions
     : AutoI32EnumCases<"ISAVersion",
-                       "AMDGCN ISA Versions", [InvalidCase, CDNA3, CDNA4, RDNA4]> {
+                       "AMDGCN ISA Versions",
+                       [InvalidCase, CDNA3, CDNA4, RDNA4, GFX12_50]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
@@ -69,9 +76,14 @@ def GFX950 : Target<"gfx950", CDNA4> { let description = "GFX950 target"; }
 
 def GFX1201 : Target<"gfx1201", RDNA4> { let description = "GFX1201 target"; }
 
+def GFX1250 : Target<"gfx1250", GFX12_50> { let description = "GFX1250 target (gfx1250)"; }
+
+def GFX1251 : Target<"gfx1251", GFX12_50> { let description = "GFX1251 target (gfx1251)"; }
+
 def AMDGCNTargets
     : AutoI32EnumCases<
-          "Target", "AMDGCN Targets", [InvalidCase, GFX940, GFX942, GFX950, GFX1201]> {
+          "Target", "AMDGCN Targets",
+          [InvalidCase, GFX940, GFX942, GFX950, GFX1201, GFX1250, GFX1251]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 

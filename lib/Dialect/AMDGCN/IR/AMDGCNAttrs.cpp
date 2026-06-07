@@ -577,6 +577,10 @@ mlir::aster::TargetFamily TargetAttr::getTargetFamily() const {
   case amdgcn::Target::GFX1201:
     isa = ISAVersion::RDNA4;
     break;
+  case amdgcn::Target::GFX1250:
+  case amdgcn::Target::GFX1251:
+    isa = ISAVersion::GFX12_50;
+    break;
   case amdgcn::Target::Invalid:
     llvm_unreachable("invalid target");
   }
