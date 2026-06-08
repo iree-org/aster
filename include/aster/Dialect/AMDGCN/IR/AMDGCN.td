@@ -118,6 +118,8 @@ def IsControlFlow : InstProp<"control_flow">;
 // Matrix multiply-accumulate
 def IsMMA : InstProp<"mma">;
 def IsScaledMMA : InstProp<"scaled_mma">;
+// Wave matrix multiply-accumulate (gfx1250 WMMA, wave32 VGPR-only)
+def IsWMMA : InstProp<"wmma">;
 
 // Vector ALU encoding families
 def IsVOP1 : InstProp<"vop1">;

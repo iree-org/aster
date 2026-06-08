@@ -161,6 +161,7 @@ def ENC_VOPC_CDNA3 : EncodedArch<ENC_VOPC, CDNA3Isa>;
 def ENC_VOPC_CDNA4 : EncodedArch<ENC_VOPC, CDNA4Isa>;
 def VOP3P_MFMA_CDNA3 : EncodedArch<VOP3P_MFMA, CDNA3Isa>;
 def VOP3P_MFMA_CDNA4 : EncodedArch<VOP3P_MFMA, CDNA4Isa>;
+def VOP3P_WMMA_GFX12_50 : EncodedArch<VOP3P_MFMA, GFX12_50Isa>;
 
 //===----------------------------------------------------------------------===//
 // Modifier attribute constraints
@@ -174,6 +175,8 @@ def NT : UnitModifier<"nt", "Non-Temporal: data is streamed or uncached.">;
 def OFFEN : UnitModifier<"offen", "If set, send VADDR as an offset. If unset, send the instruction offset stored in OFFSET. Only one of these offsets may be sent.">;
 def SC0 : UnitModifier<"sc0", "For regular load and store operations, SC0 and SC1 indicate memory scope such as wave, group, device and system. For atomics, SC0 means Atomic with return. 1 = Atomic with return, 0 = Atomic with no return.">;
 def SC1 : UnitModifier<"sc1", "For regular load and store operations, SC0 and SC1 indicate memory scope such as wave, group, device and system.">;
+def MATRIX_A_REUSE : UnitModifier<"matrix_a_reuse", "WMMA operand-reuse hint: reuse the matrix A tiles from the previous WMMA.">;
+def MATRIX_B_REUSE : UnitModifier<"matrix_b_reuse", "WMMA operand-reuse hint: reuse the matrix B tiles from the previous WMMA.">;
 
 //===----------------------------------------------------------------------===//
 // Effects

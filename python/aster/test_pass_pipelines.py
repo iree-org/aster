@@ -42,6 +42,13 @@ TEST_MINIMAL_PASS_PIPELINE = builtin_module(
     phase_nop_insertion(delays=0),
 )
 
+# Minimal pipeline that expands lsir.alloca of a concrete register range into
+# amdgcn.alloca + make_register_range for QoL and integration tests.
+TEST_LOWER_MINIMAL_PASS_PIPELINE = builtin_module(
+    PHASE_LOWER_TO_AMDGCN,
+    phase_nop_insertion(delays=0),
+)
+
 # --------------------------------------------------------------------------- #
 # SROA test pipeline (non-pipelined, scheduling-based)
 # --------------------------------------------------------------------------- #
