@@ -144,6 +144,9 @@ ISAVersion mlir::aster::amdgcn::getIsaForTarget(Target target) {
     return ISAVersion::CDNA4;
   case Target::GFX1201:
     return ISAVersion::RDNA4;
+  case Target::GFX1250:
+  case Target::GFX1251:
+    return ISAVersion::GFX12_50;
   case Target::Invalid:
     return ISAVersion::Invalid;
   }
@@ -159,6 +162,9 @@ int64_t mlir::aster::amdgcn::getLdsBytesPerCU(Target target) {
     return 160 * 1024; // 160 KB on CDNA4 (MI350), 64 banks x 4 bytes.
   case Target::GFX1201:
     return 128 * 1024; // 128 KB on RDNA4.
+  case Target::GFX1250:
+  case Target::GFX1251:
+    return 320 * 1024; // 320 KB on GFX12.5 (gfx1250/gfx1251).
   case Target::Invalid:
     return 64 * 1024; // Conservative fallback.
   }
@@ -170,6 +176,7 @@ bool mlir::aster::amdgcn::hasPackedTID(ISAVersion isa) {
   case ISAVersion::CDNA3:
   case ISAVersion::CDNA4:
   case ISAVersion::RDNA4:
+  case ISAVersion::GFX12_50:
     return true;
   case ISAVersion::Invalid:
     return false;

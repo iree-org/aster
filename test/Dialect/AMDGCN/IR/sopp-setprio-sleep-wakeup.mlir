@@ -19,3 +19,15 @@ amdgcn.module @setprio_test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 }
+
+// CHECK-LABEL: amdgcn.module @setprio_inc_wg_test
+amdgcn.module @setprio_inc_wg_test target = #amdgcn.target<gfx1250> {
+  // CHECK:      kernel @test_setprio_inc_wg
+  amdgcn.kernel @test_setprio_inc_wg {
+    // CHECK:    s_setprio_inc_wg 3
+    s_setprio_inc_wg 3
+    // CHECK:    s_setprio_inc_wg 0
+    s_setprio_inc_wg 0
+    amdgcn.end_kernel
+  }
+}

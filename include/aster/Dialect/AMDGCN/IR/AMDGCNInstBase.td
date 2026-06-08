@@ -102,6 +102,7 @@ class AMDISAInstruction<string mnemonic, list<Trait> opTraits = []>
 
 def CDNA3Isa : Arch<"CDNA3">;
 def CDNA4Isa : Arch<"CDNA4">;
+def GFX12_50Isa : Arch<"GFX12_50">;
 
 //===----------------------------------------------------------------------===//
 // Encoding name records
@@ -146,6 +147,7 @@ def ENC_SOPK_CDNA3 : EncodedArch<ENC_SOPK, CDNA3Isa>;
 def ENC_SOPK_CDNA4 : EncodedArch<ENC_SOPK, CDNA4Isa>;
 def ENC_SOPP_CDNA3 : EncodedArch<ENC_SOPP, CDNA3Isa>;
 def ENC_SOPP_CDNA4 : EncodedArch<ENC_SOPP, CDNA4Isa>;
+def ENC_SOPP_GFX12_50 : EncodedArch<ENC_SOPP, GFX12_50Isa>;
 def ENC_VOP1_CDNA3 : EncodedArch<ENC_VOP1, CDNA3Isa>;
 def ENC_VOP1_CDNA4 : EncodedArch<ENC_VOP1, CDNA4Isa>;
 def ENC_VOP2_CDNA3 : EncodedArch<ENC_VOP2, CDNA3Isa>;

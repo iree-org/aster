@@ -90,6 +90,8 @@ static TargetHWInfo getTargetHWInfo(Target target) {
     return {/*vgprAllocGranule=*/8, /*sgprEncodingGranule=*/8,
             /*hasAccVGPR=*/true};
   case Target::GFX1201:
+  case Target::GFX1250:
+  case Target::GFX1251:
     return {/*vgprAllocGranule=*/8, /*sgprEncodingGranule=*/8,
             /*hasAccVGPR=*/false};
   default:
