@@ -196,6 +196,51 @@ def DsReadB128 : DSReadInst<"ds_read_b128",
 }
 #endif // DSREADB128_DEF
 
+#ifndef DSLOADINST_DEF
+#define DSLOADINST_DEF
+// Plain gfx1250 DS load (M0-based), the ds_load_b* family.
+class DSLoadInst<string mnemonic, list<Type> dstType>
+    : AMDISAInstruction<mnemonic, [DSReadInstOpInterface]> {
+  let props = [IsDS];
+  let archs = [GFX12_50Isa];
+  let effects = [LDSRead];
+  let outputs = (ins
+    AnyRegOf<dstType>:$dest
+  );
+  let inputs = (ins
+    VGPROf<1>:$addr
+  );
+  let trailingArgs = (ins
+    OffsetType<16>:$const_offset,
+    GDS:$gds
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `dest` $dest `addr` $addr `offset` `c` `(`$const_offset`)` attr-dict `:`
+    `outs``(` type($dest) `)` `ins` `(` type($addr) `)` `mods` `(` type($const_offset) `)` `->`
+    custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+  }];
+  let trailingResults = (outs DSReadToken:$token);
+  let asm_syntax = [
+    ASMString<[ENC_DS_GFX12_50], "${mnemonic} $dest, $addr [const_offset] [gds]">
+  ];
+}
+#endif // DSLOADINST_DEF
+
+#ifndef DSLOADB128_DEF
+#define DSLOADB128_DEF
+def DsLoadB128 : DSLoadInst<"ds_load_b128",
+    /*dest=*/[VGPROf<4>]
+  > {
+  let description = [{
+    Load 128 bits of data from LDS into a vector register (gfx1250/gfx1251).
+    M0-based addressing; opcode 0x0ff (DS_Real_gfx11_gfx12_gfx13). The same
+    opcode is spelled ds_read_b128 on CDNA3/CDNA4 (see DsReadB128).
+  }];
+  let encodings = [InstEnc<[ENC_DS_GFX12_50], 0b11111111>];
+}
+#endif // DSLOADB128_DEF
+
 #ifndef DSREADB32_DEF
 #define DSREADB32_DEF
 def DsReadB32 : DSReadInst<"ds_read_b32",
