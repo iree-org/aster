@@ -95,6 +95,39 @@ class OpSelHiBase<int num_srcs> : ConfinedAttr<
   }];
 }
 
+// WMMA neg modifier: a 3-element src-negate bit vector printed as
+//   ($name `:` `[` a `,` b `,` c `]`)?
+// In practice, neg_lo / neg_hi are only used on the C operand (src2 lane).
+def NEGLOAttr : ConfinedAttr<
+    DefaultValuedAttr<DenseBoolArrayAttr, "{false, false, false}">, [DenseArrayCount<3>]
+  >, ASMArgFormat {
+  let summary = "WMMA neg_lo:[a,b,c] source-negate modifier";
+  let asmPrinter = [{
+    if (!llvm::all_of($_self, [](bool v) { return !v; })) {
+      $_printer.printKeyword("neg_lo");
+      $_printer.getStream() << ":[";
+      llvm::interleave($_self, $_printer.getStream(),
+                       [&](bool value) { $_printer.getStream() << (int)value; }, ",");
+      $_printer.getStream() << "] ";
+    }
+  }];
+}
+
+def NEGHIAttr : ConfinedAttr<
+    DefaultValuedAttr<DenseBoolArrayAttr, "{false, false, false}">, [DenseArrayCount<3>]
+  >, ASMArgFormat {
+  let summary = "WMMA neg_hi:[a,b,c] source-negate modifier";
+  let asmPrinter = [{
+    if (!llvm::all_of($_self, [](bool v) { return !v; })) {
+      $_printer.printKeyword("neg_hi");
+      $_printer.getStream() << ":[";
+      llvm::interleave($_self, $_printer.getStream(),
+                       [&](bool value) { $_printer.getStream() << (int)value; }, ",");
+      $_printer.getStream() << "] ";
+    }
+  }];
+}
+
 // IMM16 attribute -- always printed in ASM (SOPP instructions require the
 // immediate operand even when it is zero, e.g. s_setprio 0).
 def Imm16Attr : DefaultValuedAttr<I16Attr, "0">, ASMArgFormat {
