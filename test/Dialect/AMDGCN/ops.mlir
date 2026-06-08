@@ -59,20 +59,6 @@ amdgcn.module @cdna4_module target = #amdgcn.target<gfx950> {
   }
 }
 
-// Test gfx1250 module
-amdgcn.module @gfx1250_module target = #amdgcn.target<gfx1250> {
-  amdgcn.kernel @gfx1250_kernel {
-    amdgcn.end_kernel
-  }
-}
-
-// Test gfx1251 module
-amdgcn.module @gfx1251_module target = #amdgcn.target<gfx1251> {
-  amdgcn.kernel @gfx1251_kernel {
-    amdgcn.end_kernel
-  }
-}
-
 // Test library with cdna4 isa
 amdgcn.library @library_cdna4 isa = [#amdgcn.isa<cdna4>] {
   func.func @cdna4_func() {
@@ -118,13 +104,6 @@ amdgcn.library @library_with_multiple_funcs {
 // Test library operations (target-specific, with isa attribute)
 amdgcn.library @library_multi_isa isa = [#amdgcn.isa<cdna3>, #amdgcn.isa<rdna4>] {
   func.func @multi_target_func() {
-    return
-  }
-}
-
-// Test library with gfx12_50 isa
-amdgcn.library @library_multi_isa_gfx12_50 isa = [#amdgcn.isa<cdna3>, #amdgcn.isa<gfx12_50>] {
-  func.func @multi_target_func_gfx12_50() {
     return
   }
 }

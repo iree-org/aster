@@ -162,6 +162,9 @@ def ENC_VOPC_CDNA4 : EncodedArch<ENC_VOPC, CDNA4Isa>;
 def VOP3P_MFMA_CDNA3 : EncodedArch<VOP3P_MFMA, CDNA3Isa>;
 def VOP3P_MFMA_CDNA4 : EncodedArch<VOP3P_MFMA, CDNA4Isa>;
 def VOP3P_WMMA_GFX12_50 : EncodedArch<VOP3P_MFMA, GFX12_50Isa>;
+def ENC_DS_GFX12_50 : EncodedArch<ENC_DS, GFX12_50Isa>;
+def ENC_VIMAGE : Encoding<"vimage">;
+def ENC_VIMAGE_GFX12_50 : EncodedArch<ENC_VIMAGE, GFX12_50Isa>;
 
 //===----------------------------------------------------------------------===//
 // Modifier attribute constraints

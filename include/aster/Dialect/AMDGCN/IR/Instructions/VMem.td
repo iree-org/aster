@@ -702,4 +702,39 @@ def GlobalStoreDwordx4 : GlobalStoreDwordInst<"global_store_dwordx4",
 }
 #endif // GLOBALSTOREDWORDX4_DEF
 
+//===----------------------------------------------------------------------===//
+// VIMAGE Tensor Instructions (gfx1250/gfx1251 only)
+//===----------------------------------------------------------------------===//
+
+#ifndef TENSORLOADTOLDS_DEF
+#define TENSORLOADTOLDS_DEF
+// Load a tensor from global memory into LDS using the VIMAGE tensor engine.
+def TensorLoadToLds : AMDISAInstruction<"tensor_load_to_lds"> {
+  // TODO: TensorReadToken + tensorcnt wait support.
+  let props = [IsVMem];
+  let archs = [GFX12_50Isa];
+  let effects = [GlobalRead, LDSWrite];
+  let outputs = (ins);
+  let inputs = (ins
+    SGPROf<4>:$desc0,
+    SGPROf<8>:$desc1,
+    SGPROf<4>:$desc2,
+    SGPROf<4>:$desc3
+  );
+  let trailingArgs = (ins);
+  let trailingResults = (outs FlatReadToken:$token);
+  // LLVM: tensor_load_to_lds, VIMAGE encoding, opcode 0xc4.
+  let encodings = [InstEnc<[ENC_VIMAGE_GFX12_50], 0b11000100>];
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `desc0` $desc0 `desc1` $desc1 `desc2` $desc2 `desc3` $desc3
+    attr-dict `:` `ins` `(` type($desc0) `,` type($desc1) `,` type($desc2) `,`
+    type($desc3) `)` `->` qualified(type($token))
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_VIMAGE_GFX12_50], "${mnemonic} $desc0, $desc1, $desc2, $desc3">
+  ];
+}
+#endif // TENSORLOADTOLDS_DEF
+
 #endif // AMDGCN_VMEM_TD
