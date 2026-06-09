@@ -573,7 +573,21 @@ removeNormalFormsImpl(Operation *op, ArrayAttr currentAttr,
 //===----------------------------------------------------------------------===//
 
 LogicalResult amdgcn::ModuleOp::verifyRegions() {
-  return verifyNormalFormsRegions(getOperation(), getNormalFormsAttr());
+  if (failed(verifyNormalFormsRegions(getOperation(), getNormalFormsAttr())))
+    return failure();
+
+  // Verify ISA compatibility: every nested op that declares ISA restrictions
+  // must be compatible with this module's target.
+  ISAVersion moduleISA = getIsaForTarget(getTarget());
+  LogicalResult result = success();
+  getOperation()->walk([&](ISACompatibleOpInterface op) {
+    if (!op.supportsISA(moduleISA)) {
+      op->emitOpError() << "is not compatible with module target "
+                        << getTarget();
+      result = failure();
+    }
+  });
+  return result;
 }
 
 bool amdgcn::ModuleOp::addNormalForms(
@@ -743,6 +757,11 @@ void WaitOp::setCounterValue(WaitCounterKind kind, uint16_t value) {
   default:
     llvm_unreachable("amdgcn.wait does not carry this counter");
   }
+}
+
+ArrayRef<ISAVersion> WaitOp::getCompatibleISAVersions() {
+  static ISAVersion versions[] = {ISAVersion::CDNA3, ISAVersion::CDNA4};
+  return versions;
 }
 
 bool WaitOp::addDependencies(ValueRange deps) {
@@ -922,6 +941,11 @@ void WaitGfx1250Op::setCounterValue(WaitCounterKind kind, uint16_t value) {
   default:
     llvm_unreachable("amdgcn.wait_gfx1250 does not carry this counter");
   }
+}
+
+ArrayRef<ISAVersion> WaitGfx1250Op::getCompatibleISAVersions() {
+  static ISAVersion versions[] = {ISAVersion::GFX12_50};
+  return versions;
 }
 
 /// Merge contiguous wait_gfx1250 ops into one and canonicalize its operands.

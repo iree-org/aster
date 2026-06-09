@@ -50,9 +50,30 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 
 namespace mlir::aster::amdgcn {
+enum class ISAVersion : uint32_t;
 class WaitOp;
+class WaitCntOpInterface;
 class WaitAnalysis;
 struct WaitState;
+
+/// The hardware wait-counter model determines how individual counter kinds
+/// map to physical counters.
+/// Before GFX12_50, load+store share (alias on) vmcnt and ds+km share lgkmcnt.
+/// In GFX12_50 each kind is an independent counter.
+enum class WaitCounterModel : uint8_t {
+  CDNA3,
+  CDNA4,
+  GFX12_50,
+};
+
+/// Map an ISAVersion to the corresponding WaitCounterModel.
+/// Only CDNA3, CDNA4, and GFX12_50 are supported.
+WaitCounterModel getWaitCounterModel(ISAVersion isa);
+
+/// Resolve the WaitCounterModel for an arbitrary op by looking for an enclosing
+/// amdgcn.module (or the op itself if it is one). Falls back to CDNA3 when no
+/// module is found. Use this everywhere a model is needed from an op context.
+WaitCounterModel getWaitCounterModelForOp(Operation *op);
 
 //===----------------------------------------------------------------------===//
 // TokenState
@@ -68,22 +89,12 @@ struct TokenState {
   static constexpr Position kMaxPosition = std::numeric_limits<Position>::max();
 
   TokenState() = default;
-  TokenState(Value token, ID id, MemoryInstructionKind kind,
-             Position position = 0)
+  TokenState(Value token, ID id, WaitCounterKind kind, Position position = 0)
       : token(token), id(id), position(position), kind(kind) {}
 
-  /// Create an unknown token state for dmem.
-  static TokenState unknownDMem(Position pos) {
-    return TokenState(nullptr, kUnknownID, MemoryInstructionKind::Shared, pos);
-  }
-  /// Create an unknown token state for smem.
-  static TokenState unknownSMem(Position pos) {
-    return TokenState(nullptr, kUnknownID, MemoryInstructionKind::Constant,
-                      pos);
-  }
-  /// Create an unknown token state for dmem.
-  static TokenState unknownVMem(Position pos) {
-    return TokenState(nullptr, kUnknownID, MemoryInstructionKind::Flat, pos);
+  /// Create an unknown token state for a given counter kind.
+  static TokenState unknown(WaitCounterKind kind, Position pos) {
+    return TokenState(nullptr, kUnknownID, kind, pos);
   }
 
   /// Equality operator for TokenState.
@@ -111,16 +122,18 @@ struct TokenState {
   ID getID() const { return id; }
   /// Returns the position of the token.
   int32_t getPosition() const { return position; }
-  /// Returns the memory instruction kind of the token.
-  MemoryInstructionKind getKind() const { return kind; }
-  /// Print the state.
-  void print(raw_ostream &os) const;
+  /// Returns the hardware wait-counter kind of the token.
+  WaitCounterKind getKind() const { return kind; }
+  /// Print the state with model-specific kind names.
+  void print(raw_ostream &os, WaitCounterModel model) const;
+  /// Print with GFX12_50 names (the superset, for generic dump).
+  void print(raw_ostream &os) const { print(os, WaitCounterModel::GFX12_50); }
 
 private:
   Value token = nullptr;
   ID id = -1;
   Position position = 0;
-  MemoryInstructionKind kind = MemoryInstructionKind::None;
+  WaitCounterKind kind = WaitCounterKind::Load;
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
@@ -133,22 +146,25 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 // WaitCnt
 //===----------------------------------------------------------------------===//
 
-/// Object representing wait counts. Note that this class models the semantics
-/// of CDNA3 and CDNA4. TODO: Expand to other architectures.
+/// Object representing the analysis's per-counter-group wait counts.
 struct WaitCnt {
   using Position = TokenState::Position;
   static constexpr Position kMaxPosition = TokenState::kMaxPosition;
-  WaitCnt(Position vmCnt = kMaxPosition, Position lgkmCnt = kMaxPosition)
-      : vmCnt(vmCnt), lgkmCnt(lgkmCnt) {}
+  /// One position kind per WaitCounterKind.
+  /// Use gfx1250 load/store/ds/km/tensor and project CDNA vm/lgkm onto it.
+  static constexpr size_t kNumKinds =
+      static_cast<size_t>(WaitCounterKind::Tensor) + 1;
 
-  /// Returns the vm wait count.
-  int32_t getVmcnt() const { return vmCnt; }
-  /// Returns the lgkm wait count.
-  int32_t getLgkmcnt() const { return lgkmCnt; }
-  /// Create WaitCnt object from a WaitOp.
-  static WaitCnt fromOp(WaitOp waitOp);
-  /// Get the wait count for a given memory instruction kind.
-  int32_t getCount(MemoryInstructionKind kind) const;
+  WaitCnt() { counts.fill(kMaxPosition); }
+
+  /// Get the wait count for a counter kind (kMaxPosition = no wait).
+  int32_t getCount(WaitCounterKind kind) const {
+    return counts[static_cast<size_t>(kind)];
+  }
+  /// Create a WaitCnt from any wait op, reading its counts via the interface.
+  /// The model determines how meta-counters (Vm/Lgkm) expand to fine-grained
+  /// kinds.
+  static WaitCnt fromOp(WaitCntOpInterface waitOp, WaitCounterModel model);
   /// Given a set of reaching tokens and token dependencies, compute the waited
   /// and implied tokens, the new reaching tokens after the wait, and update the
   /// wait counts so that they are consistent.
@@ -156,26 +172,28 @@ struct WaitCnt {
                   SmallVectorImpl<TokenState> &waitedTokens,
                   SmallVectorImpl<TokenState> &impliedTokens,
                   SmallVectorImpl<TokenState> &nextReachingTokens,
-                  llvm::function_ref<TokenState(Value)> getState);
-  /// Print the wait counts.
-  void print(llvm::raw_ostream &os) const;
+                  llvm::function_ref<TokenState(Value)> getState,
+                  WaitCounterModel model);
+  /// Print the wait counts using the given counter model for formatting.
+  void print(llvm::raw_ostream &os, WaitCounterModel model) const;
 
-  bool operator==(const WaitCnt &other) const {
-    return vmCnt == other.vmCnt && lgkmCnt == other.lgkmCnt;
+  bool operator==(const WaitCnt &other) const { return counts == other.counts; }
+
+  /// Update the wait count for a counter kind (min with the existing value).
+  void updateCount(WaitCounterKind kind, Position count) {
+    Position &slr = counts[static_cast<size_t>(kind)];
+    slr = std::min(slr, count);
   }
 
 private:
-  /// Update the wait count with the given kind and position.
-  void updateCount(MemoryInstructionKind kind, Position count);
-  /// Update the wait count from a set of tokens.
+  /// Update the wait counts from a set of tokens.
   void updateCount(ArrayRef<TokenState> tokens);
-  Position vmCnt;
-  Position lgkmCnt;
+  std::array<Position, kNumKinds> counts;
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
                                      const WaitCnt &cnt) {
-  cnt.print(os);
+  cnt.print(os, WaitCounterModel::GFX12_50);
   return os;
 }
 
@@ -186,8 +204,12 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
 /// Object for storing information about a wait operation.
 struct WaitOpInfo {
   WaitOpInfo(WaitCnt counts) : counts(counts) {}
-  /// Print the wait op info.
-  void print(llvm::raw_ostream &os) const;
+  /// Print with model-specific counter/kind names.
+  void print(llvm::raw_ostream &os, WaitCounterModel model) const;
+  /// Print with GFX12_50 names (for operator<<).
+  void print(llvm::raw_ostream &os) const {
+    print(os, WaitCounterModel::GFX12_50);
+  }
 
   /// The computed wait counts for the wait operation.
   WaitCnt counts;
@@ -224,11 +246,18 @@ struct WaitState : dataflow::AbstractDenseLattice {
   /// Dedicated join for wait operations.
   ChangeResult joinWait(ValueRange deps, const WaitState &before,
                         WaitCnt waitCounts,
-                        llvm::function_ref<TokenState(Value)> getState);
-  /// Add tokens to the reaching set.
-  ChangeResult addTokens(ArrayRef<TokenState> tokens);
-  /// Print the lattice element.
-  void print(raw_ostream &os) const override;
+                        llvm::function_ref<TokenState(Value)> getState,
+                        WaitCounterModel model);
+  /// Add tokens to the reaching set. The counter model selects gfx1250
+  /// (per-counter) vs CDNA (load+store and ds+km share a counter) position
+  /// co-incrementing.
+  ChangeResult addTokens(ArrayRef<TokenState> tokens, WaitCounterModel model);
+  /// Print with model-specific counter/kind names.
+  void print(raw_ostream &os, WaitCounterModel model) const;
+  /// Print with GFX12_50 names (base-class override).
+  void print(raw_ostream &os) const override {
+    print(os, WaitCounterModel::GFX12_50);
+  }
 
   /// Reaching tokens at this program point.
   SmallVector<TokenState> reachingTokens;
@@ -245,11 +274,13 @@ struct WaitState : dataflow::AbstractDenseLattice {
 /// set of pending (not-yet-waited-on) dependency tokens at each program point.
 class WaitAnalysis : public dataflow::DenseForwardDataFlowAnalysis<WaitState> {
 public:
-  using dataflow::DenseForwardDataFlowAnalysis<
-      WaitState>::DenseForwardDataFlowAnalysis;
-  WaitAnalysis(DataFlowSolver &solver, DominanceInfo &domInfo)
+  WaitAnalysis(DataFlowSolver &solver, DominanceInfo &domInfo,
+               WaitCounterModel model)
       : dataflow::DenseForwardDataFlowAnalysis<WaitState>(solver),
-        domInfo(domInfo) {}
+        domInfo(domInfo), model(model) {}
+
+  /// The wait-counter model for this analysis instance.
+  WaitCounterModel getModel() const { return model; }
 
   /// Visit an operation and update the lattice state.
   LogicalResult visitOperation(Operation *op, const WaitState &before,
@@ -278,6 +309,9 @@ public:
 private:
   /// Reference to the dominance info.
   DominanceInfo &domInfo;
+
+  /// The hardware wait-counter model (set once at construction).
+  WaitCounterModel model;
 
   /// Map from token values to their unique IDs.
   DenseMap<Value, int32_t> tokenIDs;

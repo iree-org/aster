@@ -10,6 +10,7 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/SliceAnalysis.h"
@@ -44,7 +45,7 @@ private:
   void buildNonSSADeps(SchedGraph &graph);
 
   /// Handle a wait operation.
-  void handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait);
+  void handleWaitOp(SchedGraph &graph, int64_t pos, WaitCntOpInterface wait);
 
   /// Handle a barrier operation. With barriers we must add dependencies before
   /// and after if the operation affects SALU or SGPRs.
@@ -181,7 +182,7 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
   ArrayRef<Operation *> ops = graph.getOps();
   for (int64_t &i : syncPoints) {
     Operation *op = ops[i];
-    if (auto waitOp = dyn_cast<WaitOp>(op)) {
+    if (auto waitOp = dyn_cast<WaitCntOpInterface>(op)) {
       handleWaitOp(graph, i, waitOp);
       // Mark the sync point as processed.
       i = -1;
@@ -242,10 +243,18 @@ static bool isLgkmToken(Type type) {
          isTokenOfKind(type, MemoryInstructionKind::Constant);
 }
 
-void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
+// gfx1250 tensor tokens share the memory-latency class with flat tokens.
+static bool isMemToken(Type type) {
+  return isTokenOfKind(type, MemoryInstructionKind::Flat) ||
+         isTokenOfKind(type, MemoryInstructionKind::Tensor);
+}
+
+void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos,
+                                WaitCntOpInterface wait) {
+  Operation *waitOp = wait.getOperation();
   // Get the wait state.
   const WaitState *state =
-      solver.lookupState<WaitState>(solver.getProgramPointAfter(wait));
+      solver.lookupState<WaitState>(solver.getProgramPointAfter(waitOp));
   assert(state && "expected valid wait state");
 
   // Collect all the operations that sync at this point.
@@ -269,7 +278,7 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
 
   // Add edges for the waited operations.
   for (Operation *op : waitedOps)
-    graph.addEdge(op, wait);
+    graph.addEdge(op, waitOp);
 
   // Add edges for the operations that are after this wait operation that wait
   // on the same tokens.
@@ -277,9 +286,14 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
   // Pin all DS ops, do not pin global / flat / constant ops (may be unsafe).
   // TODO: This is a crude approximation, needs proper futures + wait_all + then
   // modeling.
-  bool hasExplicitVmCnt = wait.getVmCnt() != WaitOp::kNoWaitCount;
-  bool hasExplicitLgkmCnt = wait.getLgkmCnt() != WaitOp::kNoWaitCount;
-  for (Value dep : wait.getDependencies()) {
+  // The flat-group counter is vmcnt (CDNA) or loadcnt/tensorcnt (gfx1250); the
+  // lgkm-group is lgkmcnt (CDNA) or dscnt (gfx1250).
+  bool hasExplicitVmCnt = wait.hasCounter(WaitCounterKind::Vm) ||
+                          wait.hasCounter(WaitCounterKind::Load) ||
+                          wait.hasCounter(WaitCounterKind::Tensor);
+  bool hasExplicitLgkmCnt = wait.hasCounter(WaitCounterKind::Lgkm) ||
+                            wait.hasCounter(WaitCounterKind::Ds);
+  for (Value dep : waitOp->getOperands()) {
     if (isLgkmToken(dep.getType()))
       hasExplicitLgkmCnt = true;
   }
@@ -290,17 +304,17 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos, WaitOp wait) {
       if (!producer || producer->getBlock() != block)
         continue;
       if (waitedOps.contains(producer))
-        graph.addEdge(wait, op);
+        graph.addEdge(waitOp, op);
     }
 
-    bool producesVM = llvm::any_of(op->getResultTypes(), isFlatToken);
+    bool producesVM = llvm::any_of(op->getResultTypes(), isMemToken);
     bool producesLgkm = llvm::any_of(op->getResultTypes(), isLgkmToken);
     // TODO: This is a crude approximation, needs proper futures + wait_all +
     // then modeling.
     if (hasExplicitVmCnt && producesVM)
-      graph.addEdge(wait, op);
+      graph.addEdge(waitOp, op);
     if (hasExplicitLgkmCnt && producesLgkm)
-      graph.addEdge(wait, op);
+      graph.addEdge(waitOp, op);
   }
 }
 
@@ -398,8 +412,10 @@ void GraphBuilder::addI1SerializationEdges(SchedGraph &graph) {
 namespace mlir::aster::amdgcn {
 
 LogicalResult initValueSchedulerAnalyses(SchedAnalysis &analysis) {
+  WaitCounterModel model = getWaitCounterModelForOp(analysis.getRootOp());
+
   // Load the wait analysis so the graph builder can query wait states.
-  analysis.getSolver().load<WaitAnalysis>(analysis.getDomInfo());
+  analysis.getSolver().load<WaitAnalysis>(analysis.getDomInfo(), model);
   analysis.setRunDataflowAnalyses();
   return success();
 }

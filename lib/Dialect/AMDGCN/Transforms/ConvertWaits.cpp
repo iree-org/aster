@@ -11,6 +11,7 @@
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
@@ -45,12 +46,113 @@ public:
 };
 } // namespace
 
+/// Rewrite a gfx1250 wait op to per-counter SOPP instructions. Load+ds (or
+/// store+ds) fuse into the combined s_wait_{load,store}cnt_dscnt form; loadcnt
+/// takes priority for the ds pairing; km and tensor never fuse.
+static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
+                               const WaitCnt &counts) {
+  Location loc = waitOpOp->getLoc();
+  auto get = [&](WaitCounterKind s) { return counts.getCount(s); };
+  auto present = [](int32_t c) { return c < TokenState::kMaxPosition; };
+  int32_t load = get(WaitCounterKind::Load);
+  int32_t store = get(WaitCounterKind::Store);
+  int32_t ds = get(WaitCounterKind::Ds);
+  bool loadDone = false, storeDone = false, dsDone = false;
+  if (present(load) && present(ds)) {
+    SWaitLoadcntDscnt::create(rewriter, loc).setCount((load << 8) | ds);
+    loadDone = dsDone = true;
+  } else if (present(store) && present(ds)) {
+    SWaitStorecntDscnt::create(rewriter, loc).setCount((store << 8) | ds);
+    storeDone = dsDone = true;
+  }
+  if (present(load) && !loadDone)
+    SWaitLoadcnt::create(rewriter, loc).setCount(load);
+  if (present(store) && !storeDone)
+    SWaitStorecnt::create(rewriter, loc).setCount(store);
+  if (present(ds) && !dsDone)
+    SWaitDscnt::create(rewriter, loc).setCount(ds);
+  if (present(get(WaitCounterKind::Km)))
+    SWaitKmcnt::create(rewriter, loc).setCount(get(WaitCounterKind::Km));
+  if (present(get(WaitCounterKind::Tensor)))
+    SWaitTensorcnt::create(rewriter, loc)
+        .setCount(get(WaitCounterKind::Tensor));
+  rewriter.eraseOp(waitOpOp);
+}
+
+/// Rewrite a CDNA wait op to a single s_waitcnt with merged vm/lgkm counts.
+static void rewriteCdnaWait(IRRewriter &rewriter, Operation *waitOpOp,
+                            const WaitCnt &counts) {
+  auto get = [&](WaitCounterKind s) { return counts.getCount(s); };
+  auto present = [](int32_t c) { return c < TokenState::kMaxPosition; };
+  int32_t vm =
+      std::min(get(WaitCounterKind::Load), get(WaitCounterKind::Store));
+  int32_t lgkm = std::min(get(WaitCounterKind::Ds), get(WaitCounterKind::Km));
+  bool hasVm = present(vm), hasLgkm = present(lgkm);
+  if (!hasVm && !hasLgkm) {
+    rewriter.eraseOp(waitOpOp);
+    return;
+  }
+  auto newWait = rewriter.replaceOpWithNewOp<SWaitcnt>(waitOpOp);
+  if (hasVm)
+    newWait.setVmcnt(
+        std::min(static_cast<int32_t>(newWait.getVmcnt()) - 1, vm));
+  if (hasLgkm)
+    newWait.setLgkmcnt(
+        std::min(static_cast<int32_t>(newWait.getLgkmcnt()) - 1, lgkm));
+}
+
+/// Run the wait analysis on `root` with `model`, then rewrite every wait op
+/// inside it to its hardware form.
+static LogicalResult convertWaitsOn(Operation *root, WaitCounterModel model,
+                                    DominanceInfo &domInfo) {
+  DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
+  dataflow::loadBaselineAnalyses(solver);
+  solver.load<WaitAnalysis>(domInfo, model);
+  if (failed(solver.initializeAndRun(root))) {
+    root->emitError() << "failed to run wait analysis";
+    return failure();
+  }
+  IRRewriter rewriter(root->getContext());
+  root->walk([&](WaitCntOpInterface waitOp) {
+    Operation *waitOpOp = waitOp.getOperation();
+    const auto *afterState =
+        solver.lookupState<WaitState>(solver.getProgramPointAfter(waitOpOp));
+    assert(afterState &&
+           "expected valid wait analysis states before and after wait op");
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(waitOpOp);
+    if (isa<WaitGfx1250Op>(waitOpOp))
+      rewriteGfx1250Wait(rewriter, waitOpOp, afterState->waitOpInfo->counts);
+    else
+      rewriteCdnaWait(rewriter, waitOpOp, afterState->waitOpInfo->counts);
+  });
+  return success();
+}
+
+/// Run `callback(root, model)` on `op` itself if it is an amdgcn.module, then
+/// on every nested amdgcn.module, then on `op` again for bare funcs.
+static LogicalResult forEachModuleOrTop(
+    Operation *op,
+    function_ref<LogicalResult(Operation *, WaitCounterModel)> callback) {
+  if (isa<amdgcn::ModuleOp>(op))
+    return callback(op, getWaitCounterModelForOp(op));
+  bool hadFailure = false;
+  op->walk([&](amdgcn::ModuleOp amdMod) {
+    if (failed(callback(amdMod, getWaitCounterModelForOp(amdMod))))
+      hadFailure = true;
+  });
+  if (hadFailure)
+    return failure();
+  return callback(op, getWaitCounterModelForOp(op));
+}
+
 void AMDGCNConvertWaits::runOnOperation() {
   Operation *op = getOperation();
 
   // Apply canonicalization patterns to clean up wait operations.
   RewritePatternSet patterns(op->getContext());
   WaitOp::getCanonicalizationPatterns(patterns, op->getContext());
+  WaitGfx1250Op::getCanonicalizationPatterns(patterns, op->getContext());
   if (failed(applyPatternsGreedily(
           op, std::move(patterns),
           GreedyRewriteConfig()
@@ -63,69 +165,15 @@ void AMDGCNConvertWaits::runOnOperation() {
     return signalPassFailure();
   }
 
-  // Get dominance info for the analysis.
   auto &domInfo = getAnalysis<DominanceInfo>();
-
-  // Create and configure the data flow solver.
-  DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
-  dataflow::loadBaselineAnalyses(solver);
-  solver.load<WaitAnalysis>(domInfo);
-
-  // Initialize and run the solver.
-  if (failed(solver.initializeAndRun(op))) {
-    op->emitError() << "failed to run wait analysis";
+  if (failed(
+          forEachModuleOrTop(op, [&](Operation *root, WaitCounterModel model) {
+            return convertWaitsOn(root, model, domInfo);
+          })))
     return signalPassFailure();
-  }
 
-  // Rewrite wait operations based on analysis results.
-  IRRewriter rewriter(op->getContext());
-  op->walk([&](WaitOp waitOp) {
-    const auto *afterState =
-        solver.lookupState<WaitState>(solver.getProgramPointAfter(waitOp));
-    assert(afterState &&
-           "expected valid wait analysis states before and after wait op");
-
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPoint(waitOp);
-    WaitCnt counts = afterState->waitOpInfo->counts;
-
-    // TODO: support hasExpcnt.
-    bool hasExpcnt = false;
-    bool hasVmcnt = counts.getVmcnt() < TokenState::kMaxPosition;
-    bool hasLgkmcnt = counts.getLgkmcnt() < TokenState::kMaxPosition;
-    // If no wait is needed, erase the wait op.
-    if (!hasVmcnt && !hasLgkmcnt && !hasExpcnt) {
-      rewriter.eraseOp(waitOp);
-      return;
-    }
-
-    // Replace the wait op with a SWaitcnt with the minimal counts
-    // required after this wait op.
-    // Note that `SWaitcnt` defaults to max counts, so we need to:
-    //   1. set the counts that are less than max and hasXXX is true
-    //   2. leave it alone when hasXXX is true
-    //   3. unset the attribute when hasXXX is false
-    auto newWait = rewriter.replaceOpWithNewOp<SWaitcnt>(waitOp);
-
-    // The default builder of SWaitcnt sets both counts to max, so we take the
-    // minimum of the max allowed hardware value count and the required count.
-    if (hasVmcnt) {
-      newWait.setVmcnt(std::min(static_cast<int32_t>(newWait.getVmcnt()) - 1,
-                                counts.getVmcnt()));
-    }
-    if (hasLgkmcnt) {
-      newWait.setLgkmcnt(std::min(
-          static_cast<int32_t>(newWait.getLgkmcnt()) - 1, counts.getLgkmcnt()));
-    }
-    if (hasExpcnt) {
-      llvm_unreachable("EXPCNT is not supported yet");
-    }
-  });
-
-  // Check if we should remove token arguments from control-flow arguments.
   if (!removeTokenArgs)
     return;
-
   op->walk([&](FunctionOpInterface funcOp) {
     if (failed(removeTokenArguments(funcOp))) {
       signalPassFailure();
