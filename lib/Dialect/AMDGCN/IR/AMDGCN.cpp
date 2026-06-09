@@ -716,6 +716,35 @@ LogicalResult PtrAddOp::canonicalize(PtrAddOp op, PatternRewriter &rewriter) {
 
 Value WaitOp::getOutDependency() { return Value(); }
 
+// WaitCntOpInterface: amdgcn.wait carries the CDNA vm/lgkm counters.
+SmallVector<WaitCounterKind> WaitOp::getSupportedCounters() {
+  return {WaitCounterKind::Vm, WaitCounterKind::Lgkm};
+}
+
+uint16_t WaitOp::getCounterValue(WaitCounterKind kind) {
+  switch (kind) {
+  case WaitCounterKind::Vm:
+    return getVmCnt();
+  case WaitCounterKind::Lgkm:
+    return getLgkmCnt();
+  default:
+    return kNoWaitCount;
+  }
+}
+
+void WaitOp::setCounterValue(WaitCounterKind kind, uint16_t value) {
+  switch (kind) {
+  case WaitCounterKind::Vm:
+    setVmCnt(value);
+    return;
+  case WaitCounterKind::Lgkm:
+    setLgkmCnt(value);
+    return;
+  default:
+    llvm_unreachable("amdgcn.wait does not carry this counter");
+  }
+}
+
 bool WaitOp::addDependencies(ValueRange deps) {
   bool changed = false;
   if (deps.empty())
@@ -839,6 +868,160 @@ WaitOp::canonicalizeWait(WaitOp op, RewriterBase &rewriter,
 }
 
 LogicalResult WaitOp::canonicalize(WaitOp op, PatternRewriter &rewriter) {
+  llvm::SetVector<Value> deps;
+  return op.canonicalizeWait(op, rewriter, deps);
+}
+
+//===----------------------------------------------------------------------===//
+// WaitGfx1250Op
+//===----------------------------------------------------------------------===//
+
+Value WaitGfx1250Op::getOutDependency() { return Value(); }
+
+// WaitCntOpInterface: amdgcn.wait_gfx1250 carries the gfx1250 load/ds/tensor
+// counters.
+SmallVector<WaitCounterKind> WaitGfx1250Op::getSupportedCounters() {
+  return {WaitCounterKind::Load, WaitCounterKind::Store, WaitCounterKind::Ds,
+          WaitCounterKind::Km, WaitCounterKind::Tensor};
+}
+
+uint16_t WaitGfx1250Op::getCounterValue(WaitCounterKind kind) {
+  switch (kind) {
+  case WaitCounterKind::Load:
+    return getLoadCnt();
+  case WaitCounterKind::Store:
+    return getStoreCnt();
+  case WaitCounterKind::Ds:
+    return getDsCnt();
+  case WaitCounterKind::Km:
+    return getKmCnt();
+  case WaitCounterKind::Tensor:
+    return getTensorCnt();
+  default:
+    return kNoWaitCount;
+  }
+}
+
+void WaitGfx1250Op::setCounterValue(WaitCounterKind kind, uint16_t value) {
+  switch (kind) {
+  case WaitCounterKind::Load:
+    setLoadCnt(value);
+    return;
+  case WaitCounterKind::Store:
+    setStoreCnt(value);
+    return;
+  case WaitCounterKind::Ds:
+    setDsCnt(value);
+    return;
+  case WaitCounterKind::Km:
+    setKmCnt(value);
+    return;
+  case WaitCounterKind::Tensor:
+    setTensorCnt(value);
+    return;
+  default:
+    llvm_unreachable("amdgcn.wait_gfx1250 does not carry this counter");
+  }
+}
+
+/// Merge contiguous wait_gfx1250 ops into one and canonicalize its operands.
+static LogicalResult canonicalizeWaitGfx1250Impl(WaitGfx1250Op waitOp,
+                                                 RewriterBase &rewriter,
+                                                 llvm::SetVector<Value> &deps) {
+  deps.clear();
+  bool changed = false;
+
+  auto removeDuplicates = [&]() {
+    MutableOperandRange operands = waitOp.getDependenciesMutable();
+    deps.insert_range(operands.getAsOperandRange());
+    if (deps.size() != operands.size()) {
+      operands.assign(deps.getArrayRef());
+      changed = true;
+    }
+  };
+
+  Block::iterator bbEnd;
+  if (Block *bb = waitOp->getBlock()) {
+    bbEnd = bb->end();
+  } else {
+    removeDuplicates();
+    if (changed)
+      rewriter.modifyOpInPlace(waitOp, []() {});
+    return success(changed);
+  }
+
+  Block::iterator start = waitOp->getIterator(),
+                  end = ++(waitOp->getIterator());
+  while (end != bbEnd) {
+    if (!isa<WaitGfx1250Op>(*end))
+      break;
+    ++end;
+  }
+
+  uint16_t loadCnt = waitOp.getLoadCnt(), storeCnt = waitOp.getStoreCnt(),
+           dsCnt = waitOp.getDsCnt(), kmCnt = waitOp.getKmCnt(),
+           tensorCnt = waitOp.getTensorCnt();
+  while (start != end) {
+    auto wait = cast<WaitGfx1250Op>(*(start++));
+    deps.insert_range(wait.getDependencies());
+    loadCnt = std::min(loadCnt, wait.getLoadCnt());
+    storeCnt = std::min(storeCnt, wait.getStoreCnt());
+    dsCnt = std::min(dsCnt, wait.getDsCnt());
+    kmCnt = std::min(kmCnt, wait.getKmCnt());
+    tensorCnt = std::min(tensorCnt, wait.getTensorCnt());
+    if (wait != waitOp) {
+      rewriter.eraseOp(wait);
+      changed = true;
+    }
+  }
+
+  removeDuplicates();
+  if (waitOp.getLoadCnt() != loadCnt) {
+    changed = true;
+    waitOp.setLoadCnt(loadCnt);
+  }
+  if (waitOp.getStoreCnt() != storeCnt) {
+    changed = true;
+    waitOp.setStoreCnt(storeCnt);
+  }
+  if (waitOp.getDsCnt() != dsCnt) {
+    changed = true;
+    waitOp.setDsCnt(dsCnt);
+  }
+  if (waitOp.getKmCnt() != kmCnt) {
+    changed = true;
+    waitOp.setKmCnt(kmCnt);
+  }
+  if (waitOp.getTensorCnt() != tensorCnt) {
+    changed = true;
+    waitOp.setTensorCnt(tensorCnt);
+  }
+  if (changed)
+    rewriter.modifyOpInPlace(waitOp, []() {});
+  return success(changed);
+}
+
+FailureOr<Block::iterator>
+WaitGfx1250Op::canonicalizeWait(WaitGfx1250Op op, RewriterBase &rewriter,
+                                llvm::SetVector<Value> &deps) {
+  deps.clear();
+  LogicalResult res = canonicalizeWaitGfx1250Impl(op, rewriter, deps);
+
+  Block::iterator nextIt;
+  if (op->getBlock() != nullptr) {
+    nextIt = op->getIterator();
+    ++nextIt;
+  }
+  if (op.isNowait()) {
+    rewriter.eraseOp(op);
+    return nextIt;
+  }
+  return failed(res) ? FailureOr<Block::iterator>(res)
+                     : FailureOr<Block::iterator>(nextIt);
+}
+
+LogicalResult WaitGfx1250Op::canonicalize(WaitGfx1250Op op,
+                                          PatternRewriter &rewriter) {
   llvm::SetVector<Value> deps;
   return op.canonicalizeWait(op, rewriter, deps);
 }

@@ -17,6 +17,7 @@
 
 include "mlir/IR/OpBase.td"
 include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInstOpInterface.td"
+include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/Interfaces/DependentOpInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 
@@ -544,6 +545,45 @@ def ScaledMMAOpInterface :
         return $_op->getOpOperand(ConcreteOp::odsIndex_src4);
       }]>
   ];
+}
+
+//===----------------------------------------------------------------------===//
+// Wait count op interface
+//===----------------------------------------------------------------------===//
+
+def WaitCntOpInterface : OpInterface<"WaitCntOpInterface"> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+  let description = [{
+    Inspect and modify hardware wait counts uniformly across wait ops.
+  }];
+  let methods = [
+    InterfaceMethod<"The counter kinds this op carries.",
+      "::llvm::SmallVector<::mlir::aster::amdgcn::WaitCounterKind>",
+      "getSupportedCounters">,
+    InterfaceMethod<"Value of a counter, kNoWaitCount if not carried.",
+      "uint16_t", "getCounterValue",
+      (ins "::mlir::aster::amdgcn::WaitCounterKind":$kind)>,
+    InterfaceMethod<"Set a counter's value (op must support the counter).",
+      "void", "setCounterValue",
+      (ins "::mlir::aster::amdgcn::WaitCounterKind":$kind, "uint16_t":$value)>
+  ];
+  let extraSharedClassDeclaration = [{
+    static constexpr uint16_t kNoWaitCount =
+        std::numeric_limits<uint16_t>::max();
+
+    /// True if this op carries the given counter with a real (waited) value.
+    bool hasCounter(::mlir::aster::amdgcn::WaitCounterKind kind) {
+      return $_op.getCounterValue(kind) != kNoWaitCount;
+    }
+
+    /// True if any carried counter has a real (waited) value.
+    bool hasAnyCounter() {
+      for (::mlir::aster::amdgcn::WaitCounterKind k : $_op.getSupportedCounters())
+        if ($_op.getCounterValue(k) != kNoWaitCount)
+          return true;
+      return false;
+    }
+  }];
 }
 
 #endif // ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_TD

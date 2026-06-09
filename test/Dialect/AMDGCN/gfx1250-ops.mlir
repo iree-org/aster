@@ -22,14 +22,14 @@ func.func @test_tensor_load_to_lds(
     %d0: !amdgcn.sgpr<[? + 4]>,
     %d1: !amdgcn.sgpr<[? + 8]>,
     %d2: !amdgcn.sgpr<[? + 4]>,
-    %d3: !amdgcn.sgpr<[? + 4]>) -> !amdgcn.read_token<flat> {
+    %d3: !amdgcn.sgpr<[? + 4]>) -> !amdgcn.read_token<tensor> {
   %tok = amdgcn.tensor_load_to_lds desc0 %d0 desc1 %d1 desc2 %d2 desc3 %d3
-      : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 8]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>) -> !amdgcn.read_token<flat>
-  return %tok : !amdgcn.read_token<flat>
+      : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 8]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>) -> !amdgcn.read_token<tensor>
+  return %tok : !amdgcn.read_token<tensor>
 }
 
 //===----------------------------------------------------------------------===//
-// SOPP control ops (s_set_vgpr_msb, s_setprio_inc_wg)
+// SOPP control + wait ops (s_set_vgpr_msb, s_setprio_inc_wg, s_wait_*cnt)
 //===----------------------------------------------------------------------===//
 
 func.func @test_s_set_vgpr_msb_0() {
@@ -45,6 +45,48 @@ func.func @test_s_set_vgpr_msb_nonzero() {
 func.func @test_s_setprio_inc_wg() {
   amdgcn.s_setprio_inc_wg 3
   amdgcn.s_setprio_inc_wg 0
+  return
+}
+
+func.func @test_s_wait_counters() {
+  amdgcn.s_wait_loadcnt 0
+  amdgcn.s_wait_storecnt 1
+  amdgcn.s_wait_dscnt 2
+  amdgcn.s_wait_kmcnt 3
+  amdgcn.s_wait_tensorcnt 4
+  amdgcn.s_wait_asynccnt 5
+  amdgcn.s_wait_xcnt 6
+  return
+}
+
+func.func @test_s_wait_fused_counters() {
+  amdgcn.s_wait_loadcnt_dscnt 259
+  amdgcn.s_wait_storecnt_dscnt 0
+  return
+}
+
+// s_wait_alu is the ALU register-forwarding-hazard wait (depctr), not a memory
+// wait counter.
+func.func @test_s_wait_alu() {
+  amdgcn.s_wait_alu 0
+  return
+}
+
+//===----------------------------------------------------------------------===//
+// gfx1250 split wait op (amdgcn.wait_gfx1250; disjoint from the CDNA amdgcn.wait)
+//===----------------------------------------------------------------------===//
+
+func.func @test_wait_gfx1250_explicit() {
+  amdgcn.wait_gfx1250 load_cnt 1 store_cnt 2 ds_cnt 3 km_cnt 4 tensor_cnt 5
+  return
+}
+
+func.func @test_wait_gfx1250_token(%d0: !amdgcn.sgpr<[? + 4]>,
+    %d1: !amdgcn.sgpr<[? + 8]>, %d2: !amdgcn.sgpr<[? + 4]>,
+    %d3: !amdgcn.sgpr<[? + 4]>) {
+  %tok = amdgcn.tensor_load_to_lds desc0 %d0 desc1 %d1 desc2 %d2 desc3 %d3
+      : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 8]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>) -> !amdgcn.read_token<tensor>
+  amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<tensor>
   return
 }
 

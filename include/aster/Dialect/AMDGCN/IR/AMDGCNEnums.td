@@ -198,6 +198,24 @@ def MemoryInstructionKind : AutoI8EnumCases<"MemoryInstructionKind",
     PrettyEnumCaseInfo<"flat">,
     PrettyEnumCaseInfo<"constant">,
     PrettyEnumCaseInfo<"shared">,
+    PrettyEnumCaseInfo<"tensor">,
+  ]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
+
+// CDNA3/CDNA4 merge into 2 counters:
+//   vm = vmem loads+stores, lgkm = LDS+scalar
+// GFX12.5 splits into 5 counters:
+//   load = vmem read, store = vmem write, ds = LDS, km = scalar and tensor
+def WaitCounterKind : AutoI8EnumCases<"WaitCounterKind",
+  "AMDGCN hardware wait counter kind", [
+    PrettyEnumCaseInfo<"vm">,
+    PrettyEnumCaseInfo<"lgkm">,
+    PrettyEnumCaseInfo<"load">,
+    PrettyEnumCaseInfo<"store">,
+    PrettyEnumCaseInfo<"ds">,
+    PrettyEnumCaseInfo<"km">,
+    PrettyEnumCaseInfo<"tensor">,
   ]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }

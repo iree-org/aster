@@ -22,6 +22,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCNEnums.td"
 include "aster/IR/CommonProps.td"
 include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 include "aster/Interfaces/AllocaOpInterface.td"
+include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.td"
 include "aster/Interfaces/DependentOpInterface.td"
 include "aster/Interfaces/GPUFuncInterface.td"
 include "aster/Interfaces/LivenessOpInterface.td"
@@ -807,7 +808,8 @@ def WaitCountAttr :
   DefaultValuedAttr<I16Attr, "std::numeric_limits<uint16_t>::max()">;
 
 def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
-    DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>
+    DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>,
+    DeclareOpInterfaceMethods<WaitCntOpInterface>
   ]> {
   let summary = "AMDGCN wait operation";
   let description = [{
@@ -820,6 +822,7 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
     - `lgkm_cnt`: Wait for lds, gws and constant memory operations
 
     NOTE: This operations is compatiable only with CDNA3 and CDNA4 targets.
+    For gfx1250/gfx1251 use amdgcn.wait_gfx1250 (separate per-counter waits).
     TODO: Support RDNA4 counts, and other targets.
 
     Example:
@@ -863,6 +866,68 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
     /// Check if the wait operation waits for any memory subsystem.
     bool hasAnyCount() {
       return getVmCnt() != kNoWaitCount || getLgkmCnt() != kNoWaitCount;
+    }
+
+    /// Check if the wait operation is a no-wait (has no dependencies).
+    bool isNowait() {
+      return !hasAnyCount() && getDependencies().empty();
+    }
+  }];
+  let hasCanonicalizeMethod = 1;
+}
+
+def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
+    DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>,
+    DeclareOpInterfaceMethods<WaitCntOpInterface>
+  ]> {
+  let summary = "gfx1250 wait operation";
+  let description = [{
+    GFX12.5-specific wait operation, using a split per-counter model.
+
+    - `load_cnt`:   vector-memory loads  (CDNA vmcnt, load half)
+    - `store_cnt`:  vector-memory stores (CDNA vmcnt, store half)
+    - `ds_cnt`:     LDS operations       (CDNA lgkmcnt, LDS half)
+    - `km_cnt`:     scalar memory loads  (CDNA lgkmcnt, scalar half)
+    - `tensor_cnt`: tensor-memory operations (tensor_load_to_lds)
+
+    At lowering, load_cnt + ds_cnt fuse into s_wait_loadcnt_dscnt and
+    store_cnt + ds_cnt into s_wait_storecnt_dscnt (load_cnt takes priority for
+    the ds pairing).
+    Other counters lower to their own instruction:
+    - s_wait_loadcnt
+    - s_wait_storecnt
+    - s_wait_dscnt
+    - s_wait_kmcnt
+    - s_wait_tensorcnt
+  }];
+  let arguments = (ins
+    Variadic<TokenDependencyTypeInterface>:$dependencies,
+    WaitCountAttr:$load_cnt, WaitCountAttr:$store_cnt, WaitCountAttr:$ds_cnt,
+    WaitCountAttr:$km_cnt, WaitCountAttr:$tensor_cnt
+  );
+  let assemblyFormat = [{
+    oilist(
+      `load_cnt` $load_cnt |
+      `store_cnt` $store_cnt |
+      `ds_cnt` $ds_cnt |
+      `km_cnt` $km_cnt |
+      `tensor_cnt` $tensor_cnt
+    )
+    (`deps` $dependencies^)?
+    attr-dict (`:` type($dependencies)^)?
+  }];
+  let extraClassDeclaration = [{
+    static constexpr uint16_t kNoWaitCount = std::numeric_limits<uint16_t>::max();
+
+    /// Canonicalize: remove duplicate deps, merge consecutive wait_gfx1250 ops.
+    static FailureOr<Block::iterator> canonicalizeWait(WaitGfx1250Op op,
+      RewriterBase &rewriter, llvm::SetVector<Value>& uniqueDeps);
+
+    /// Check if the wait operation waits for any memory subsystem.
+    bool hasAnyCount() {
+      return getLoadCnt() != kNoWaitCount || getStoreCnt() != kNoWaitCount ||
+             getDsCnt() != kNoWaitCount || getKmCnt() != kNoWaitCount ||
+             getTensorCnt() != kNoWaitCount;
     }
 
     /// Check if the wait operation is a no-wait (has no dependencies).
