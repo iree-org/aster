@@ -710,7 +710,6 @@ def GlobalStoreDwordx4 : GlobalStoreDwordInst<"global_store_dwordx4",
 #define TENSORLOADTOLDS_DEF
 // Load a tensor from global memory into LDS using the VIMAGE tensor engine.
 def TensorLoadToLds : AMDISAInstruction<"tensor_load_to_lds"> {
-  // TODO: TensorReadToken + tensorcnt wait support.
   let props = [IsVMem];
   let archs = [GFX12_50Isa];
   let effects = [GlobalRead, LDSWrite];
@@ -722,7 +721,8 @@ def TensorLoadToLds : AMDISAInstruction<"tensor_load_to_lds"> {
     SGPROf<4>:$desc3
   );
   let trailingArgs = (ins);
-  let trailingResults = (outs FlatReadToken:$token);
+  // Completion is tracked by s_wait_tensorcnt / token tensor kind.
+  let trailingResults = (outs TensorReadToken:$token);
   // LLVM: tensor_load_to_lds, VIMAGE encoding, opcode 0xc4.
   let encodings = [InstEnc<[ENC_VIMAGE_GFX12_50], 0b11000100>];
   let genInstAssemblyFormat = 0;

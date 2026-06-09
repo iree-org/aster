@@ -838,6 +838,262 @@ def SSetVgprMsb : AMDISAInstruction<"s_set_vgpr_msb"> {
 }
 #endif // SSETVGPRMSB_DEF
 
+#ifndef SWAITTENSORCNT_DEF
+#define SWAITTENSORCNT_DEF
+def SWaitTensorcnt : AMDISAInstruction<"s_wait_tensorcnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Drain the TENSOR_CNT counter, $count 0 waits for all.
+  }];
+  // LLVM opcode: SOPP 0x04b.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1001011>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITTENSORCNT_DEF
+
+#ifndef SWAITLOADCNT_DEF
+#define SWAITLOADCNT_DEF
+def SWaitLoadcnt : AMDISAInstruction<"s_wait_loadcnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Drains the LOAD_CNT counter.
+  }];
+  // LLVM opcode: SOPP 0x040.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1000000>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITLOADCNT_DEF
+
+#ifndef SWAITDSCNT_DEF
+#define SWAITDSCNT_DEF
+def SWaitDscnt : AMDISAInstruction<"s_wait_dscnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Drains the DS_CNT counter.
+  }];
+  // LLVM opcode: SOPP 0x046.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1000110>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITDSCNT_DEF
+
+#ifndef SWAITSTORECNT_DEF
+#define SWAITSTORECNT_DEF
+def SWaitStorecnt : AMDISAInstruction<"s_wait_storecnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Drains the STORE_CNT counter.
+  }];
+  // LLVM opcode: SOPP 0x041.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1000001>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITSTORECNT_DEF
+
+#ifndef SWAITKMCNT_DEF
+#define SWAITKMCNT_DEF
+def SWaitKmcnt : AMDISAInstruction<"s_wait_kmcnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Drains the KM_CNT counter.
+  }];
+  // LLVM opcode: SOPP 0x047.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1000111>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITKMCNT_DEF
+
+#ifndef SWAITLOADCNTDSCNT_DEF
+#define SWAITLOADCNTDSCNT_DEF
+def SWaitLoadcntDscnt : AMDISAInstruction<"s_wait_loadcnt_dscnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Fused wait on both LOAD_CNT and DS_CNT in a single instruction.
+    $count is the packed immediate (loadcnt << 8) | dscnt.
+    loadcnt occupies bits [13:8] and dscnt bits [5:0].
+  }];
+  // LLVM opcode: SOPP 0x048.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1001000>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITLOADCNTDSCNT_DEF
+
+#ifndef SWAITSTORECNTDSCNT_DEF
+#define SWAITSTORECNTDSCNT_DEF
+def SWaitStorecntDscnt : AMDISAInstruction<"s_wait_storecnt_dscnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Fused wait on both STORE_CNT and DS_CNT in a single instruction.
+    $count is the packed immediate (storecnt << 8) | dscnt.
+    storecnt occupies bits [13:8] and dscnt bits [5:0].
+  }];
+  // LLVM opcode: SOPP 0x049.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1001001>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITSTORECNTDSCNT_DEF
+
+#ifndef SWAITASYNCCNT_DEF
+#define SWAITASYNCCNT_DEF
+def SWaitAsynccnt : AMDISAInstruction<"s_wait_asynccnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Drains the ASYNC_CNT counter.
+  }];
+  // LLVM opcode: SOPP 0x04a.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1001010>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITASYNCCNT_DEF
+
+#ifndef SWAITXCNT_DEF
+#define SWAITXCNT_DEF
+def SWaitXcnt : AMDISAInstruction<"s_wait_xcnt"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Drains the X_CNT counter.
+  }];
+  // LLVM opcode: SOPP 0x045.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b1000101>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITXCNT_DEF
+
+#ifndef SWAITALU_DEF
+#define SWAITALU_DEF
+def SWaitAlu : AMDISAInstruction<"s_wait_alu"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Drains the ALU register-forwarding dependency hazards counter.
+    $count is the packed depctr immediate selecting the
+    va_vdst / va_sdst / sa_sdst / vm_vsrc / va_vcc / va_ssrc / hold_cnt fields.
+  }];
+  // LLVM opcode: SOPP 0x008 (gfx12 lineage; s_waitcnt_depctr renamed).
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b0001000>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    Imm16Attr:$count
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $count attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $count">
+  ];
+}
+#endif // SWAITALU_DEF
+
 #ifndef SSETPRIO_INC_WG_DEF
 #define SSETPRIO_INC_WG_DEF
 def SSetprioIncWg : AMDISAInstruction<"s_setprio_inc_wg"> {

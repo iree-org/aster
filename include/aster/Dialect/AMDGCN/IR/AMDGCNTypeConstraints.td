@@ -96,6 +96,10 @@ def FlatWriteToken :
   CPPType<"::mlir::aster::amdgcn::WriteTokenType", "write token type">,
   InferrableType<"$_builder.getType<WriteTokenType>(MemoryInstructionKind::Flat)">;
 
+def TensorReadToken :
+  CPPType<"::mlir::aster::amdgcn::ReadTokenType", "read token type">,
+  InferrableType<"$_builder.getType<ReadTokenType>(MemoryInstructionKind::Tensor)">;
+
 //===----------------------------------------------------------------------===//
 // Common type constraint classes
 //===----------------------------------------------------------------------===//

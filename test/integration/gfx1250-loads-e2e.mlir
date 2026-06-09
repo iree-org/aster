@@ -16,7 +16,7 @@ amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
     %d2 = lsir.alloca : !amdgcn.sgpr<[16 : 20]>
     %d3 = lsir.alloca : !amdgcn.sgpr<[20 : 24]>
     %tok = amdgcn.tensor_load_to_lds desc0 %d0 desc1 %d1 desc2 %d2 desc3 %d3
-        : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<[8 : 16]>, !amdgcn.sgpr<[16 : 20]>, !amdgcn.sgpr<[20 : 24]>) -> !amdgcn.read_token<flat>
+        : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<[8 : 16]>, !amdgcn.sgpr<[16 : 20]>, !amdgcn.sgpr<[20 : 24]>) -> !amdgcn.read_token<tensor>
     amdgcn.end_kernel
   }
 
