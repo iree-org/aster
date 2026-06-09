@@ -49,6 +49,15 @@ TEST_LOWER_MINIMAL_PASS_PIPELINE = builtin_module(
     phase_nop_insertion(delays=0),
 )
 
+# Like TEST_LOWER_MINIMAL but also lowers token-form amdgcn.wait ops to the
+# hardware wait instructions (e.g. a tensor_load_to_lds token -> s_wait_tensorcnt).
+# For no-hardware asm/HSACO tests of concrete kernels that carry waits.
+TEST_LOWER_WAITS_MINIMAL_PASS_PIPELINE = builtin_module(
+    PHASE_LOWER_TO_AMDGCN,
+    "amdgcn-convert-waits",
+    phase_nop_insertion(delays=0),
+)
+
 # --------------------------------------------------------------------------- #
 # SROA test pipeline (non-pipelined, scheduling-based)
 # --------------------------------------------------------------------------- #

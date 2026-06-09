@@ -42,7 +42,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Dialect/AMDGCN/Analysis/ReachingDefinitions.h"
+#include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Interfaces/InstOpInterface.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
@@ -95,6 +97,8 @@ struct WaitTransformImpl {
   DataFlowSolver &solver;
   /// The entry block of the function.
   Block *entryBlock = nullptr;
+  /// The hardware wait-counter model for the current function.
+  WaitCounterModel model = WaitCounterModel::CDNA3;
   /// A map from load operations to their corresponding alloca operations.
   DenseMap<FutureOpInterface, memref::AllocaOp> loadToAlloca;
   /// A set of load operations that are consumed by the current instruction.
@@ -169,7 +173,12 @@ void WaitTransformImpl::handleDefinitions(InstOpInterface instOp) {
     // Create the load operation.
     Value token = memref::LoadOp::create(rewriter, instOp.getLoc(),
                                          allocaOp.getResult(), ValueRange());
-    WaitOp::create(rewriter, instOp.getLoc(), token);
+    // Emit the target-appropriate wait op; counts are computed later by
+    // WaitAnalysis + ConvertWaits.
+    if (model == WaitCounterModel::GFX12_50)
+      WaitGfx1250Op::create(rewriter, instOp.getLoc(), token);
+    else
+      WaitOp::create(rewriter, instOp.getLoc(), token);
   }
 }
 
@@ -178,6 +187,8 @@ void WaitTransformImpl::run(FunctionOpInterface funcOp) {
   if (body.empty())
     return;
   entryBlock = &body.front();
+
+  model = getWaitCounterModelForOp(funcOp);
   funcOp.walk([this](InstOpInterface instOp) {
     // Erase s_waitcnt operations that are not immutable.
     if (auto wOp = dyn_cast<SWaitcnt>(instOp.getOperation());

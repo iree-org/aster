@@ -586,4 +586,27 @@ def WaitCntOpInterface : OpInterface<"WaitCntOpInterface"> {
   }];
 }
 
+//===----------------------------------------------------------------------===//
+// ISACompatibleOpInterface
+//===----------------------------------------------------------------------===//
+
+def ISACompatibleOpInterface : OpInterface<"ISACompatibleOpInterface"> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+  let description = [{
+    Declares which ISA versions an op is valid for. The module verifier
+    checks that every nested op implementing this interface is compatible
+    with the module's target.
+  }];
+  let methods = [
+    InterfaceMethod<"ISA versions this op is valid for.",
+      "::llvm::ArrayRef<::mlir::aster::amdgcn::ISAVersion>",
+      "getCompatibleISAVersions">
+  ];
+  let extraSharedClassDeclaration = [{
+    bool supportsISA(::mlir::aster::amdgcn::ISAVersion ver) {
+      return llvm::is_contained($_op.getCompatibleISAVersions(), ver);
+    }
+  }];
+}
+
 #endif // ASTER_DIALECT_AMDGCN_IR_INTERFACES_INSTOPINTERFACES_TD

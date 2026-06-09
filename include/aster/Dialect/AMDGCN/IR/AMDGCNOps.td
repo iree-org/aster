@@ -809,7 +809,8 @@ def WaitCountAttr :
 
 def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
     DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>,
-    DeclareOpInterfaceMethods<WaitCntOpInterface>
+    DeclareOpInterfaceMethods<WaitCntOpInterface>,
+    DeclareOpInterfaceMethods<ISACompatibleOpInterface>
   ]> {
   let summary = "AMDGCN wait operation";
   let description = [{
@@ -878,7 +879,8 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
 
 def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
     DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>,
-    DeclareOpInterfaceMethods<WaitCntOpInterface>
+    DeclareOpInterfaceMethods<WaitCntOpInterface>,
+    DeclareOpInterfaceMethods<ISACompatibleOpInterface>
   ]> {
   let summary = "gfx1250 wait operation";
   let description = [{

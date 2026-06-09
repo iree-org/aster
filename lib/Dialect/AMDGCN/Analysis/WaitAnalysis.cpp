@@ -11,10 +11,12 @@
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/IR/Utils.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/DebugLog.h"
@@ -90,15 +92,32 @@ getStateFingerprint(const WaitState &state) {
       info ? info->impliedTokens.size() : -1, info ? info->counts : WaitCnt());
 }
 
-/// Get the memory instruction kind from a token value's type.
-/// Returns MemoryInstructionKind::None if the value is not a token type
-static MemoryInstructionKind getMemoryKindFromToken(Value token) {
+/// Map a token value to its hardware wait-counter kind. Returns nullopt if the
+/// value is not a dependency token.
+static std::optional<WaitCounterKind> getCounterKind(Value token) {
   Type type = token.getType();
-  if (auto readToken = dyn_cast<ReadTokenType>(type))
-    return readToken.getKind();
-  if (auto writeToken = dyn_cast<WriteTokenType>(type))
-    return writeToken.getKind();
-  return MemoryInstructionKind::None;
+  bool isWrite = false;
+  MemoryInstructionKind kind;
+  if (auto readToken = dyn_cast<ReadTokenType>(type)) {
+    kind = readToken.getKind();
+  } else if (auto writeToken = dyn_cast<WriteTokenType>(type)) {
+    kind = writeToken.getKind();
+    isWrite = true;
+  } else {
+    return std::nullopt;
+  }
+  switch (kind) {
+  case MemoryInstructionKind::Flat:
+    return isWrite ? WaitCounterKind::Store : WaitCounterKind::Load;
+  case MemoryInstructionKind::Shared:
+    return WaitCounterKind::Ds;
+  case MemoryInstructionKind::Constant:
+    return WaitCounterKind::Km;
+  case MemoryInstructionKind::Tensor:
+    return WaitCounterKind::Tensor;
+  default:
+    return std::nullopt;
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -112,7 +131,25 @@ bool TokenState::merge(const TokenState &other) {
   return position != prevPos;
 }
 
-void TokenState::print(raw_ostream &os) const {
+static StringRef kindName(WaitCounterKind kind, WaitCounterModel model) {
+  if (model != WaitCounterModel::GFX12_50) {
+    // CDNA: load+store share "flat", ds = "shared", km = "constant".
+    switch (kind) {
+    case WaitCounterKind::Load:
+    case WaitCounterKind::Store:
+      return "flat";
+    case WaitCounterKind::Ds:
+      return "shared";
+    case WaitCounterKind::Km:
+      return "constant";
+    default:
+      break;
+    }
+  }
+  return stringifyWaitCounterKind(kind);
+}
+
+void TokenState::print(raw_ostream &os, WaitCounterModel model) const {
   os << "{";
   if (token) {
     token.printAsOperand(os, OpPrintingFlags());
@@ -121,7 +158,7 @@ void TokenState::print(raw_ostream &os) const {
     os << "<escaped>";
   }
   os << ", " << position;
-  os << ", " << stringifyMemoryInstructionKind(kind);
+  os << ", " << kindName(kind, model);
   os << "}";
 }
 
@@ -132,29 +169,82 @@ TokenState &TokenState::operator++() {
 }
 
 //===----------------------------------------------------------------------===//
+// WaitCounterModel
+//===----------------------------------------------------------------------===//
+
+WaitCounterModel mlir::aster::amdgcn::getWaitCounterModel(ISAVersion isa) {
+  switch (isa) {
+  case ISAVersion::CDNA3:
+    return WaitCounterModel::CDNA3;
+  case ISAVersion::CDNA4:
+    return WaitCounterModel::CDNA4;
+  case ISAVersion::GFX12_50:
+    return WaitCounterModel::GFX12_50;
+  default:
+    llvm_unreachable("unsupported ISA for WaitCounterModel");
+  }
+}
+
+WaitCounterModel mlir::aster::amdgcn::getWaitCounterModelForOp(Operation *op) {
+  auto moduleOp = dyn_cast<amdgcn::ModuleOp>(op);
+  if (!moduleOp)
+    moduleOp = op->getParentOfType<amdgcn::ModuleOp>();
+  return moduleOp ? getWaitCounterModel(getIsaForTarget(moduleOp.getTarget()))
+                  : WaitCounterModel::CDNA3;
+}
+
+//===----------------------------------------------------------------------===//
 // WaitCnt
 //===----------------------------------------------------------------------===//
 
-WaitCnt WaitCnt::fromOp(WaitOp waitOp) {
-  return WaitCnt(waitOp.getVmCnt(), waitOp.getLgkmCnt());
-}
-
-int32_t WaitCnt::getCount(MemoryInstructionKind kind) const {
-  if (kind == MemoryInstructionKind::Flat)
-    return vmCnt;
-  if (kind == MemoryInstructionKind::Constant ||
-      kind == MemoryInstructionKind::Shared)
-    return lgkmCnt;
-  return -1;
-}
-
-void WaitCnt::updateCount(MemoryInstructionKind kind, Position count) {
-  if (kind == MemoryInstructionKind::Flat) {
-    vmCnt = std::min(vmCnt, count);
-  } else if (kind == MemoryInstructionKind::Constant ||
-             kind == MemoryInstructionKind::Shared) {
-    lgkmCnt = std::min(lgkmCnt, count);
+/// Return all counter kinds that share the same physical hardware counter as
+/// `kind` (including `kind` itself). On CDNA4, load+store share vmcnt and
+/// ds+km share lgkmcnt. On GFX12_50 every kind is independent.
+static llvm::SmallDenseSet<WaitCounterKind, 4>
+aliasingCounters(WaitCounterKind kind, WaitCounterModel model) {
+  llvm::SmallDenseSet<WaitCounterKind, 4> result;
+  if (model == WaitCounterModel::GFX12_50) {
+    result.insert(kind);
+    return result;
   }
+  switch (kind) {
+  case WaitCounterKind::Vm:
+  case WaitCounterKind::Load:
+  case WaitCounterKind::Store:
+    result.insert(WaitCounterKind::Load);
+    result.insert(WaitCounterKind::Store);
+    break;
+  case WaitCounterKind::Lgkm:
+  case WaitCounterKind::Ds:
+  case WaitCounterKind::Km:
+    result.insert(WaitCounterKind::Ds);
+    result.insert(WaitCounterKind::Km);
+    break;
+  case WaitCounterKind::Tensor:
+    result.insert(WaitCounterKind::Tensor);
+    break;
+  }
+  return result;
+}
+
+WaitCnt WaitCnt::fromOp(WaitCntOpInterface waitOp, WaitCounterModel model) {
+  WaitCnt c;
+  // Query every counter kind the op might carry. For each reported value,
+  // compute the min across the value and all existing aliasing counters (since
+  // they share a physical counter), then set all aliases to that min.
+  for (size_t i = 0; i < kNumKinds; ++i) {
+    auto opKind = static_cast<WaitCounterKind>(i);
+    uint16_t v = waitOp.getCounterValue(opKind);
+    if (v == WaitCntOpInterface::kNoWaitCount)
+      continue;
+    auto aliases = aliasingCounters(opKind, model);
+    Position mn = static_cast<Position>(v);
+    for (WaitCounterKind k : aliases)
+      mn = std::min<int32_t>(mn, c.getCount(k));
+    for (WaitCounterKind k : aliases)
+      c.updateCount(k, mn);
+  }
+  return c;
 }
 
 void WaitCnt::updateCount(ArrayRef<TokenState> tokens) {
@@ -162,17 +252,28 @@ void WaitCnt::updateCount(ArrayRef<TokenState> tokens) {
     updateCount(tok.getKind(), tok.getPosition());
 }
 
-void WaitCnt::print(llvm::raw_ostream &os) const {
-  os << "{vm_cnt: ";
-  if (vmCnt == kMaxPosition)
-    os << "nowait";
-  else
-    os << vmCnt;
-  os << ", lgkm_cnt: ";
-  if (lgkmCnt == kMaxPosition)
-    os << "nowait";
-  else
-    os << lgkmCnt;
+void WaitCnt::print(llvm::raw_ostream &os, WaitCounterModel model) const {
+  auto p = [&](const char *name, WaitCounterKind kind, bool sep) {
+    os << name << ": ";
+    int32_t c = getCount(kind);
+    if (c == kMaxPosition)
+      os << "nowait";
+    else
+      os << c;
+    if (sep)
+      os << ", ";
+  };
+  os << "{";
+  if (model == WaitCounterModel::GFX12_50) {
+    p("load_cnt", WaitCounterKind::Load, true);
+    p("store_cnt", WaitCounterKind::Store, true);
+    p("ds_cnt", WaitCounterKind::Ds, true);
+    p("km_cnt", WaitCounterKind::Km, true);
+    p("tensor_cnt", WaitCounterKind::Tensor, false);
+  } else {
+    p("vm_cnt", WaitCounterKind::Load, true);
+    p("lgkm_cnt", WaitCounterKind::Ds, false);
+  }
   os << "}";
 }
 
@@ -181,7 +282,8 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
                          SmallVectorImpl<TokenState> &waitedTokens,
                          SmallVectorImpl<TokenState> &impliedTokens,
                          SmallVectorImpl<TokenState> &nextReachingTokens,
-                         llvm::function_ref<TokenState(Value)> getState) {
+                         llvm::function_ref<TokenState(Value)> getState,
+                         WaitCounterModel model) {
   // Clear the waited tokens.
   waitedTokens.clear();
 
@@ -201,35 +303,50 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
     }
     waitedTokens.push_back(*lb);
 
-    // Count the number of DS and SMem tokens.
-    if (tok.getKind() == MemoryInstructionKind::Constant ||
-        tok.getKind() == MemoryInstructionKind::Shared) {
+    // Count the number of DS and SMem tokens (the lgkm group: ds + km kinds).
+    if (tok.getKind() == WaitCounterKind::Km ||
+        tok.getKind() == WaitCounterKind::Ds) {
       hasLgkmDeps = true;
     }
   }
 
   bool hasSmemToks = false;
 
-  // If there are LGKM tokens, count the number of DS and SMEM tokens in the
-  // reaching tokens.
+  // If there are LGKM tokens, check whether any SMEM (km) tokens are reaching.
   if (hasLgkmDeps) {
     for (const TokenState &tok : reachingTokens) {
-      // End early if both types have been found.
+      // End early if a km token has been found.
       if (hasSmemToks)
         break;
 
-      if (tok.getKind() == MemoryInstructionKind::Constant)
+      if (tok.getKind() == WaitCounterKind::Km)
         hasSmemToks = true;
     }
   }
 
-  // If there are SMEM tokens, the only consistent wait is to wait or all lgkm
-  // tokens as they return out of order.
-  if (hasSmemToks)
-    lgkmCnt = 0;
+  // SMEM (km) returns out of order, so the only consistent wait is to drain
+  // the km counter fully. All aliasing counters must also drain.
+  if (hasSmemToks) {
+    for (WaitCounterKind k : aliasingCounters(WaitCounterKind::Km, model))
+      updateCount(k, 0);
+  }
 
   // Update the wait counts based on the waited tokens.
   updateCount(waitedTokens);
+
+  // Collapse aliasing counters to min: kinds sharing a physical counter must
+  // report the same (tightest) wait count.
+  for (size_t i = 0; i < kNumKinds; ++i) {
+    auto kind = static_cast<WaitCounterKind>(i);
+    auto aliases = aliasingCounters(kind, model);
+    if (aliases.size() <= 1)
+      continue;
+    Position mn = kMaxPosition;
+    for (WaitCounterKind k : aliases)
+      mn = std::min<int32_t>(mn, getCount(k));
+    for (WaitCounterKind k : aliases)
+      updateCount(k, mn);
+  }
 
   // Invalidate tokens that are dominated by the wait counts.
   for (TokenState &token : waitedTokens) {
@@ -268,23 +385,33 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
 // WaitState
 //===----------------------------------------------------------------------===//
 
-void WaitOpInfo::print(llvm::raw_ostream &os) const {
-  os << "{counts: " << counts
-     << ", waited_tokens: " << llvm::interleaved_array(waitedTokens)
-     << ", implied_tokens: " << llvm::interleaved_array(impliedTokens) << "}";
+void WaitOpInfo::print(llvm::raw_ostream &os, WaitCounterModel model) const {
+  os << "{counts: ";
+  counts.print(os, model);
+  os << ", waited_tokens: [";
+  llvm::interleave(
+      waitedTokens, os, [&](const TokenState &t) { t.print(os, model); }, ", ");
+  os << "], implied_tokens: [";
+  llvm::interleave(
+      impliedTokens, os, [&](const TokenState &t) { t.print(os, model); },
+      ", ");
+  os << "]}";
 }
 
-void WaitState::print(raw_ostream &os) const {
+void WaitState::print(raw_ostream &os, WaitCounterModel model) const {
   if (isEmpty()) {
     os << "<Empty>";
     return;
   }
-  ArrayRef<TokenState> tokens = reachingTokens;
-  os << "unhandled tokens = " << llvm::interleaved_array(tokens);
-  if (!waitOpInfo.has_value()) {
+  os << "unhandled tokens = [";
+  llvm::interleave(
+      reachingTokens, os, [&](const TokenState &t) { t.print(os, model); },
+      ", ");
+  os << "]";
+  if (!waitOpInfo.has_value())
     return;
-  }
-  os << ", wait information = " << *waitOpInfo;
+  os << ", wait information = ";
+  waitOpInfo->print(os, model);
 }
 
 ChangeResult WaitState::join(const WaitState &lattice) {
@@ -302,10 +429,10 @@ ChangeResult WaitState::join(const WaitState &lattice) {
                                                        : ChangeResult::NoChange;
 }
 
-ChangeResult
-WaitState::joinWait(ValueRange deps, const WaitState &before,
-                    WaitCnt waitCounts,
-                    llvm::function_ref<TokenState(Value)> getState) {
+ChangeResult WaitState::joinWait(ValueRange deps, const WaitState &before,
+                                 WaitCnt waitCounts,
+                                 llvm::function_ref<TokenState(Value)> getState,
+                                 WaitCounterModel model) {
   // Get a fingerprint for change detection.
   auto oldFingerprint = getStateFingerprint(*this);
   LDBG_OS([&](raw_ostream &os) {
@@ -329,7 +456,7 @@ WaitState::joinWait(ValueRange deps, const WaitState &before,
   SmallVector<TokenState> newReachingToks;
   waitOpInfo->counts.handleWait(
       before.reachingTokens, deps, waitOpInfo->waitedTokens,
-      waitOpInfo->impliedTokens, newReachingToks, getState);
+      waitOpInfo->impliedTokens, newReachingToks, getState, model);
   bool changed = oldFingerprint != getStateFingerprint(*this);
 
   // Update the reaching tokens.
@@ -341,30 +468,19 @@ WaitState::joinWait(ValueRange deps, const WaitState &before,
   return changed ? ChangeResult::Change : ChangeResult::NoChange;
 }
 
-ChangeResult WaitState::addTokens(ArrayRef<TokenState> tokens) {
-  // Determine which hardware counters the new tokens affect.
-  bool hasVmcnt = false;
-  bool hasLgkmcnt = false;
-  for (const TokenState &tok : tokens) {
-    if (tok.getKind() == MemoryInstructionKind::Flat)
-      hasVmcnt = true;
-    else if (tok.getKind() == MemoryInstructionKind::Shared ||
-             tok.getKind() == MemoryInstructionKind::Constant)
-      hasLgkmcnt = true;
-  }
+ChangeResult WaitState::addTokens(ArrayRef<TokenState> tokens,
+                                  WaitCounterModel model) {
+  // Determine which counter kinds are affected (directly or via aliasing).
+  bool affected[WaitCnt::kNumKinds] = {};
+  for (const TokenState &tok : tokens)
+    for (WaitCounterKind k : aliasingCounters(tok.getKind(), model))
+      affected[static_cast<size_t>(k)] = true;
 
-  // Only increment positions for reaching tokens whose hardware counter
-  // matches the newly produced tokens. Hardware counters (vmcnt, lgkmcnt) are
-  // independent, so a flat (vmcnt) operation should not increment positions of
-  // shared (lgkmcnt) tokens and vice versa.
-  for (TokenState &token : reachingTokens) {
-    if (token.getKind() == MemoryInstructionKind::Flat && hasVmcnt)
+  // Only increment positions of reaching tokens whose counter kind is affected;
+  // independent counters do not interfere.
+  for (TokenState &token : reachingTokens)
+    if (affected[static_cast<size_t>(token.getKind())])
       ++token;
-    else if ((token.getKind() == MemoryInstructionKind::Shared ||
-              token.getKind() == MemoryInstructionKind::Constant) &&
-             hasLgkmcnt)
-      ++token;
-  }
   return merge(reachingTokens, tokens) ? ChangeResult::Change
                                        : ChangeResult::NoChange;
 }
@@ -397,35 +513,28 @@ static bool handleEscapedTokens(SmallVectorImpl<TokenState> &results,
     os << "  Handling escaped tokens: "
        << llvm::interleaved_array(escapedTokens);
   });
-  std::array<int32_t, 4> cnt = {
-      static_cast<int32_t>(TokenState::kMaxPosition),
-      static_cast<int32_t>(TokenState::kMaxPosition),
-      static_cast<int32_t>(TokenState::kMaxPosition),
-      static_cast<int32_t>(TokenState::kMaxPosition),
-  };
-  auto getEscCnt = [&](MemoryInstructionKind kind) -> int32_t & {
+  // One escaped position per counter kind, indexed by WaitCounterKind.
+  std::array<int32_t, WaitCnt::kNumKinds> cnt;
+  cnt.fill(static_cast<int32_t>(TokenState::kMaxPosition));
+  auto getEscCnt = [&](WaitCounterKind kind) -> int32_t & {
     int32_t i = static_cast<int32_t>(kind);
-    assert(i >= 0 && i < 4 && "invalid memory kind");
+    assert(i >= 0 && i < static_cast<int32_t>(WaitCnt::kNumKinds) &&
+           "invalid wait counter kind");
     return cnt[i];
   };
   for (TokenState &tok : escapedTokens) {
-    if (tok.getKind() == MemoryInstructionKind::None)
+    // mapControlFlowOperands nulls out matched tokens with TokenState().
+    // Skip these sentinels (id == -1 is not a valid token ID).
+    if (tok.getID() == -1)
       continue;
     getEscCnt(tok.getKind()) =
         std::min(getEscCnt(tok.getKind()), tok.getPosition());
   }
   escapedTokens.clear();
-  if (getEscCnt(MemoryInstructionKind::Flat) != TokenState::kMaxPosition) {
-    escapedTokens.push_back(
-        TokenState::unknownVMem(getEscCnt(MemoryInstructionKind::Flat)));
-  }
-  if (getEscCnt(MemoryInstructionKind::Constant) != TokenState::kMaxPosition) {
-    escapedTokens.push_back(
-        TokenState::unknownSMem(getEscCnt(MemoryInstructionKind::Constant)));
-  }
-  if (getEscCnt(MemoryInstructionKind::Shared) != TokenState::kMaxPosition) {
-    escapedTokens.push_back(
-        TokenState::unknownDMem(getEscCnt(MemoryInstructionKind::Shared)));
+  for (size_t i = 0; i < WaitCnt::kNumKinds; ++i) {
+    auto kind = static_cast<WaitCounterKind>(i);
+    if (getEscCnt(kind) != TokenState::kMaxPosition)
+      escapedTokens.push_back(TokenState::unknown(kind, getEscCnt(kind)));
   }
   llvm::sort(escapedTokens);
   return merge(results, escapedTokens);
@@ -457,8 +566,9 @@ static bool addTokensByDominance(SmallVectorImpl<TokenState> &results,
 }
 
 TokenState WaitAnalysis::getState(Value token, TokenState::ID position) {
-  return TokenState(token, getID(token), getMemoryKindFromToken(token),
-                    position);
+  std::optional<WaitCounterKind> kind = getCounterKind(token);
+  assert(kind && "expected a dependency token");
+  return TokenState(token, getID(token), *kind, position);
 }
 
 bool WaitAnalysis::mapControlFlowOperands(
@@ -506,12 +616,13 @@ LogicalResult WaitAnalysis::visitOperation(Operation *op,
                                            WaitState *after) {
   DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()), {});
 
-  // Handle a wait op.
-  if (auto waitOp = dyn_cast<WaitOp>(op)) {
+  // Handle a wait op (amdgcn.wait or amdgcn.wait_gfx1250) uniformly via the
+  // interface. Both ops' only operands are their token dependencies.
+  if (auto waitOp = dyn_cast<WaitCntOpInterface>(op)) {
     auto getState = [&](Value token) { return this->getState(token, 0); };
-    propagateIfChanged(after,
-                       after->joinWait(waitOp.getDependencies(), before,
-                                       WaitCnt::fromOp(waitOp), getState));
+    propagateIfChanged(after, after->joinWait(op->getOperands(), before,
+                                              WaitCnt::fromOp(waitOp, model),
+                                              getState, model));
     return success();
   }
 
@@ -521,7 +632,7 @@ LogicalResult WaitAnalysis::visitOperation(Operation *op,
 
   // Collect produced tokens.
   for (OpResult result : op->getResults()) {
-    if (getMemoryKindFromToken(result) == MemoryInstructionKind::None)
+    if (!getCounterKind(result))
       continue;
     producedTokens.push_back(getState(result, 0));
   }
@@ -530,7 +641,7 @@ LogicalResult WaitAnalysis::visitOperation(Operation *op,
   if (!producedTokens.empty()) {
     llvm::sort(producedTokens);
     producedTokens.erase(llvm::unique(producedTokens), producedTokens.end());
-    changed = after->addTokens(producedTokens) | changed;
+    changed = after->addTokens(producedTokens, model) | changed;
   }
   propagateIfChanged(after, changed);
   return success();

@@ -14,6 +14,7 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -44,53 +45,61 @@ public:
     Operation *op = getOperation();
     auto &domInfo = getAnalysis<DominanceInfo>();
 
-    // Create and configure the data flow solver for this kernel
-    DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
-    dataflow::loadBaselineAnalyses(solver);
-    solver.load<WaitAnalysis>(domInfo);
-
-    // Initialize and run the solver on the kernel
-    if (failed(solver.initializeAndRun(op))) {
-      op->emitError() << "failed to run wait analysis";
-      return signalPassFailure();
-    }
-
     Builder b(&getContext());
     llvm::SmallString<128> str;
     llvm::raw_svector_ostream stream(str);
 
     llvm::outs() << "=== Wait Analysis Results ===\n";
 
-    // Helper to get wait state as attribute
-    auto getAttr = [&](const WaitState *state) {
-      if (!state)
-        return b.getStringAttr("<NULL>");
-      str.clear();
-      state->print(stream);
-      return b.getStringAttr(str.str());
-    };
-
-    // Walk through operations in the kernel and print analysis results
-    op->walk<WalkOrder::PreOrder>([&](Operation *operation) {
-      if (auto symOp = dyn_cast<SymbolOpInterface>(operation)) {
-        llvm::outs() << "Symbol: " << symOp.getName() << "\n";
+    auto runOn = [&](Operation *root, WaitCounterModel model) -> LogicalResult {
+      DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
+      dataflow::loadBaselineAnalyses(solver);
+      solver.load<WaitAnalysis>(domInfo, model);
+      if (failed(solver.initializeAndRun(root))) {
+        root->emitError() << "failed to run wait analysis";
+        return failure();
       }
 
-      // Get the state before / after this operation
-      auto *beforeState = solver.lookupState<WaitState>(
-          solver.getProgramPointBefore(operation));
-      auto *afterState =
-          solver.lookupState<WaitState>(solver.getProgramPointAfter(operation));
-      StringAttr beforeAttr = getAttr(beforeState);
-      StringAttr afterAttr = getAttr(afterState);
-      llvm::outs() << "Op: "
-                   << OpWithFlags(operation, OpPrintingFlags().skipRegions())
-                   << "\n";
-      llvm::outs() << "\tWAIT STATE BEFORE: " << beforeAttr.getValue() << "\n";
-      llvm::outs() << "\tWAIT STATE AFTER: " << afterAttr.getValue() << "\n";
-      operation->setAttr("wait_analysis.before", beforeAttr);
-      operation->setAttr("wait_analysis.after", afterAttr);
-    });
+      auto getAttr = [&](const WaitState *state) {
+        if (!state)
+          return b.getStringAttr("<NULL>");
+        str.clear();
+        state->print(stream, model);
+        return b.getStringAttr(str.str());
+      };
+
+      root->walk<WalkOrder::PreOrder>([&](Operation *operation) {
+        if (auto symOp = dyn_cast<SymbolOpInterface>(operation))
+          llvm::outs() << "Symbol: " << symOp.getName() << "\n";
+        auto *beforeState = solver.lookupState<WaitState>(
+            solver.getProgramPointBefore(operation));
+        auto *afterState = solver.lookupState<WaitState>(
+            solver.getProgramPointAfter(operation));
+        StringAttr beforeAttr = getAttr(beforeState);
+        StringAttr afterAttr = getAttr(afterState);
+        llvm::outs() << "Op: "
+                     << OpWithFlags(operation, OpPrintingFlags().skipRegions())
+                     << "\n";
+        llvm::outs() << "\tWAIT STATE BEFORE: " << beforeAttr.getValue()
+                     << "\n";
+        llvm::outs() << "\tWAIT STATE AFTER: " << afterAttr.getValue() << "\n";
+        operation->setAttr("wait_analysis.before", beforeAttr);
+        operation->setAttr("wait_analysis.after", afterAttr);
+      });
+      return success();
+    };
+
+    if (auto amdMod = dyn_cast<amdgcn::ModuleOp>(op)) {
+      if (failed(runOn(op, getWaitCounterModelForOp(op))))
+        return signalPassFailure();
+    } else {
+      op->walk([&](amdgcn::ModuleOp amdMod) {
+        if (failed(runOn(amdMod, getWaitCounterModelForOp(amdMod))))
+          signalPassFailure();
+      });
+      if (failed(runOn(op, getWaitCounterModelForOp(op))))
+        return signalPassFailure();
+    }
   }
 };
 } // namespace
