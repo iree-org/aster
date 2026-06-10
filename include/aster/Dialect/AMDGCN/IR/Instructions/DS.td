@@ -522,4 +522,63 @@ def DsWriteB96 : DSWriteInst<"ds_write_b96",
 }
 #endif // DSWRITEB96_DEF
 
+//===----------------------------------------------------------------------===//
+// gfx1250 DS store instructions (ds_store_b* family).
+//===----------------------------------------------------------------------===//
+
+#ifndef DSSTOREINST_DEF
+#define DSSTOREINST_DEF
+class DSStoreInst<string mnemonic, list<Type> dataType>
+    : AMDISAInstruction<mnemonic, [DSWriteInstOpInterface]> {
+  let props = [IsDS];
+  let archs = [GFX12_50Isa];
+  let effects = [LDSWrite];
+  let outputs = (ins);
+  let inputs = (ins
+    VGPROf<1>:$addr,
+    AnyRegOf<dataType>:$data
+  );
+  let trailingArgs = (ins
+    OffsetType<16>:$const_offset,
+    GDS:$gds
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `data` $data `addr` $addr `offset` `c` `(`$const_offset`)` attr-dict `:`
+    `ins` `(`type($data) `,` type($addr) `)` `mods` `(` type($const_offset) `)` `->`
+    qualified(type($token))
+  }];
+  let trailingResults = (outs DSWriteToken:$token);
+  let asm_syntax = [
+    ASMString<[ENC_DS_GFX12_50], "${mnemonic} $addr, $data [const_offset] [gds]">
+  ];
+}
+#endif // DSSTOREINST_DEF
+
+#ifndef DSSTOREB64_DEF
+#define DSSTOREB64_DEF
+def DsStoreB64 : DSStoreInst<"ds_store_b64",
+    /*data=*/[VGPROf<2>]
+  > {
+  let description = [{
+    Store 64 bits from a vector register into LDS (gfx1250/gfx1251).
+    Same operation as ds_write_b64 on CDNA3/CDNA4.
+  }];
+  let encodings = [InstEnc<[ENC_DS_GFX12_50], 0b01001101>];
+}
+#endif // DSSTOREB64_DEF
+
+#ifndef DSSTOREB128_DEF
+#define DSSTOREB128_DEF
+def DsStoreB128 : DSStoreInst<"ds_store_b128",
+    /*data=*/[VGPROf<4>]
+  > {
+  let description = [{
+    Store 128 bits from a vector register into LDS (gfx1250/gfx1251).
+    Same operation as ds_write_b128 on CDNA3/CDNA4.
+  }];
+  let encodings = [InstEnc<[ENC_DS_GFX12_50], 0b11011111>];
+}
+#endif // DSSTOREB128_DEF
+
 #endif // AMDGCN_DS_TD

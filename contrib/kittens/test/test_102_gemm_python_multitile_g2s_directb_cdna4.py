@@ -199,7 +199,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
     # --- Distribution + cooperative-load plan for A ---
     wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg_m_count, wg_n_count))
-    wid = b.wave_id(wave_size=ws)
+    wid = b.wave_id()
     wave_m_idx, wave_n_idx = b.delinearize_index(wid, (wpw_m, wpw_n))
 
     plan_a = make_coop_load_plan(
@@ -234,7 +234,6 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
         a_ptr,
         buffer_num_records_bytes=M_total * stride_a,
         spatial_dim=mfma_m,
-        wave_size=ws,
         tile_row_bytes=tile_row_bytes,
         global_load_bytes=mapping.global_load_bytes,
         global_row_stride=stride_a,

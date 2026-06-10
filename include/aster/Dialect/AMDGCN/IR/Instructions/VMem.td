@@ -737,4 +737,134 @@ def TensorLoadToLds : AMDISAInstruction<"tensor_load_to_lds"> {
 }
 #endif // TENSORLOADTOLDS_DEF
 
+//===----------------------------------------------------------------------===//
+// gfx1250 global load instructions (global_load_b* family).
+//===----------------------------------------------------------------------===//
+
+#ifndef GLOBALLOADB_INST_DEF
+#define GLOBALLOADB_INST_DEF
+class GlobalLoadBInst<string mnemonic, list<Type> dst0Type>
+    : AMDISAInstruction<mnemonic, [GlobalLoadInstOpInterface]> {
+  let props = [IsVMem, IsGlobal];
+  let archs = [GFX12_50Isa];
+  let effects = [GlobalRead];
+  let outputs = (ins
+    AnyRegOf<dst0Type>:$dest
+  );
+  let inputs = (ins
+    AnyRegOf<[VGPROf<2>, TwoSGPROrVCCType]>:$addr,
+    OptionalReg<VGPROf<1>>:$offset
+  );
+  let trailingArgs = (ins
+    OffsetType<13, /*signed=*/true>:$const_offset,
+    NT:$nt,
+    SC0:$sc0,
+    SC1:$sc1
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `dest` $dest `addr` $addr
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `outs``(` type($dest) `)`
+    `ins` `(` type($addr) (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)` `->`
+    custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+  }];
+  let trailingResults = (outs FlatReadToken:$token);
+  let asm_syntax = [
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $dest, $addr, off [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<VGPRType>($_self.getAddr().getType())">>,
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $dest, $offset, $addr [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<SGPRType>($_self.getAddr().getType())">>,
+  ];
+  let hasVerifier = 1;
+  let extraClassDefinition = [{
+    LogicalResult $cppClass::verify() {
+      if (isa<VGPRType>(getAddr().getType()) && getOffset())
+        return emitError("expects no offset with VGPR address");
+      if (isa<SGPRType>(getAddr().getType()) && !getOffset())
+        return emitError("expects an offset with SGPR address");
+      return success();
+    }
+  }];
+}
+#endif // GLOBALLOADB_INST_DEF
+
+#ifndef GLOBALLOADB128_DEF
+#define GLOBALLOADB128_DEF
+def GlobalLoadB128 : GlobalLoadBInst<"global_load_b128",
+    /*dest=*/[VGPROf<4>]
+  > {
+  let description = [{
+    Load 128 bits from global memory into a vector register (gfx1250/gfx1251).
+    Same operation as global_load_dwordx4 on CDNA3/CDNA4.
+  }];
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b0010111>];
+}
+#endif // GLOBALLOADB128_DEF
+
+//===----------------------------------------------------------------------===//
+// gfx1250 global store instructions (global_store_b* family).
+//===----------------------------------------------------------------------===//
+
+#ifndef GLOBALSTOREB_INST_DEF
+#define GLOBALSTOREB_INST_DEF
+class GlobalStoreBInst<string mnemonic, list<Type> dataType>
+    : AMDISAInstruction<mnemonic, [GlobalStoreDwordInstOpInterface]> {
+  let props = [IsVMem, IsGlobal];
+  let archs = [GFX12_50Isa];
+  let effects = [GlobalWrite];
+  let outputs = (ins);
+  let inputs = (ins
+    AnyRegOf<dataType>:$data,
+    AnyRegOf<[VGPROf<2>, TwoSGPROrVCCType]>:$addr,
+    OptionalReg<VGPROf<1>>:$offset
+  );
+  let trailingArgs = (ins
+    OffsetType<13, /*signed=*/true>:$const_offset,
+    NT:$nt,
+    SC0:$sc0,
+    SC1:$sc1
+  );
+  let trailingResults = (outs FlatWriteToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `data` $data `addr` $addr
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `ins` `(`type($data) `,` type($addr) (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)`
+     `->` qualified(type($token))
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $addr, $data, off [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<VGPRType>($_self.getAddr().getType())">>,
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $offset, $data, $addr [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<SGPRType>($_self.getAddr().getType())">>,
+  ];
+  let hasVerifier = 1;
+  let extraClassDefinition = [{
+    LogicalResult $cppClass::verify() {
+      if (isa<VGPRType>(getAddr().getType()) && getOffset())
+        return emitError("expects no offset with VGPR address");
+      return success();
+    }
+  }];
+}
+#endif // GLOBALSTOREB_INST_DEF
+
+#ifndef GLOBALSTOREB32_DEF
+#define GLOBALSTOREB32_DEF
+def GlobalStoreB32 : GlobalStoreBInst<"global_store_b32",
+    /*data=*/[VGPROf<1>]
+  > {
+  let description = [{
+    Store 32 bits from a vector register into global memory (gfx1250/gfx1251).
+    Same operation as global_store_dword on CDNA3/CDNA4.
+  }];
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b0011100>];
+}
+#endif // GLOBALSTOREB32_DEF
+
 #endif // AMDGCN_VMEM_TD

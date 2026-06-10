@@ -18,7 +18,7 @@ include "aster/Dialect/AMDGCN/IR/AMDGCN.td"
 #define SOP2OUT2IN2INST_DEF
 class SOP2Out2In2Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type, list<Type> src1Type> : AMDISAInstruction<mnemonic> {
   let props = [IsSALU, IsSOP2];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let outputs = (ins
     AnyRegOf<dst0Type>:$dst0,
     SCCType:$scc_dst
@@ -29,7 +29,7 @@ class SOP2Out2In2Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type,
   );
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], "${mnemonic} $dst0, $src0, $src1">
+    ASMString<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], "${mnemonic} $dst0, $src0, $src1">
   ];
 }
 #endif // SOP2OUT2IN2INST_DEF
@@ -46,7 +46,7 @@ def SAbsdiffI32 : SOP2Out2In2Inst<"s_absdiff_i32",
     store the result into a scalar register and set SCC iff the result is
     nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0101010>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0101010>];
 }
 #endif // SABSDIFFI32_DEF
 
@@ -61,7 +61,7 @@ def SAddI32 : SOP2Out2In2Inst<"s_add_i32",
     Add two signed 32-bit integer inputs, store the result into a scalar
     register and store the carry-out bit into SCC.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0000010>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0000010>];
 }
 #endif // SADDI32_DEF
 
@@ -76,7 +76,7 @@ def SAddU32 : SOP2Out2In2Inst<"s_add_u32",
     Add two unsigned 32-bit integer inputs, store the result into a scalar
     register and store the carry-out bit into SCC.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0000000>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0000000>];
 }
 #endif // SADDU32_DEF
 
@@ -92,7 +92,7 @@ def SAndn2B32 : SOP2Out2In2Inst<"s_andn2_b32",
     input, store the result into a scalar register and set SCC if the result
     is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0010010>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0010010>];
 }
 #endif // SANDN2B32_DEF
 
@@ -107,7 +107,7 @@ def SAndB32 : SOP2Out2In2Inst<"s_and_b32",
     Calculate bitwise AND on two scalar inputs, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001100>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0001100>];
 }
 #endif // SANDB32_DEF
 
@@ -122,7 +122,7 @@ def SAndB64 : SOP2Out2In2Inst<"s_and_b64",
     Calculate bitwise AND on two scalar inputs, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001101>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0001101>];
 }
 #endif // SANDB64_DEF
 
@@ -138,7 +138,7 @@ def SAshrI32 : SOP2Out2In2Inst<"s_ashr_i32",
     shift right (preserving sign bit) of the first scalar input, store the
     result into a scalar register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0100000>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0100000>];
 }
 #endif // SASHRI32_DEF
 
@@ -154,7 +154,7 @@ def SAshrI64 : SOP2Out2In2Inst<"s_ashr_i64",
     shift right (preserving sign bit) of the first scalar input, store the
     result into a scalar register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0100001>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0100001>];
 }
 #endif // SASHRI64_DEF
 
@@ -170,7 +170,7 @@ def SBfeI32 : SOP2Out2In2Inst<"s_bfe_i32",
     encoded in the second input, store the result into a scalar register and
     set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0100110>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0100110>];
 }
 #endif // SBFEI32_DEF
 
@@ -186,7 +186,7 @@ def SBfeU32 : SOP2Out2In2Inst<"s_bfe_u32",
     size encoded in the second input, store the result into a scalar register
     and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0100101>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0100101>];
 }
 #endif // SBFEU32_DEF
 
@@ -202,7 +202,7 @@ def SLshl1AddU32 : SOP2Out2In2Inst<"s_lshl1_add_u32",
     second input, store the result into a scalar register and set SCC iff the
     summation results in an unsigned overflow.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0101110>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0101110>];
 }
 #endif // SLSHL1ADDU32_DEF
 
@@ -218,7 +218,7 @@ def SLshl2AddU32 : SOP2Out2In2Inst<"s_lshl2_add_u32",
     second input, store the result into a scalar register and set SCC iff the
     summation results in an unsigned overflow.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0101111>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0101111>];
 }
 #endif // SLSHL2ADDU32_DEF
 
@@ -234,7 +234,7 @@ def SLshl3AddU32 : SOP2Out2In2Inst<"s_lshl3_add_u32",
     second input, store the result into a scalar register and set SCC iff the
     summation results in an unsigned overflow.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0110000>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0110000>];
 }
 #endif // SLSHL3ADDU32_DEF
 
@@ -250,7 +250,7 @@ def SLshl4AddU32 : SOP2Out2In2Inst<"s_lshl4_add_u32",
     second input, store the result into a scalar register and set SCC iff the
     summation results in an unsigned overflow.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0110001>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0110001>];
 }
 #endif // SLSHL4ADDU32_DEF
 
@@ -266,7 +266,7 @@ def SLshlB32 : SOP2Out2In2Inst<"s_lshl_b32",
     shift left of the first scalar input, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0011100>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0011100>];
 }
 #endif // SLSHLB32_DEF
 
@@ -282,7 +282,7 @@ def SLshlB64 : SOP2Out2In2Inst<"s_lshl_b64",
     shift left of the first scalar input, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0011101>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0011101>];
 }
 #endif // SLSHLB64_DEF
 
@@ -298,7 +298,7 @@ def SLshrB32 : SOP2Out2In2Inst<"s_lshr_b32",
     shift right of the first scalar input, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0011110>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0011110>];
 }
 #endif // SLSHRB32_DEF
 
@@ -314,7 +314,7 @@ def SLshrB64 : SOP2Out2In2Inst<"s_lshr_b64",
     shift right of the first scalar input, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0011111>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0011111>];
 }
 #endif // SLSHRB64_DEF
 
@@ -329,7 +329,7 @@ def SMaxI32 : SOP2Out2In2Inst<"s_max_i32",
     Select the maximum of two signed 32-bit integer inputs, store the selected
     value into a scalar register and set SCC iff the first value is selected.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001000>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0001000>];
 }
 #endif // SMAXI32_DEF
 
@@ -345,7 +345,7 @@ def SMaxU32 : SOP2Out2In2Inst<"s_max_u32",
     selected value into a scalar register and set SCC iff the first value is
     selected.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001001>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0001001>];
 }
 #endif // SMAXU32_DEF
 
@@ -360,7 +360,7 @@ def SMinI32 : SOP2Out2In2Inst<"s_min_i32",
     Select the minimum of two signed 32-bit integer inputs, store the selected
     value into a scalar register and set SCC iff the first value is selected.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0000110>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0000110>];
 }
 #endif // SMINI32_DEF
 
@@ -376,7 +376,7 @@ def SMinU32 : SOP2Out2In2Inst<"s_min_u32",
     selected value into a scalar register and set SCC iff the first value is
     selected.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0000111>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0000111>];
 }
 #endif // SMINU32_DEF
 
@@ -391,7 +391,7 @@ def SNandB32 : SOP2Out2In2Inst<"s_nand_b32",
     Calculate bitwise NAND on two scalar inputs, store the result into a
     scalar register and set SCC if the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0010110>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0010110>];
 }
 #endif // SNANDB32_DEF
 
@@ -406,7 +406,7 @@ def SNorB32 : SOP2Out2In2Inst<"s_nor_b32",
     Calculate bitwise NOR on two scalar inputs, store the result into a scalar
     register and set SCC if the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0011000>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0011000>];
 }
 #endif // SNORB32_DEF
 
@@ -422,7 +422,7 @@ def SOrn2B32 : SOP2Out2In2Inst<"s_orn2_b32",
     input, store the result into a scalar register and set SCC if the result
     is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0010100>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0010100>];
 }
 #endif // SORN2B32_DEF
 
@@ -437,7 +437,7 @@ def SOrB32 : SOP2Out2In2Inst<"s_or_b32",
     Calculate bitwise OR on two scalar inputs, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001110>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0001110>];
 }
 #endif // SORB32_DEF
 
@@ -452,7 +452,7 @@ def SOrB64 : SOP2Out2In2Inst<"s_or_b64",
     Calculate bitwise OR on two scalar inputs, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001111>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0001111>];
 }
 #endif // SORB64_DEF
 
@@ -468,7 +468,7 @@ def SSubI32 : SOP2Out2In2Inst<"s_sub_i32",
     store the result into a scalar register and store the carry-out bit into
     SCC.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0000011>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0000011>];
 }
 #endif // SSUBI32_DEF
 
@@ -484,7 +484,7 @@ def SSubU32 : SOP2Out2In2Inst<"s_sub_u32",
     store the result into a scalar register and store the carry-out bit into
     SCC.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0000001>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0000001>];
 }
 #endif // SSUBU32_DEF
 
@@ -499,7 +499,7 @@ def SXnorB32 : SOP2Out2In2Inst<"s_xnor_b32",
     Calculate bitwise XNOR on two scalar inputs, store the result into a
     scalar register and set SCC if the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0011010>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0011010>];
 }
 #endif // SXNORB32_DEF
 
@@ -514,7 +514,7 @@ def SXorB32 : SOP2Out2In2Inst<"s_xor_b32",
     Calculate bitwise XOR on two scalar inputs, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0010000>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0010000>];
 }
 #endif // SXORB32_DEF
 
@@ -529,7 +529,7 @@ def SXorB64 : SOP2Out2In2Inst<"s_xor_b64",
     Calculate bitwise XOR on two scalar inputs, store the result into a scalar
     register and set SCC iff the result is nonzero.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0010001>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0010001>];
 }
 #endif // SXORB64_DEF
 
@@ -537,7 +537,7 @@ def SXorB64 : SOP2Out2In2Inst<"s_xor_b64",
 #define SOP2OUT2IN3INST_DEF
 class SOP2Out2In3Inst<string mnemonic> : AMDISAInstruction<mnemonic> {
   let props = [IsSALU, IsSOP2];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let outputs = (ins
     OneSGPROrSRegType:$dst0,
     SCCType:$scc_dst
@@ -549,7 +549,7 @@ class SOP2Out2In3Inst<string mnemonic> : AMDISAInstruction<mnemonic> {
   );
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], "${mnemonic} $dst0, $src0, $src1">
+    ASMString<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], "${mnemonic} $dst0, $src0, $src1">
   ];
 }
 #endif // SOP2OUT2IN3INST_DEF
@@ -561,7 +561,7 @@ def SAddcU32 : SOP2Out2In3Inst<"s_addc_u32"> {
     Add two unsigned 32-bit integer inputs and a carry-in bit from SCC, store
     the result into a scalar register and store the carry-out bit into SCC.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0000100>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0000100>];
 }
 #endif // SADDCU32_DEF
 
@@ -573,7 +573,7 @@ def SSubbU32 : SOP2Out2In3Inst<"s_subb_u32"> {
     subtract the carry-in bit, store the result into a scalar register and
     store the carry-out bit into SCC.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0000101>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0000101>];
 }
 #endif // SSUBBU32_DEF
 
@@ -581,16 +581,16 @@ def SSubbU32 : SOP2Out2In3Inst<"s_subb_u32"> {
 #define SBARRIER_DEF
 def SBarrier : AMDISAInstruction<"s_barrier"> {
   let props = [IsSALU, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Synchronize waves within a threadgroup.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001010>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0001010>];
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic}">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic}">
   ];
 }
 #endif // SBARRIER_DEF
@@ -599,7 +599,7 @@ def SBarrier : AMDISAInstruction<"s_barrier"> {
 #define SOP2OUT1IN2INST_DEF
 class SOP2Out1In2Inst<string mnemonic> : AMDISAInstruction<mnemonic> {
   let props = [IsSALU, IsSOP2];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let outputs = (ins
     OneSGPROrSRegType:$dst0
   );
@@ -609,7 +609,7 @@ class SOP2Out1In2Inst<string mnemonic> : AMDISAInstruction<mnemonic> {
   );
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], "${mnemonic} $dst0, $src0, $src1">
+    ASMString<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], "${mnemonic} $dst0, $src0, $src1">
   ];
 }
 #endif // SOP2OUT1IN2INST_DEF
@@ -621,7 +621,7 @@ def SBfmB32 : SOP2Out1In2Inst<"s_bfm_b32"> {
     Calculate a bitfield mask given a field offset and size and store the
     result in a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0100010>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0100010>];
 }
 #endif // SBFMB32_DEF
 
@@ -632,7 +632,7 @@ def SMulHiI32 : SOP2Out1In2Inst<"s_mul_hi_i32"> {
     Multiply two signed integers and store the high 32 bits of the result into
     a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0101101>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0101101>];
 }
 #endif // SMULHII32_DEF
 
@@ -643,7 +643,7 @@ def SMulHiU32 : SOP2Out1In2Inst<"s_mul_hi_u32"> {
     Multiply two unsigned integers and store the high 32 bits of the result
     into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0101100>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0101100>];
 }
 #endif // SMULHIU32_DEF
 
@@ -654,7 +654,7 @@ def SMulI32 : SOP2Out1In2Inst<"s_mul_i32"> {
     Multiply two signed 32-bit integer inputs and store the result into a
     scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0100100>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0100100>];
 }
 #endif // SMULI32_DEF
 
@@ -662,7 +662,7 @@ def SMulI32 : SOP2Out1In2Inst<"s_mul_i32"> {
 #define SOP2OUT1IN3INST_DEF
 class SOP2Out1In3Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type, list<Type> src1Type, list<Trait> opTraits = []> : AMDISAInstruction<mnemonic, opTraits> {
   let props = [IsSALU, IsSOP2];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let outputs = (ins
     AnyRegOf<dst0Type>:$dst0
   );
@@ -673,7 +673,7 @@ class SOP2Out1In3Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type,
   );
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], "${mnemonic} $dst0, $src0, $src1">
+    ASMString<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], "${mnemonic} $dst0, $src0, $src1">
   ];
 }
 #endif // SOP2OUT1IN3INST_DEF
@@ -689,7 +689,7 @@ def SCselectB32 : SOP2Out1In3Inst<"s_cselect_b32",
     Select the first input if SCC is true otherwise select the second input,
     then store the selected input into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001010>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0001010>];
 }
 #endif // SCSELECTB32_DEF
 
@@ -704,7 +704,7 @@ def SCselectB64 : SOP2Out1In3Inst<"s_cselect_b64",
     Select the first input if SCC is true otherwise select the second input,
     then store the selected input into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4], 0b0001011>];
+  let encodings = [InstEnc<[ENC_SOP2_CDNA3, ENC_SOP2_CDNA4, ENC_SOP2_GFX12_50], 0b0001011>];
 }
 #endif // SCSELECTB64_DEF
 
@@ -712,7 +712,7 @@ def SCselectB64 : SOP2Out1In3Inst<"s_cselect_b64",
 #define SOP1OUT1IN1INST_DEF
 class SOP1Out1In1Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type, list<Trait> opTraits = []> : AMDISAInstruction<mnemonic, opTraits> {
   let props = [IsSALU, IsSOP1];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let outputs = (ins
     AnyRegOf<dst0Type>:$dst0
   );
@@ -721,7 +721,7 @@ class SOP1Out1In1Inst<string mnemonic, list<Type> dst0Type, list<Type> src0Type,
   );
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], "${mnemonic} $dst0, $src0">
+    ASMString<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4, ENC_SOP1_GFX12_50], "${mnemonic} $dst0, $src0">
   ];
 }
 #endif // SOP1OUT1IN1INST_DEF
@@ -736,7 +736,7 @@ def SMovB32 : SOP1Out1In1Inst<"s_mov_b32",
   let description = [{
     Move scalar input into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], 0b00000000>];
+  let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4, ENC_SOP1_GFX12_50], 0b00000000>];
   let instExtraClassDeclaration = [{
     ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
     ::mlir::Value getDestResult() { return getDst0Res(); }
@@ -755,7 +755,7 @@ def SMovB64 : SOP1Out1In1Inst<"s_mov_b64",
   let description = [{
     Move scalar input into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4], 0b00000001>];
+  let encodings = [InstEnc<[ENC_SOP1_CDNA3, ENC_SOP1_CDNA4, ENC_SOP1_GFX12_50], 0b00000001>];
   let instExtraClassDeclaration = [{
     ::mlir::aster::Operand getDestOperand() { return getDst0Mutable(); }
     ::mlir::Value getDestResult() { return getDst0Res(); }
@@ -768,11 +768,11 @@ def SMovB64 : SOP1Out1In1Inst<"s_mov_b64",
 #define SNOP_DEF
 def SNop : AMDISAInstruction<"s_nop"> {
   let props = [IsSALU, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Do nothing. Delay issue of next instruction by a small, fixed amount.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000000>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0000000>];
   let effects = [SALUWrite];
   let outputs = (ins);
   let inputs = (ins);
@@ -784,7 +784,7 @@ def SNop : AMDISAInstruction<"s_nop"> {
     $imm attr-dict
   }];
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} $imm">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic} $imm">
   ];
 }
 #endif // SNOP_DEF
@@ -793,11 +793,11 @@ def SNop : AMDISAInstruction<"s_nop"> {
 #define SSETPRIO_DEF
 def SSetprio : AMDISAInstruction<"s_setprio"> {
   let props = [IsSALU, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Change wave user priority.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001111>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0001111>];
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
@@ -808,7 +808,7 @@ def SSetprio : AMDISAInstruction<"s_setprio"> {
     $imm attr-dict
   }];
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} $imm">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic} $imm">
   ];
 }
 #endif // SSETPRIO_DEF
@@ -1125,11 +1125,11 @@ def SSetprioIncWg : AMDISAInstruction<"s_setprio_inc_wg"> {
 #define SSLEEP_DEF
 def SSleep : AMDISAInstruction<"s_sleep"> {
   let props = [IsSALU, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Cause a wave to sleep for up to ~8000 clocks.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001110>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0001110>];
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
@@ -1140,7 +1140,7 @@ def SSleep : AMDISAInstruction<"s_sleep"> {
     $imm attr-dict
   }];
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} $imm">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic} $imm">
   ];
 }
 #endif // SSLEEP_DEF
@@ -1149,11 +1149,11 @@ def SSleep : AMDISAInstruction<"s_sleep"> {
 #define STRAP_DEF
 def STrap : AMDISAInstruction<"s_trap"> {
   let props = [IsSALU, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Enter the trap handler.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0010010>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0010010>];
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
@@ -1164,7 +1164,7 @@ def STrap : AMDISAInstruction<"s_trap"> {
     $imm attr-dict
   }];
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} $imm">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic} $imm">
   ];
 }
 #endif // STRAP_DEF
@@ -1173,12 +1173,12 @@ def STrap : AMDISAInstruction<"s_trap"> {
 #define SWAITCNT_DEF
 def SWaitcnt : AMDISAInstruction<"s_waitcnt"> {
   let props = [IsSALU, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Wait for the counts of outstanding local data share, vector memory and
     export instructions to be at or below the specified levels.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001100>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0001100>];
   let outputs = (ins);
   let trailingArgs = (ins
     VmcntAttr:$vmcnt,
@@ -1195,7 +1195,7 @@ def SWaitcnt : AMDISAInstruction<"s_waitcnt"> {
     attr-dict
   }];
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} $vmcnt $expcnt $lgkmcnt">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic} $vmcnt $expcnt $lgkmcnt">
   ];
 }
 #endif // SWAITCNT_DEF
@@ -1204,17 +1204,17 @@ def SWaitcnt : AMDISAInstruction<"s_waitcnt"> {
 #define SWAKEUP_DEF
 def SWakeup : AMDISAInstruction<"s_wakeup"> {
   let props = [IsSALU, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Allow a wave to 'ping' all the other waves in its threadgroup to force
     them to wake up early from an S_SLEEP instruction.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000011>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0000011>];
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic}">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic}">
   ];
 }
 #endif // SWAKEUP_DEF
@@ -1223,7 +1223,7 @@ def SWakeup : AMDISAInstruction<"s_wakeup"> {
 #define SCMPINST_DEF
 class SCmpInst<string mnemonic> : AMDISAInstruction<mnemonic> {
   let props = [IsSALU, IsSOPC];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let outputs = (ins
     SCCType:$scc_dst
   );
@@ -1233,7 +1233,7 @@ class SCmpInst<string mnemonic> : AMDISAInstruction<mnemonic> {
   );
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], "${mnemonic} $src0, $src1">
+    ASMString<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], "${mnemonic} $src0, $src1">
   ];
 }
 #endif // SCMPINST_DEF
@@ -1245,7 +1245,7 @@ def SCmpEqI32 : SCmpInst<"s_cmp_eq_i32"> {
     Set SCC to 1 iff the first scalar input is equal to the second scalar
     input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000000>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0000000>];
 }
 #endif // SCMPEQI32_DEF
 
@@ -1256,7 +1256,7 @@ def SCmpEqU32 : SCmpInst<"s_cmp_eq_u32"> {
     Set SCC to 1 iff the first scalar input is equal to the second scalar
     input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000110>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0000110>];
 }
 #endif // SCMPEQU32_DEF
 
@@ -1267,7 +1267,7 @@ def SCmpGeI32 : SCmpInst<"s_cmp_ge_i32"> {
     Set SCC to 1 iff the first scalar input is greater than or equal to the
     second scalar input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000011>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0000011>];
 }
 #endif // SCMPGEI32_DEF
 
@@ -1278,7 +1278,7 @@ def SCmpGeU32 : SCmpInst<"s_cmp_ge_u32"> {
     Set SCC to 1 iff the first scalar input is greater than or equal to the
     second scalar input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0001001>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0001001>];
 }
 #endif // SCMPGEU32_DEF
 
@@ -1289,7 +1289,7 @@ def SCmpGtI32 : SCmpInst<"s_cmp_gt_i32"> {
     Set SCC to 1 iff the first scalar input is greater than the second scalar
     input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000010>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0000010>];
 }
 #endif // SCMPGTI32_DEF
 
@@ -1300,7 +1300,7 @@ def SCmpGtU32 : SCmpInst<"s_cmp_gt_u32"> {
     Set SCC to 1 iff the first scalar input is greater than the second scalar
     input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0001000>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0001000>];
 }
 #endif // SCMPGTU32_DEF
 
@@ -1311,7 +1311,7 @@ def SCmpLeI32 : SCmpInst<"s_cmp_le_i32"> {
     Set SCC to 1 iff the first scalar input is less than or equal to the
     second scalar input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000101>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0000101>];
 }
 #endif // SCMPLEI32_DEF
 
@@ -1322,7 +1322,7 @@ def SCmpLeU32 : SCmpInst<"s_cmp_le_u32"> {
     Set SCC to 1 iff the first scalar input is less than or equal to the
     second scalar input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0001011>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0001011>];
 }
 #endif // SCMPLEU32_DEF
 
@@ -1333,7 +1333,7 @@ def SCmpLgI32 : SCmpInst<"s_cmp_lg_i32"> {
     Set SCC to 1 iff the first scalar input is less than or greater than the
     second scalar input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000001>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0000001>];
 }
 #endif // SCMPLGI32_DEF
 
@@ -1344,7 +1344,7 @@ def SCmpLgU32 : SCmpInst<"s_cmp_lg_u32"> {
     Set SCC to 1 iff the first scalar input is less than or greater than the
     second scalar input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000111>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0000111>];
 }
 #endif // SCMPLGU32_DEF
 
@@ -1355,7 +1355,7 @@ def SCmpLtI32 : SCmpInst<"s_cmp_lt_i32"> {
     Set SCC to 1 iff the first scalar input is less than the second scalar
     input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0000100>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0000100>];
 }
 #endif // SCMPLTI32_DEF
 
@@ -1366,7 +1366,7 @@ def SCmpLtU32 : SCmpInst<"s_cmp_lt_u32"> {
     Set SCC to 1 iff the first scalar input is less than the second scalar
     input.
   }];
-  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4], 0b0001010>];
+  let encodings = [InstEnc<[ENC_SOPC_CDNA3, ENC_SOPC_CDNA4, ENC_SOPC_GFX12_50], 0b0001010>];
 }
 #endif // SCMPLTU32_DEF
 
