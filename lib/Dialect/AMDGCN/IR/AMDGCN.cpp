@@ -380,6 +380,14 @@ LogicalResult MakeBufferRsrcOp::verify() {
 // MakeRegisterRangeOp
 //===----------------------------------------------------------------------===//
 
+LogicalResult CrossWaveTokenBarrierOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  inferredReturnTypes.push_back(FenceTokenType::get(context));
+  return success();
+}
+
 LogicalResult MakeRegisterRangeOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> location, ValueRange operands,
     DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
@@ -869,6 +877,7 @@ static LogicalResult canonicalizeWaitImpl(WaitOp waitOp, RewriterBase &rewriter,
 
     // Erase redundant wait ops.
     if (wait != waitOp) {
+      wait.getFenceToken().replaceAllUsesWith(waitOp.getFenceToken());
       rewriter.eraseOp(wait);
       changed = true;
     }
@@ -971,6 +980,38 @@ ArrayRef<ISAVersion> WaitGfx1250Op::getCompatibleISAVersions() {
   return versions;
 }
 
+bool WaitGfx1250Op::addDependencies(ValueRange deps) {
+  bool changed = false;
+  if (deps.empty())
+    return changed;
+  getDependenciesMutable().append(deps);
+  changed = true;
+  return changed;
+}
+
+bool WaitGfx1250Op::removeDependencies(ValueRange deps) {
+  bool changed = false;
+  if (deps.empty())
+    return changed;
+  MutableOperandRange operands = getDependenciesMutable();
+  llvm::SmallPtrSet<Value, 5> removeSet(deps.begin(), deps.end());
+  SmallVector<Value> remaining;
+  for (Value dep : operands.getAsOperandRange()) {
+    if (removeSet.contains(dep))
+      continue;
+    remaining.push_back(dep);
+  }
+  if (remaining.size() != operands.size()) {
+    operands.assign(remaining);
+    changed = true;
+  }
+  return changed;
+}
+
+void WaitGfx1250Op::setDependencies(ValueRange deps) {
+  getDependenciesMutable().assign(deps);
+}
+
 // Workgroup-cluster ops gfx1250 only for now.
 static ArrayRef<ISAVersion> clusterOpsISAVersions() {
   static ISAVersion versions[] = {ISAVersion::GFX12_50};
@@ -1031,6 +1072,7 @@ static LogicalResult canonicalizeWaitGfx1250Impl(WaitGfx1250Op waitOp,
     kmCnt = std::min(kmCnt, wait.getKmCnt());
     tensorCnt = std::min(tensorCnt, wait.getTensorCnt());
     if (wait != waitOp) {
+      wait.getFenceToken().replaceAllUsesWith(waitOp.getFenceToken());
       rewriter.eraseOp(wait);
       changed = true;
     }

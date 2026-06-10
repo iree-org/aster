@@ -624,8 +624,14 @@ LogicalResult mlir::aster::amdgcn::target::translateModule(
   // automatically, making the CF/LSIR allow-list from that verifier redundant.
   AllRegistersAllocatedAttr allocated =
       AllRegistersAllocatedAttr::get(module.getContext());
+  // Dependency tokens are IR-only scheduling/wait metadata; no token consumer
+  // (amdgcn.wait, amdgcn.cross_wave_token_barrier) may survive to assembly.
+  NoDependencyTokensAttr noTokens =
+      NoDependencyTokensAttr::get(module.getContext());
   for (KernelOp kernel : module.getOps<KernelOp>()) {
     if (failed(allocated.checkOperation(kernel).checkAndReport()))
+      return failure();
+    if (failed(noTokens.checkOperation(kernel).checkAndReport()))
       return failure();
     if (failed(check64BitImmediates(kernel)))
       return failure();

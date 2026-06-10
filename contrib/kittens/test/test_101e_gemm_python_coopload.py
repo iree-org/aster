@@ -260,16 +260,16 @@ def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K,
             b_write = b.transfer_tiles(sB_write, tc_dsw_b, unroll_axes=plan_b.unroll_axes, data=b_load)
 
         with b.stage(STG_A_READ):
-            b.wait_deps(a_write)
-            b.s_barrier()
+            wfence_a = b.wait_deps(a_write)
+            bfence_a = b.cross_wave_token_barrier(wfence_a)
             sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
-            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence_a)
 
         with b.stage(STG_B_READ):
-            b.wait_deps(b_write)
-            b.s_barrier()
+            wfence_b = b.wait_deps(b_write)
+            bfence_b = b.cross_wave_token_barrier(wfence_b)
             sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
-            b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile))
+            b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile), fence_token=bfence_b)
 
         with b.stage(STG_COMPUTE):
             b.wait_deps(a_frags, b_frags)

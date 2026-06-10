@@ -112,10 +112,10 @@ amdgcn.module @kittens_gemm_4wave_lds_pipelined target = #amdgcn.target<gfx942> 
           : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
 
       // === Stage DS_READ: Wait + barrier + read K0/K1 ===
-      amdgcn.wait deps %tok_A0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tok_A1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tok_B0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tok_B1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
+      %wf0 = amdgcn.wait deps %tok_A0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf1 = amdgcn.wait deps %tok_A1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf2 = amdgcn.wait deps %tok_B0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf3 = amdgcn.wait deps %tok_B1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
       amdgcn.s_barrier {sched.stage = {{A_STAGE_READ}} : i32}
 
       // K0 sub-tiles (byte offset 0 within LDS row)

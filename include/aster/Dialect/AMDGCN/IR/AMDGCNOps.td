@@ -856,7 +856,8 @@ def WaitCountAttr :
 def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
     DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>,
     DeclareOpInterfaceMethods<WaitCntOpInterface>,
-    DeclareOpInterfaceMethods<ISACompatibleOpInterface>
+    DeclareOpInterfaceMethods<ISACompatibleOpInterface>,
+    FenceOpInterface,
   ]> {
   let summary = "AMDGCN wait operation";
   let description = [{
@@ -868,7 +869,11 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
     - `vm_cnt`: Wait for vector memory operations
     - `lgkm_cnt`: Wait for lds, gws and constant memory operations
 
-    NOTE: This operations is compatiable only with CDNA3 and CDNA4 targets.
+    Always produces an ordering-only fence_token (via FenceOpInterface) that
+    may be passed to FenceableOpInterface consumers or
+    `cross_wave_token_barrier`.
+
+    NOTE: This operations is compatible only with CDNA3 and CDNA4 targets.
     For gfx1250/gfx1251 use amdgcn.wait_gfx1250 (separate per-counter waits).
     TODO: Support RDNA4 counts, and other targets.
 
@@ -880,19 +885,36 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
     %result, %tok1 = amdgcn.load global_load_dword dest %dest addr %addr2
         : dps(!amdgcn.vgpr_range<[? + 1]>) ins(!amdgcn.vgpr_range<[? + 2]>)
           -> !amdgcn.read_token<flat>
-    amdgcn.wait %tok0, %tok1 : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+    %wf = amdgcn.wait deps %tok0, %tok1
+        : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+        -> !amdgcn.fence_token
     ```
   }];
   let arguments = (ins
     Variadic<TokenDependencyTypeInterface>:$dependencies,
     WaitCountAttr:$vm_cnt, WaitCountAttr:$lgkm_cnt
   );
+  let results = (outs FenceToken:$fence_token);
   let assemblyFormat = [{
     oilist(`vm_cnt` $vm_cnt | `lgkm_cnt` $lgkm_cnt) (`deps` $dependencies^)?
-    attr-dict (`:` type($dependencies)^)?
+    attr-dict (`:` type($dependencies)^)? `->` type($fence_token)
   }];
+  let builders = [
+    OpBuilder<(ins "::mlir::ValueRange":$dependencies,
+                   "uint16_t":$vmCnt, "uint16_t":$lgkmCnt), [{
+      build($_builder, $_state, $_builder.getType<FenceTokenType>(),
+            dependencies, vmCnt, lgkmCnt);
+    }]>,
+    OpBuilder<(ins "::mlir::ValueRange":$dependencies), [{
+      build($_builder, $_state, $_builder.getType<FenceTokenType>(),
+            dependencies, kNoWaitCount, kNoWaitCount);
+    }]>
+  ];
   let extraClassDeclaration = [{
     static constexpr uint16_t kNoWaitCount = std::numeric_limits<uint16_t>::max();
+
+    /// The fence token produced by this op. Implements FenceOpInterface.
+    ::mlir::Value getProducedFenceToken() { return getFenceToken(); }
 
     /// Canonicalize the wait operation, this method removes duplicate operands,
     /// merges consecutive wait operations if possible. Returns an iterator to
@@ -917,7 +939,8 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
 
     /// Check if the wait operation is a no-wait (has no dependencies).
     bool isNowait() {
-      return !hasAnyCount() && getDependencies().empty();
+      return !hasAnyCount() && getDependencies().empty() &&
+             getFenceToken().use_empty();
     }
   }];
   let hasCanonicalizeMethod = 1;
@@ -926,7 +949,8 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
 def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
     DeclareOpInterfaceMethods<DependentOpInterface, ["getOutDependency"]>,
     DeclareOpInterfaceMethods<WaitCntOpInterface>,
-    DeclareOpInterfaceMethods<ISACompatibleOpInterface>
+    DeclareOpInterfaceMethods<ISACompatibleOpInterface>,
+    FenceOpInterface,
   ]> {
   let summary = "gfx1250 wait operation";
   let description = [{
@@ -947,12 +971,25 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
     - s_wait_dscnt
     - s_wait_kmcnt
     - s_wait_tensorcnt
+
+    Always produces an ordering-only fence_token (via FenceOpInterface) that
+    may be passed to FenceableOpInterface consumers or
+    `cross_wave_token_barrier`.
+
+    Example:
+    ```mlir
+    %tok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0)
+        : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+    %wf = amdgcn.wait_gfx1250 deps %tok
+        : !amdgcn.write_token<shared> -> !amdgcn.fence_token
+    ```
   }];
   let arguments = (ins
     Variadic<TokenDependencyTypeInterface>:$dependencies,
     WaitCountAttr:$load_cnt, WaitCountAttr:$store_cnt, WaitCountAttr:$ds_cnt,
     WaitCountAttr:$km_cnt, WaitCountAttr:$tensor_cnt
   );
+  let results = (outs FenceToken:$fence_token);
   let assemblyFormat = [{
     oilist(
       `load_cnt` $load_cnt |
@@ -962,14 +999,40 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
       `tensor_cnt` $tensor_cnt
     )
     (`deps` $dependencies^)?
-    attr-dict (`:` type($dependencies)^)?
+    attr-dict (`:` type($dependencies)^)? `->` type($fence_token)
   }];
+  let builders = [
+    OpBuilder<(ins "::mlir::ValueRange":$dependencies,
+                   "uint16_t":$loadCnt, "uint16_t":$storeCnt, "uint16_t":$dsCnt,
+                   "uint16_t":$kmCnt, "uint16_t":$tensorCnt), [{
+      build($_builder, $_state, $_builder.getType<FenceTokenType>(),
+            dependencies, loadCnt, storeCnt, dsCnt, kmCnt, tensorCnt);
+    }]>,
+    OpBuilder<(ins "::mlir::ValueRange":$dependencies), [{
+      build($_builder, $_state, $_builder.getType<FenceTokenType>(),
+            dependencies, kNoWaitCount, kNoWaitCount, kNoWaitCount,
+            kNoWaitCount, kNoWaitCount);
+    }]>
+  ];
   let extraClassDeclaration = [{
     static constexpr uint16_t kNoWaitCount = std::numeric_limits<uint16_t>::max();
+
+    /// The fence token produced by this op. Implements FenceOpInterface.
+    ::mlir::Value getProducedFenceToken() { return getFenceToken(); }
 
     /// Canonicalize: remove duplicate deps, merge consecutive wait_gfx1250 ops.
     static FailureOr<Block::iterator> canonicalizeWait(WaitGfx1250Op op,
       RewriterBase &rewriter, llvm::SetVector<Value>& uniqueDeps);
+
+    /// Add dependencies to the wait operation.
+    bool addDependencies(ValueRange deps);
+
+    /// Remove dependencies from the wait operation. Returns true if any changes
+    /// were made.
+    bool removeDependencies(ValueRange deps);
+
+    /// Set the dependencies of the wait operation.
+    void setDependencies(ValueRange deps);
 
     /// Check if the wait operation waits for any memory subsystem.
     bool hasAnyCount() {
@@ -980,10 +1043,68 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
 
     /// Check if the wait operation is a no-wait (has no dependencies).
     bool isNowait() {
-      return !hasAnyCount() && getDependencies().empty();
+      return !hasAnyCount() && getDependencies().empty() &&
+             getFenceToken().use_empty();
     }
   }];
   let hasCanonicalizeMethod = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// CrossWaveTokenBarrierOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_CrossWaveTokenBarrierOp : AMDGCN_Op<"cross_wave_token_barrier", [
+    DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>,
+    BarrierOpInterface,
+    FenceOpInterface,
+  ]> {
+  let summary = "Cross-wave scheduling barrier carrying scheduling dependency tokens";
+  let description = [{
+    A cross-wave synchronization barrier that:
+      - synchronizes waves program points like a regular barrier and
+      - orders memory operations across a program point entirely through SSA
+        dependency tokens.
+
+    This operation is a relaxed synchronization mechanism that allows for
+    finer-grained barrier scheduling.
+
+    Operands: the variadic input dependency tokens name what must precede the
+    barrier. Typically this is the fence token produced by an `amdgcn.wait` so
+    the barrier follows the visibility point, pinning `write -> wait -> barrier`.
+
+    Results: the barrier produces a fence token. Operations that must be pinned
+    after the barrier take it via a FenceableOpInterface to form the
+    barrier -> consumer scheduling edge.
+
+    The fence token is ordering-only IR metadata and is dropped when legalizing
+    to a hardware s_barrier (CDNA3/4) or s_barrier_signal / s_barrier_wait
+    (GFX12.5+).
+
+    Example (write -> wait -> barrier -> read, all SSA):
+    ```mlir
+    %wt = amdgcn.ds_write_b32 data %d addr %a offset c(%c0)
+        : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+
+    // The wait drains the write and produces a fence the barrier follows.
+    %wf = amdgcn.wait deps %wt : !amdgcn.write_token<shared> -> !amdgcn.fence_token
+    %bf = amdgcn.cross_wave_token_barrier deps %wf : !amdgcn.fence_token
+
+    // A consumer pins after the barrier via the optional fence_token operand.
+    %r, %t = amdgcn.ds_read_b32 dest %rd addr %a offset c(%c0)
+        : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32)
+        -> !amdgcn.read_token<shared> fence_token %bf : !amdgcn.fence_token
+    ```
+  }];
+  let arguments = (ins Variadic<TokenDependencyTypeInterface>:$dependencies);
+  let results = (outs FenceToken:$fence_token);
+  let assemblyFormat = [{
+    (`deps` $dependencies^ `:` type($dependencies))? attr-dict
+  }];
+  let extraClassDeclaration = [{
+    // The fence token produced by this op. Implements FenceOpInterface.
+    ::mlir::Value getProducedFenceToken() { return getFenceToken(); }
+  }];
 }
 
 #endif // ASTER_AMDGCN_OPS

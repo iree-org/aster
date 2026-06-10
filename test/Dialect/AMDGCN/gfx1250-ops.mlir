@@ -108,7 +108,7 @@ func.func @test_s_barrier_gfx1250() {
 }
 
 func.func @test_wait_gfx1250_explicit() {
-  amdgcn.wait_gfx1250 load_cnt 1 store_cnt 2 ds_cnt 3 km_cnt 4 tensor_cnt 5
+  %wf0 = amdgcn.wait_gfx1250 load_cnt 1 store_cnt 2 ds_cnt 3 km_cnt 4 tensor_cnt 5 -> !amdgcn.fence_token
   return
 }
 
@@ -117,7 +117,7 @@ func.func @test_wait_gfx1250_token(%d0: !amdgcn.sgpr<[? + 4]>,
     %d3: !amdgcn.sgpr<[? + 4]>) {
   %tok = amdgcn.tensor_load_to_lds desc0 %d0 desc1 %d1 desc2 %d2 desc3 %d3
       : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 8]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>) -> !amdgcn.read_token<tensor>
-  amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<tensor>
+  %wf1 = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<tensor> -> !amdgcn.fence_token
   return
 }
 

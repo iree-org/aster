@@ -228,7 +228,7 @@ amdgcn.module @kernel_module target = #amdgcn.target<gfx942> {
       func.call @ds_write_body(%threadidx_x, %k, %n, %N, %b_memref, %c512_i32)
         : (index, index, index, index, memref<?x?x!amdgcn.vgpr<[? + 2]>>, i32) -> ()
 
-      amdgcn.wait lgkm_cnt 0
+      %wf0 = amdgcn.wait lgkm_cnt 0 -> !amdgcn.fence_token
       // Part 1c: DS read for A
       func.call @ds_read_body(%threadidx_x, %m, %k, %K, %a_memref, %c0_i32)
         : (index, index, index, index, memref<?x?x!amdgcn.vgpr<[? + 2]>>, i32) -> ()

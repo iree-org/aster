@@ -511,6 +511,17 @@ def NoMetadataOpsAttr : AMDGCN_Attr<
   }];
 }
 
+def NoDependencyTokensAttr : AMDGCN_Attr<
+    "NoDependencyTokens", "no_dependency_tokens",
+    [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {
+  let summary = "Normal form: no dependency-token operands";
+  let description = [{
+    Verifies that no operation consumes a dependency token.
+    Token results on memory ops are not checked: they remain as unused results
+    and are not emitted.
+  }];
+}
+
 def AllInlinedAttr : AMDGCN_Attr<
     "AllInlined", "all_inlined",
     [DeclareAttrInterfaceMethods<NormalFormAttrInterface, ["checkOperation"]>]> {

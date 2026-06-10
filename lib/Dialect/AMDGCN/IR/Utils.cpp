@@ -163,6 +163,14 @@ bool mlir::aster::amdgcn::isWave32(Target target) {
   return isWave32(getIsaForTarget(target));
 }
 
+bool mlir::aster::amdgcn::needsSplitBarriers(ISAVersion isa) {
+  return isa == ISAVersion::GFX12_50;
+}
+
+bool mlir::aster::amdgcn::needsSplitBarriers(Target target) {
+  return needsSplitBarriers(getIsaForTarget(target));
+}
+
 bool mlir::aster::amdgcn::isWave32(Operation *op) {
   if (auto module = op->getParentOfType<amdgcn::ModuleOp>())
     return isWave32(module.getTarget());

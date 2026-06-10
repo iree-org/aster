@@ -332,7 +332,7 @@
     %tok_count = memref.dim %tok_buf, %c0 : memref<?x!lds_write_token>
     scf.for %idx = %c0 to %tok_count step %c1 {
       %tok = memref.load %tok_buf[%idx] : memref<?x!lds_write_token>
-      amdgcn.wait deps %tok {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
+      %wf0 = amdgcn.wait deps %tok {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
     } {aster.constexpr}
     return
   }

@@ -11,7 +11,7 @@ amdgcn.module @test_iter_args_scalar_no_iv target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -49,7 +49,7 @@ amdgcn.module @test_iter_args_scalar_with_iv target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -85,7 +85,7 @@ amdgcn.module @test_iter_args_vgpr_no_iv target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -133,7 +133,7 @@ amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -177,7 +177,7 @@ amdgcn.module @test_iter_args_vgpr_with_iv target = <gfx942> {
 amdgcn.module @test_scf_pipeline_iter_args target = <gfx942> {
   kernel @test_iter_args arguments <[#amdgcn.buffer_arg<address_space = generic>]> {
     %out = load_arg 0 : !amdgcn.sgpr<[? + 2]>
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

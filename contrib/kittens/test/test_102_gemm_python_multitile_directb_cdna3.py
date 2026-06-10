@@ -279,9 +279,9 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
 
         with b.stage(STG_A_READ):
             b.wait_deps(a_write)
-            b.s_barrier()
+            bfence = b.cross_wave_token_barrier(a_write)
             sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
-            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence)
 
         with b.stage(STG_COMPUTE):
             b.wait_deps(a_frags, b_vx4)

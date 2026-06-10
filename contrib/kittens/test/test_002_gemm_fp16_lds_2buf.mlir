@@ -85,10 +85,10 @@ amdgcn.module @kittens_gemm_16x16xK_lds_2buf target = #amdgcn.target<gfx942> {
         : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
     %pf_B0_t0, %pf_B0_t1 = func.call @store_global_tile_to_lds_16x64_b(%lds_B0, %pf_B0_gfut)
         : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
-    amdgcn.wait deps %pf_A0_t0 : !lds_write_token
-    amdgcn.wait deps %pf_A0_t1 : !lds_write_token
-    amdgcn.wait deps %pf_B0_t0 : !lds_write_token
-    amdgcn.wait deps %pf_B0_t1 : !lds_write_token
+    %wf0 = amdgcn.wait deps %pf_A0_t0 : !lds_write_token -> !amdgcn.fence_token
+    %wf1 = amdgcn.wait deps %pf_A0_t1 : !lds_write_token -> !amdgcn.fence_token
+    %wf2 = amdgcn.wait deps %pf_B0_t0 : !lds_write_token -> !amdgcn.fence_token
+    %wf3 = amdgcn.wait deps %pf_B0_t1 : !lds_write_token -> !amdgcn.fence_token
 
     // K-loop: double-buffered iteration over K dimension
     %C_final = scf.for %k = %c0 to %K_tiles step %c1 iter_args(%acc = %C_init) -> (!rt_C_f32) {
@@ -113,10 +113,10 @@ amdgcn.module @kittens_gemm_16x16xK_lds_2buf target = #amdgcn.target<gfx942> {
             : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
         %pf_Bt0, %pf_Bt1 = func.call @store_global_tile_to_lds_16x64_b(%lds_B_next, %pf_B_gfut)
             : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
-        amdgcn.wait deps %pf_At0 : !lds_write_token
-        amdgcn.wait deps %pf_At1 : !lds_write_token
-        amdgcn.wait deps %pf_Bt0 : !lds_write_token
-        amdgcn.wait deps %pf_Bt1 : !lds_write_token
+        %wf4 = amdgcn.wait deps %pf_At0 : !lds_write_token -> !amdgcn.fence_token
+        %wf5 = amdgcn.wait deps %pf_At1 : !lds_write_token -> !amdgcn.fence_token
+        %wf6 = amdgcn.wait deps %pf_Bt0 : !lds_write_token -> !amdgcn.fence_token
+        %wf7 = amdgcn.wait deps %pf_Bt1 : !lds_write_token -> !amdgcn.fence_token
       }
 
       // === K0 sub-tile (byte offset 0 within LDS row) ===

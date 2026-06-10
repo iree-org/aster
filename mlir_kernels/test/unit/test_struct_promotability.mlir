@@ -54,7 +54,7 @@ amdgcn.module @test_struct_promotability target = #amdgcn.target<gfx942> {
     %value_any, %token = aster_utils.struct_extract %loaded_future ["value", "token"] : !future_global_read_any -> !aster_utils.any, !amdgcn.read_token<flat>
 
     // Wait on token
-    amdgcn.wait deps %token : !amdgcn.read_token<flat>
+    %wf0 = amdgcn.wait deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 
     // Convert value back and store to output
     %value = aster_utils.from_any %value_any : !vx2

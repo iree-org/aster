@@ -10,13 +10,13 @@
 // CHECK:       %[[KER:.*]]:5 = scf.for {{.*}} iter_args(%[[A_WTOK:.*]] = %[[P_WTOK]]
 // CHECK:         amdgcn.ds_write_b32
 // CHECK:         amdgcn.s_barrier
-// CHECK:         amdgcn.wait deps %[[A_WTOK]]
+// CHECK:         amdgcn.wait deps %[[A_WTOK]] : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // CHECK:         amdgcn.ds_read_b32
 // CHECK:         scf.yield
 
 // Epilogue: barrier present, before the wait+read drain
 // CHECK:       amdgcn.s_barrier
-// CHECK:       amdgcn.wait deps %[[KER]]#0
+// CHECK:       amdgcn.wait deps %[[KER]]#0 : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       return
 
@@ -34,11 +34,11 @@ func.func @barrier_at_stage1(%data_in: !amdgcn.vgpr) {
 
     amdgcn.s_barrier {sched.stage = 1 : i32}
 
-    amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared>
+    %wf0 = amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %dest = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.vgpr
     %c0_i32_mig1 = arith.constant 0 : i32
     %read_data, %rtok = amdgcn.ds_read_b32 dest %dest addr %lds_addr offset c(%c0_i32_mig1) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared>
+    %wf1 = amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_out ins %read_data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     amdgcn.dealloc_lds %lds {sched.stage = 1 : i32}
   }
@@ -62,11 +62,11 @@ func.func @barrier_missing_stage(%data_in: !amdgcn.vgpr) {
     // expected-error @below {{amdgcn.s_barrier in a pipelined loop body requires an explicit sched.stage attribute}}
     amdgcn.s_barrier
 
-    amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared>
+    %wf2 = amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %dest = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.vgpr
     %c0_i32_mig2 = arith.constant 0 : i32
     %read_data, %rtok = amdgcn.ds_read_b32 dest %dest addr %lds_addr offset c(%c0_i32_mig2) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared>
+    %wf3 = amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_out ins %read_data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     amdgcn.dealloc_lds %lds {sched.stage = 1 : i32}
   }

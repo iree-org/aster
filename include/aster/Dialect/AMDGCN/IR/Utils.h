@@ -94,6 +94,13 @@ bool isWave32(ISAVersion isa);
 /// True when `target` is modeled as wave32.
 bool isWave32(Target target);
 
+/// True when whole-workgroup barriers must use s_barrier_signal/s_barrier_wait
+/// instead of monolithic s_barrier (e.g. GFX12.5+).
+bool needsSplitBarriers(ISAVersion isa);
+
+/// True when `target` needs split barriers.
+bool needsSplitBarriers(Target target);
+
 /// True when the enclosing amdgcn.module target is wave32; false outside a
 /// module.
 bool isWave32(Operation *op);

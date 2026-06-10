@@ -221,13 +221,34 @@ func.func @test_waits(
     %rt2: !amdgcn.read_token<shared>,
     %wt1: !amdgcn.write_token<flat>) {
   // Wait for tokens.
-  amdgcn.wait deps %rt1 : !amdgcn.read_token<flat>
-  amdgcn.wait deps %rt1, %rt2 : !amdgcn.read_token<flat>, !amdgcn.read_token<shared>
-  amdgcn.wait deps %rt1, %wt1 : !amdgcn.read_token<flat>, !amdgcn.write_token<flat>
+  %wf0 = amdgcn.wait deps %rt1 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
+  %wf1 = amdgcn.wait deps %rt1, %rt2 : !amdgcn.read_token<flat>, !amdgcn.read_token<shared> -> !amdgcn.fence_token
+  %wf2 = amdgcn.wait deps %rt1, %wt1 : !amdgcn.read_token<flat>, !amdgcn.write_token<flat> -> !amdgcn.fence_token
   // Mixed wait with counts and tokens.
-  amdgcn.wait vm_cnt 0 lgkm_cnt 1 deps %rt1, %wt1 : !amdgcn.read_token<flat>, !amdgcn.write_token<flat>
+  %wf3 = amdgcn.wait vm_cnt 0 lgkm_cnt 1 deps %rt1, %wt1 : !amdgcn.read_token<flat>, !amdgcn.write_token<flat> -> !amdgcn.fence_token
   // Wait with only counts.
-  amdgcn.wait vm_cnt 2
+  %wf4 = amdgcn.wait vm_cnt 2 -> !amdgcn.fence_token
+  // Wait that produces a fence token for a following barrier.
+  %wf = amdgcn.wait deps %rt1 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
+  return
+}
+
+func.func @test_cross_wave_token_barrier(
+    %rt1: !amdgcn.read_token<flat>,
+    %wt1: !amdgcn.write_token<shared>) {
+  %r0 = amdgcn.cross_wave_token_barrier deps %wt1 : !amdgcn.write_token<shared>
+  %r1 = amdgcn.cross_wave_token_barrier deps %wt1, %rt1 : !amdgcn.write_token<shared>, !amdgcn.read_token<flat>
+  %r2 = amdgcn.cross_wave_token_barrier
+  return
+}
+
+func.func @test_cross_wave_token_barrier_after(
+    %dst: !amdgcn.vgpr,
+    %addr: !amdgcn.vgpr,
+    %wt1: !amdgcn.write_token<shared>) {
+  %c0 = arith.constant 0 : i32
+  %fence = amdgcn.cross_wave_token_barrier deps %wt1 : !amdgcn.write_token<shared>
+  %r, %t = amdgcn.ds_read_b32 dest %dst addr %addr offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared> fence_token %fence : !amdgcn.fence_token
   return
 }
 

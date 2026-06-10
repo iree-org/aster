@@ -65,7 +65,7 @@ amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
     %d3 = lsir.alloca : !amdgcn.sgpr<[20 : 24]>
     %tok = amdgcn.tensor_load_to_lds desc0 %d0 desc1 %d1 desc2 %d2 desc3 %d3
         : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<[8 : 16]>, !amdgcn.sgpr<[16 : 20]>, !amdgcn.sgpr<[20 : 24]>) -> !amdgcn.read_token<tensor>
-    amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<tensor>
+    %wf0 = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<tensor> -> !amdgcn.fence_token
     amdgcn.end_kernel
   }
 
@@ -75,12 +75,12 @@ amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
     %offset = arith.constant 0 : i32
     %tok = amdgcn.ds_load_b128 dest %dst4 addr %addr offset c(%offset)
         : outs(!amdgcn.vgpr<[0 : 4]>) ins(!amdgcn.vgpr<4>) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<shared>
+    %wf1 = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<shared> -> !amdgcn.fence_token
     amdgcn.end_kernel
   }
 
   amdgcn.kernel @fused_wait attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
-    amdgcn.wait_gfx1250 load_cnt 0 ds_cnt 0
+    %wf2 = amdgcn.wait_gfx1250 load_cnt 0 ds_cnt 0 -> !amdgcn.fence_token
     amdgcn.end_kernel
   }
 }
