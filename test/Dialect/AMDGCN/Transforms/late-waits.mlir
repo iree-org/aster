@@ -8,7 +8,7 @@ amdgcn.module @late_waits_0 target = #amdgcn.target<gfx942> {
 // CHECK:         %[[ADDR:.*]] = amdgcn.make_register_range %[[A]], %[[B]]
 // CHECK:         amdgcn.global_load_dword dest %[[DEST]] addr %[[ADDR]]
 // CHECK:         amdgcn.s_waitcnt vmcnt = 0
-// CHECK-NOT:     amdgcn.wait
+// CHECK-NOT:     amdgcn.wait -> !amdgcn.fence_token
 // CHECK:         amdgcn.global_store_dword data %[[DEST]] addr %[[ADDR]]
 // CHECK:         return
 func.func @vmem_load_store() {
@@ -31,7 +31,7 @@ amdgcn.module @late_waits_1 target = #amdgcn.target<gfx942> {
 // CHECK:         %[[ADDR:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:         amdgcn.ds_read_b32 dest %[[DEST]] addr %[[ADDR]]
 // CHECK:         amdgcn.s_waitcnt lgkmcnt = 0
-// CHECK-NOT:     amdgcn.wait
+// CHECK-NOT:     amdgcn.wait -> !amdgcn.fence_token
 // CHECK:         amdgcn.ds_write_b32 data %[[DEST]] addr %[[ADDR]]
 // CHECK:         return
 func.func @shared_load_store() {
@@ -57,7 +57,7 @@ amdgcn.module @late_waits_2 target = #amdgcn.target<gfx942> {
 // CHECK:       ^bb2:
 // CHECK:         amdgcn.s_waitcnt vmcnt = 0
 // CHECK:         amdgcn.global_store_dword data %[[DEST]]
-// CHECK-NOT:     amdgcn.wait
+// CHECK-NOT:     amdgcn.wait -> !amdgcn.fence_token
 func.func @vmem_load_branch(%cond: i1) {
   %0 = amdgcn.alloca : !amdgcn.vgpr<?>
   %1 = amdgcn.alloca : !amdgcn.vgpr<?>

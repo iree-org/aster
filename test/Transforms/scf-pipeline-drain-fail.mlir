@@ -212,9 +212,9 @@ module {
         %67 = amdgcn.buffer_load_lds_dwordx4 addr %8 m0 %11 offset u(%10) + off_idx(%66) + c(%c0_i32) {offen, sched.stage = 1 : i32} : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.m0<0>, !amdgcn.sgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
         memref.store %67, %alloca_1[%c0] {sched.stage = 1 : i32} : memref<1x!amdgcn.read_token<flat>>
         %68 = memref.load %alloca_0[%c0] {sched.stage = 2 : i32} : memref<1x!amdgcn.read_token<flat>>
-        amdgcn.wait deps %68 {sched.stage = 2 : i32} : !amdgcn.read_token<flat>
+        %wf0 = amdgcn.wait deps %68 {sched.stage = 2 : i32} : !amdgcn.read_token<flat> -> !amdgcn.fence_token
         %69 = memref.load %alloca_1[%c0] {sched.stage = 2 : i32} : memref<1x!amdgcn.read_token<flat>>
-        amdgcn.wait deps %69 {sched.stage = 2 : i32} : !amdgcn.read_token<flat>
+        %wf1 = amdgcn.wait deps %69 {sched.stage = 2 : i32} : !amdgcn.read_token<flat> -> !amdgcn.fence_token
         amdgcn.s_barrier {sched.stage = 2 : i32}
         %alloca_2 = memref.alloca() : memref<2x!aster_utils.any>
         %alloca_3 = memref.alloca() : memref<2x!amdgcn.read_token<shared>>
@@ -236,7 +236,7 @@ module {
         %73 = memref.load %alloca_3[%c1] {sched.stage = 3 : i32} : memref<2x!amdgcn.read_token<shared>>
         %74 = memref.load %alloca_5[%c0] {sched.stage = 3 : i32} : memref<2x!amdgcn.read_token<shared>>
         %75 = memref.load %alloca_5[%c1] {sched.stage = 3 : i32} : memref<2x!amdgcn.read_token<shared>>
-        amdgcn.wait deps %72, %73, %74, %75 {sched.stage = 3 : i32} : !amdgcn.read_token<shared>, !amdgcn.read_token<shared>, !amdgcn.read_token<shared>, !amdgcn.read_token<shared>
+        %wf2 = amdgcn.wait deps %72, %73, %74, %75 {sched.stage = 3 : i32} : !amdgcn.read_token<shared>, !amdgcn.read_token<shared>, !amdgcn.read_token<shared>, !amdgcn.read_token<shared> -> !amdgcn.fence_token
         %76 = memref.load %alloca[%c0] {sched.stage = 3 : i32} : memref<1x!amdgcn.agpr<[? + 4]>>
         %77 = memref.load %alloca_2[%c0] {sched.stage = 3 : i32} : memref<2x!aster_utils.any>
         %78 = aster_utils.from_any %77 {sched.stage = 3 : i32} : !amdgcn.vgpr<[? + 2]>

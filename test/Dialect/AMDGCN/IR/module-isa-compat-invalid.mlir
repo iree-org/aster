@@ -7,7 +7,7 @@ amdgcn.module @gfx1250_old_wait target = #amdgcn.target<gfx1250> {
     %c0 = arith.constant 0 : i32
     %r, %tok = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     // expected-error @below {{'amdgcn.wait' op is not compatible with module target gfx1250}}
-    amdgcn.wait deps %tok : !amdgcn.read_token<flat>
+    %wf0 = amdgcn.wait deps %tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     return
   }
 }
@@ -21,7 +21,7 @@ amdgcn.module @cdna3_new_wait target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
     %r, %tok = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     // expected-error @below {{'amdgcn.wait_gfx1250' op is not compatible with module target gfx942}}
-    amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<flat>
+    %wf1 = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     return
   }
 }
@@ -35,7 +35,7 @@ amdgcn.module @cdna4_new_wait target = #amdgcn.target<gfx950> {
     %c0 = arith.constant 0 : i32
     %r, %tok = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     // expected-error @below {{'amdgcn.wait_gfx1250' op is not compatible with module target gfx950}}
-    amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<flat>
+    %wf2 = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     return
   }
 }

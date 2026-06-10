@@ -12,7 +12,7 @@ amdgcn.module @test_two_stage_no_iv target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %s_store = alloca : !v
 
@@ -49,7 +49,7 @@ amdgcn.module @test_two_stage_iv_s0_only target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %s_store = alloca : !v
 
@@ -87,7 +87,7 @@ amdgcn.module @test_two_stage_iv_dep target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %s_val = alloca : !v
     %s_off = alloca : !v
@@ -135,7 +135,7 @@ amdgcn.module @test_five_stage target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %s0 = alloca : !v
     %s1 = alloca : !v

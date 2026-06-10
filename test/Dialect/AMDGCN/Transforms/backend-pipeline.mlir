@@ -7,7 +7,7 @@
 // CHECK:         v_mov_b32 outs(%[[V1]])
 // CHECK:         test_inst ins %[[V0]], %[[V1]]
 // CHECK-NOT:     alloca : !amdgcn.vgpr{{$}}
-// CHECK-NOT:     amdgcn.wait
+// CHECK-NOT:     amdgcn.wait -> !amdgcn.fence_token
 amdgcn.module @test_two_vgpr target = <gfx942> {
   amdgcn.kernel @two_vgpr_alloc {
     %a = amdgcn.alloca : !amdgcn.vgpr
@@ -31,7 +31,7 @@ amdgcn.module @test_two_vgpr target = <gfx942> {
 // CHECK:         s_waitcnt vmcnt = 0
 // CHECK:         global_store_dword
 // CHECK:         end_kernel
-// CHECK-NOT:     amdgcn.wait
+// CHECK-NOT:     amdgcn.wait -> !amdgcn.fence_token
 // CHECK-NOT:     alloca : !amdgcn.vgpr{{$}}
 // CHECK-NOT:     load_arg
 amdgcn.module @test_load_store target = <gfx942> {
@@ -45,7 +45,7 @@ amdgcn.module @test_load_store target = <gfx942> {
     %c0_i32_mig1 = arith.constant 0 : i32
     %voff = amdgcn.alloca : !amdgcn.vgpr
     %data_val, %tok = amdgcn.global_load_dword dest %data addr %src offset d(%voff) + c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? : ? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
-    amdgcn.wait deps %tok : !amdgcn.read_token<flat>
+    %wf0 = amdgcn.wait deps %tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %voff2 = amdgcn.alloca : !amdgcn.vgpr
     %wtok = amdgcn.global_store_dword data %data_val addr %dst offset d(%voff2) + c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? : ? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
     amdgcn.end_kernel

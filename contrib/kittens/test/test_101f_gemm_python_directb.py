@@ -240,10 +240,10 @@ def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K,
             a_write = b.transfer_tiles(sA_write, tc_dsw_a, unroll_axes=plan_a.unroll_axes, data=a_load)
 
         with b.stage(STG_A_READ):
-            b.wait_deps(a_write)
-            b.s_barrier()
+            wfence = b.wait_deps(a_write)
+            bfence = b.cross_wave_token_barrier(wfence)
             sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
-            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence)
 
         with b.stage(STG_COMPUTE):
             b.wait_deps(a_frags, b_vx4)

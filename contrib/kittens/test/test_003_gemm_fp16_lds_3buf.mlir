@@ -91,10 +91,10 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> {
         : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
     %pf0_Bt0, %pf0_Bt1 = func.call @store_global_tile_to_lds_16x64_b(%lds_B0, %pf0_B_gfut)
         : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
-    amdgcn.wait deps %pf0_At0 : !lds_write_token
-    amdgcn.wait deps %pf0_At1 : !lds_write_token
-    amdgcn.wait deps %pf0_Bt0 : !lds_write_token
-    amdgcn.wait deps %pf0_Bt1 : !lds_write_token
+    %wf0 = amdgcn.wait deps %pf0_At0 : !lds_write_token -> !amdgcn.fence_token
+    %wf1 = amdgcn.wait deps %pf0_At1 : !lds_write_token -> !amdgcn.fence_token
+    %wf2 = amdgcn.wait deps %pf0_Bt0 : !lds_write_token -> !amdgcn.fence_token
+    %wf3 = amdgcn.wait deps %pf0_Bt1 : !lds_write_token -> !amdgcn.fence_token
 
     // Prefetch iteration 1 into buffer 1 (if K_tiles > 1)
     %has_iter1 = arith.cmpi ugt, %K_tiles, %c1 : index
@@ -107,10 +107,10 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> {
           : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
       %pf1_Bt0, %pf1_Bt1 = func.call @store_global_tile_to_lds_16x64_b(%lds_B1, %pf1_B_gfut)
           : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
-      amdgcn.wait deps %pf1_At0 : !lds_write_token
-      amdgcn.wait deps %pf1_At1 : !lds_write_token
-      amdgcn.wait deps %pf1_Bt0 : !lds_write_token
-      amdgcn.wait deps %pf1_Bt1 : !lds_write_token
+      %wf4 = amdgcn.wait deps %pf1_At0 : !lds_write_token -> !amdgcn.fence_token
+      %wf5 = amdgcn.wait deps %pf1_At1 : !lds_write_token -> !amdgcn.fence_token
+      %wf6 = amdgcn.wait deps %pf1_Bt0 : !lds_write_token -> !amdgcn.fence_token
+      %wf7 = amdgcn.wait deps %pf1_Bt1 : !lds_write_token -> !amdgcn.fence_token
     }
 
     // K-loop: triple-buffered iteration over K dimension
@@ -147,10 +147,10 @@ amdgcn.module @kittens_gemm_16x16xK_lds_3buf target = #amdgcn.target<gfx942> {
             : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
         %pf_Bt0, %pf_Bt1 = func.call @store_global_tile_to_lds_16x64_b(%pf_B, %pf_B_gfut)
             : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
-        amdgcn.wait deps %pf_At0 : !lds_write_token
-        amdgcn.wait deps %pf_At1 : !lds_write_token
-        amdgcn.wait deps %pf_Bt0 : !lds_write_token
-        amdgcn.wait deps %pf_Bt1 : !lds_write_token
+        %wf8 = amdgcn.wait deps %pf_At0 : !lds_write_token -> !amdgcn.fence_token
+        %wf9 = amdgcn.wait deps %pf_At1 : !lds_write_token -> !amdgcn.fence_token
+        %wf10 = amdgcn.wait deps %pf_Bt0 : !lds_write_token -> !amdgcn.fence_token
+        %wf11 = amdgcn.wait deps %pf_Bt1 : !lds_write_token -> !amdgcn.fence_token
       }
 
       // === K0 sub-tile (byte offset 0 within LDS row) ===

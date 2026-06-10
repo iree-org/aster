@@ -35,7 +35,7 @@ amdgcn.module @regalloc target = <gfx942> {
     %data_reg = amdgcn.alloca : !amdgcn.vgpr
     %c0 = arith.constant 0 : i32
     %data, %tok_ld = amdgcn.global_load_dword dest %data_reg addr %src offset d(%off_reg) + c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? : ? + 2]>, !amdgcn.vgpr<11>) mods(i32) -> !amdgcn.read_token<flat>
-    amdgcn.wait deps %tok_ld : !amdgcn.read_token<flat>
+    %wf0 = amdgcn.wait deps %tok_ld : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 
     // out[tid] = in[tid] + 42
     %c42 = arith.constant 42 : i32
@@ -44,7 +44,7 @@ amdgcn.module @regalloc target = <gfx942> {
 
     // Store result
     %tok_st = amdgcn.global_store_dword data %result addr %dst offset d(%off_reg) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? : ? + 2]>, !amdgcn.vgpr<11>) mods(i32) -> !amdgcn.write_token<flat>
-    amdgcn.wait deps %tok_st : !amdgcn.write_token<flat>
+    %wf1 = amdgcn.wait deps %tok_st : !amdgcn.write_token<flat> -> !amdgcn.fence_token
 
     amdgcn.end_kernel
   }

@@ -59,8 +59,8 @@ module attributes {transform.with_named_sequence} {
           : (!aster_utils.any, index, index, index) -> !future_global_read
       %t0, %t1 = func.call @store_global_tile_to_lds_16x64_b(%lds_dst, %gfut)
           : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
-      amdgcn.wait deps %t0 : !lds_write_token
-      amdgcn.wait deps %t1 : !lds_write_token
+      %wf0 = amdgcn.wait deps %t0 : !lds_write_token -> !amdgcn.fence_token
+      %wf1 = amdgcn.wait deps %t1 : !lds_write_token -> !amdgcn.fence_token
       return
     }
 

@@ -7,7 +7,7 @@ amdgcn.module @test_lds_passthrough target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 1024 : i32} {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -29,11 +29,11 @@ amdgcn.module @test_lds_passthrough target = <gfx942> {
       %wtok = amdgcn.ds_write_b32 data %val addr %lds_addr offset c(%c0_i32) {sched.stage = 0 : i32} : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
 
       // Stage 1: wait, read back, store to output[0]
-      amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared>
+      %wf0 = amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
       %r_dest = amdgcn.alloca {sched.stage = 1 : i32} : !v
       %c0_i32_mig1 = arith.constant 0 : i32
       %from_lds, %rtok = amdgcn.ds_read_b32 dest %r_dest addr %lds_addr offset c(%c0_i32_mig1) {sched.stage = 1 : i32} : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
-      amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared>
+      %wf1 = amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
 
       // Store to output[0] -- use zero offset for all lanes
       %off_reg = lsir.to_reg %c0_i32 {sched.stage = 1 : i32} : i32 -> !v
@@ -54,7 +54,7 @@ amdgcn.module @test_lds_iv_dep target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 1024 : i32} {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -78,11 +78,11 @@ amdgcn.module @test_lds_iv_dep target = <gfx942> {
       %wtok = amdgcn.ds_write_b32 data %val_reg addr %lds_addr offset c(%c0_i32) {sched.stage = 0 : i32} : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
 
       // Stage 1: wait, read from LDS, store to output[i]
-      amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared>
+      %wf2 = amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
       %r_dest = amdgcn.alloca {sched.stage = 1 : i32} : !v
       %c0_i32_mig2 = arith.constant 0 : i32
       %from_lds, %rtok = amdgcn.ds_read_b32 dest %r_dest addr %lds_addr offset c(%c0_i32_mig2) {sched.stage = 1 : i32} : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
-      amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared>
+      %wf3 = amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
 
       // Store to output[i*4] (byte offset)
       %i_i32_s1 = arith.index_cast %i {sched.stage = 1 : i32} : index to i32
@@ -109,7 +109,7 @@ amdgcn.module @test_lds_six_stage target = <gfx942> {
   ]> attributes {shared_memory_size = 4096 : i32} {
     %in_ptr = load_arg 0 : !sx2
     %out_ptr = load_arg 1 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -137,27 +137,27 @@ amdgcn.module @test_lds_six_stage target = <gfx942> {
       %lds_b_addr = lsir.to_reg %lds_b_off {sched.stage = 0 : i32} : i32 -> !v
 
       // Stage 1: wait for global_load, ds_write to LDS_A
-      amdgcn.wait deps %gltok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>
+      %wf4 = amdgcn.wait deps %gltok {sched.stage = 1 : i32} : !amdgcn.read_token<flat> -> !amdgcn.fence_token
       %wtok_a = amdgcn.ds_write_b32 data %from_global addr %lds_a_addr offset c(%c0_i32) {sched.stage = 1 : i32} : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
 
       // Stage 2: ds_read from LDS_A
-      amdgcn.wait deps %wtok_a {sched.stage = 2 : i32} : !amdgcn.write_token<shared>
+      %wf5 = amdgcn.wait deps %wtok_a {sched.stage = 2 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
       %d_ra = amdgcn.alloca {sched.stage = 2 : i32} : !v
       %c0_i32_mig3 = arith.constant 0 : i32
       %from_a, %rtok_a = amdgcn.ds_read_b32 dest %d_ra addr %lds_a_addr offset c(%c0_i32_mig3) {sched.stage = 2 : i32} : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
 
       // Stage 3: ds_write to LDS_B
-      amdgcn.wait deps %rtok_a {sched.stage = 3 : i32} : !amdgcn.read_token<shared>
+      %wf6 = amdgcn.wait deps %rtok_a {sched.stage = 3 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
       %wtok_b = amdgcn.ds_write_b32 data %from_a addr %lds_b_addr offset c(%c0_i32) {sched.stage = 3 : i32} : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
 
       // Stage 4: ds_read from LDS_B
-      amdgcn.wait deps %wtok_b {sched.stage = 4 : i32} : !amdgcn.write_token<shared>
+      %wf7 = amdgcn.wait deps %wtok_b {sched.stage = 4 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
       %d_rb = amdgcn.alloca {sched.stage = 4 : i32} : !v
       %c0_i32_mig4 = arith.constant 0 : i32
       %from_b, %rtok_b = amdgcn.ds_read_b32 dest %d_rb addr %lds_b_addr offset c(%c0_i32_mig4) {sched.stage = 4 : i32} : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
 
       // Stage 5: global_store to output[i*4], dealloc both LDS
-      amdgcn.wait deps %rtok_b {sched.stage = 5 : i32} : !amdgcn.read_token<shared>
+      %wf8 = amdgcn.wait deps %rtok_b {sched.stage = 5 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
       %i_i32_s5 = arith.index_cast %i {sched.stage = 5 : i32} : index to i32
       %off_s5 = arith.muli %i_i32_s5, %c4_i32 {sched.stage = 5 : i32} : i32
       %off_reg_s5 = lsir.to_reg %off_s5 {sched.stage = 5 : i32} : i32 -> !v
@@ -179,7 +179,7 @@ amdgcn.module @test_lds_accum target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> attributes {shared_memory_size = 1024 : i32} {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -206,11 +206,11 @@ amdgcn.module @test_lds_accum target = <gfx942> {
       %wtok = amdgcn.ds_write_b32 data %val addr %lds_addr offset c(%c0_i32) {sched.stage = 0 : i32} : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
 
       // Stage 1: read from LDS, accumulate
-      amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared>
+      %wf9 = amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
       %r_dest = amdgcn.alloca {sched.stage = 1 : i32} : !v
       %c0_i32_mig5 = arith.constant 0 : i32
       %from_lds, %rtok = amdgcn.ds_read_b32 dest %r_dest addr %lds_addr offset c(%c0_i32_mig5) {sched.stage = 1 : i32} : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
-      amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared>
+      %wf10 = amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
 
       %new_acc = amdgcn.v_add_u32 outs(%d_add)
         ins(%acc, %from_lds) {sched.stage = 1 : i32} : outs(!v) ins(!v, !v)

@@ -7,7 +7,7 @@ amdgcn.module @test_gap_0_2 target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %s_val = alloca : !v
     %s_off = alloca : !v
@@ -44,7 +44,7 @@ amdgcn.module @test_gap_0_3 target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %s_val = alloca : !v
     %s_off = alloca : !v
@@ -81,7 +81,7 @@ amdgcn.module @test_gap_0_2_5 target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out_ptr = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %s0 = alloca : !v
     %s2 = alloca : !v
@@ -123,7 +123,7 @@ amdgcn.module @test_gap_0_2_iter_args target = <gfx942> {
     #amdgcn.buffer_arg<address_space = generic, access = read_write>
   ]> {
     %out = load_arg 0 : !sx2
-    wait lgkm_cnt 0
+    %wf = wait lgkm_cnt 0 -> !amdgcn.fence_token
 
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index

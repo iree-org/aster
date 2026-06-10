@@ -534,6 +534,28 @@ NoMetadataOpsAttr::checkOperation(Operation *op) const {
 }
 
 //===----------------------------------------------------------------------===//
+// NoDependencyTokensAttr
+//===----------------------------------------------------------------------===//
+
+DiagnosedSilenceableFailure
+NoDependencyTokensAttr::checkOperation(Operation *op) const {
+  AttrTypeAggregator agg;
+  op->walk([&](Operation *innerOp) {
+    for (Value operand : innerOp->getOperands()) {
+      if (!isa<TokenDependencyTypeInterface>(operand.getType()))
+        continue;
+      agg.merge(emitSilenceableFailure(innerOp)
+                << "normal form violation: dependency-token operands are "
+                   "disallowed but found one on: "
+                << innerOp->getName());
+      break;
+    }
+    return agg.stop ? WalkResult::interrupt() : WalkResult::advance();
+  });
+  return std::move(agg.overall);
+}
+
+//===----------------------------------------------------------------------===//
 // AllInlinedAttr
 //===----------------------------------------------------------------------===//
 

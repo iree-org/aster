@@ -60,12 +60,12 @@ func.func @two_stage_dps() {
 // CHECK:       %[[C1:.*]] = arith.constant 1 : index
 // CHECK:       %[[KER:.*]]:2 = scf.for %[[KI:.*]] = %[[C1]] to %{{.*}} step %{{.*}} iter_args(%[[A_T:.*]] = %[[PRO_T]], %[[A_D:.*]] = %[[PRO_D]]) -> (!amdgcn.read_token<flat>, !amdgcn.vgpr)
 // CHECK:         %[[K_D:.*]], %[[K_T:.*]] = amdgcn.global_load_dword
-// CHECK:         amdgcn.wait deps %[[A_T]] : !amdgcn.read_token<flat>
+// CHECK:         amdgcn.wait deps %[[A_T]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:         amdgcn.test_inst outs %{{.*}} ins %[[A_D]]
 // CHECK:         scf.yield %[[K_T]], %[[K_D]] : !amdgcn.read_token<flat>, !amdgcn.vgpr
 
 // Epilogue: wait + compute using kernel results
-// CHECK:       amdgcn.wait deps %[[KER]]#0 : !amdgcn.read_token<flat>
+// CHECK:       amdgcn.wait deps %[[KER]]#0 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       amdgcn.test_inst outs %{{.*}} ins %[[KER]]#1
 // CHECK:       return
 
@@ -78,7 +78,7 @@ func.func @two_stage_load_compute(%addr: !amdgcn.vgpr<[? + 2]>) {
   scf.for %i = %c0 to %c4 step %c1 {
     %c0_i32_mig1 = arith.constant 0 : i32
     %data, %tok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig1) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-    amdgcn.wait deps %tok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>
+    %wf0 = amdgcn.wait deps %tok {sched.stage = 1 : i32} : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_compute ins %data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
   }
   return

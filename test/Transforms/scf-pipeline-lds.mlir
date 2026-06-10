@@ -24,7 +24,7 @@
 // CHECK:         %[[K_WTOK:.*]] = amdgcn.ds_write_b32
 
 // Stage 1: read from previous iteration's buffer
-// CHECK:         amdgcn.wait deps %[[A_WTOK]]
+// CHECK:         amdgcn.wait deps %[[A_WTOK]] : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // CHECK:         amdgcn.ds_read_b32 dest %{{.*}} addr %[[A_ADDR]]
 // CHECK:         amdgcn.test_inst
 
@@ -32,7 +32,7 @@
 // CHECK:         scf.yield %[[K_WTOK]], %[[K_ADDR]], %[[PREV]], %[[CUR]]
 
 // Epilogue: stage 1 drains the last iteration's LDS
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       amdgcn.test_inst
 
@@ -55,11 +55,11 @@ func.func @lds_write_read_two_stage(%data_in: !amdgcn.vgpr, %addr: !amdgcn.vgpr)
     %wtok = amdgcn.ds_write_b32 data %data_in addr %lds_addr offset c(%c0_i32) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 
     // Stage 1: wait, read from LDS, compute, dealloc
-    amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared>
+    %wf0 = amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %dest = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.vgpr
     %c0_i32_mig1 = arith.constant 0 : i32
     %read_data, %rtok = amdgcn.ds_read_b32 dest %dest addr %lds_addr offset c(%c0_i32_mig1) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared>
+    %wf1 = amdgcn.wait deps %rtok {sched.stage = 1 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_out ins %read_data {sched.stage = 1 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     amdgcn.dealloc_lds %lds {sched.stage = 1 : i32}
   }
@@ -89,7 +89,7 @@ func.func @lds_write_read_two_stage(%data_in: !amdgcn.vgpr, %addr: !amdgcn.vgpr)
 // Prologue section 1: stage 0 + stage 1
 // CHECK:       lsir.to_reg
 // CHECK:       amdgcn.ds_write_b32
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       lsir.to_reg
 // CHECK:       amdgcn.ds_write_b32
@@ -102,12 +102,12 @@ func.func @lds_write_read_two_stage(%data_in: !amdgcn.vgpr, %addr: !amdgcn.vgpr)
 // CHECK:         lsir.to_reg
 // CHECK:         amdgcn.ds_write_b32
 // Stage 1: read prev group A, write group B
-// CHECK:         amdgcn.wait
+// CHECK:         amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:         amdgcn.ds_read_b32
 // CHECK:         lsir.to_reg
 // CHECK:         amdgcn.ds_write_b32
 // Stage 2: read prev group B, compute
-// CHECK:         amdgcn.wait
+// CHECK:         amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:         amdgcn.ds_read_b32
 // CHECK:         amdgcn.test_inst
 // No alloc_lds inside loop body
@@ -115,14 +115,14 @@ func.func @lds_write_read_two_stage(%data_in: !amdgcn.vgpr, %addr: !amdgcn.vgpr)
 // CHECK:         scf.yield
 
 // Epilogue drains remaining stages
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       lsir.to_reg
 // CHECK:       amdgcn.ds_write_b32
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       amdgcn.test_inst
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       amdgcn.test_inst
 
@@ -147,11 +147,11 @@ func.func @double_lds_three_stage(%gaddr: !amdgcn.vgpr<[? + 2]>, %data_in: !amdg
     %wtok_a = amdgcn.ds_write_b32 data %data_in addr %addr_a offset c(%c0_i32) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 
     // Stage 1: read from LDS_A, alloc LDS_B, write to LDS_B
-    amdgcn.wait deps %wtok_a {sched.stage = 1 : i32} : !amdgcn.write_token<shared>
+    %wf2 = amdgcn.wait deps %wtok_a {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %dest_a = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.vgpr
     %c0_i32_mig2 = arith.constant 0 : i32
     %from_a, %rtok_a = amdgcn.ds_read_b32 dest %dest_a addr %addr_a offset c(%c0_i32_mig2) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait deps %rtok_a {sched.stage = 1 : i32} : !amdgcn.read_token<shared>
+    %wf3 = amdgcn.wait deps %rtok_a {sched.stage = 1 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
     amdgcn.dealloc_lds %lds_a {sched.stage = 1 : i32}
     %lds_b = amdgcn.alloc_lds 128 {sched.stage = 1 : i32}
     %off_b = amdgcn.get_lds_offset %lds_b {sched.stage = 1 : i32} : i32
@@ -159,11 +159,11 @@ func.func @double_lds_three_stage(%gaddr: !amdgcn.vgpr<[? + 2]>, %data_in: !amdg
     %wtok_b = amdgcn.ds_write_b32 data %from_a addr %addr_b offset c(%c0_i32) {sched.stage = 1 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 
     // Stage 2: read from LDS_B, compute, dealloc
-    amdgcn.wait deps %wtok_b {sched.stage = 2 : i32} : !amdgcn.write_token<shared>
+    %wf4 = amdgcn.wait deps %wtok_b {sched.stage = 2 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %dest_b = amdgcn.alloca {sched.stage = 2 : i32} : !amdgcn.vgpr
     %c0_i32_mig3 = arith.constant 0 : i32
     %from_b, %rtok_b = amdgcn.ds_read_b32 dest %dest_b addr %addr_b offset c(%c0_i32_mig3) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait deps %rtok_b {sched.stage = 2 : i32} : !amdgcn.read_token<shared>
+    %wf5 = amdgcn.wait deps %rtok_b {sched.stage = 2 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_out ins %from_b {sched.stage = 2 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     amdgcn.dealloc_lds %lds_b {sched.stage = 2 : i32}
   }
@@ -186,7 +186,7 @@ func.func @double_lds_three_stage(%gaddr: !amdgcn.vgpr<[? + 2]>, %data_in: !amdg
 // CHECK:       amdgcn.global_load_dword
 
 // Prologue section 1
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       lsir.to_reg
 // CHECK:       amdgcn.ds_write_b32
 
@@ -197,24 +197,24 @@ func.func @double_lds_three_stage(%gaddr: !amdgcn.vgpr<[? + 2]>, %data_in: !amdg
 // CHECK:         amdgcn.global_load_dword
 
 // Stage 1: wait on prev global load, write to LDS
-// CHECK:         amdgcn.wait
+// CHECK:         amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:         lsir.to_reg
 // CHECK:         amdgcn.ds_write_b32
 
 // Stage 2: read from prev LDS, compute
-// CHECK:         amdgcn.wait
+// CHECK:         amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:         amdgcn.ds_read_b32
 // CHECK:         amdgcn.test_inst
 // CHECK:         scf.yield
 
 // Epilogue
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       lsir.to_reg
 // CHECK:       amdgcn.ds_write_b32
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       amdgcn.test_inst
-// CHECK:       amdgcn.wait
+// CHECK:       amdgcn.wait deps %{{.*}} : !amdgcn.{{.*}} -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       amdgcn.test_inst
 
@@ -236,18 +236,18 @@ func.func @global_to_lds_to_compute(%gaddr: !amdgcn.vgpr<[? + 2]>) {
     %gdata, %gtok = amdgcn.global_load_dword dest %g_dest addr %gaddr offset c(%c0_i32_mig1) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 
     // Stage 1: wait for global load, write to LDS
-    amdgcn.wait deps %gtok {sched.stage = 1 : i32} : !amdgcn.read_token<flat>
+    %wf6 = amdgcn.wait deps %gtok {sched.stage = 1 : i32} : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %lds = amdgcn.alloc_lds 256 {sched.stage = 1 : i32}
     %lds_off = amdgcn.get_lds_offset %lds {sched.stage = 1 : i32} : i32
     %lds_addr = lsir.to_reg %lds_off {sched.stage = 1 : i32} : i32 -> !amdgcn.vgpr
     %wtok = amdgcn.ds_write_b32 data %gdata addr %lds_addr offset c(%c0_i32) {sched.stage = 1 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 
     // Stage 2: read from LDS, compute, dealloc
-    amdgcn.wait deps %wtok {sched.stage = 2 : i32} : !amdgcn.write_token<shared>
+    %wf7 = amdgcn.wait deps %wtok {sched.stage = 2 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %r_dest = amdgcn.alloca {sched.stage = 2 : i32} : !amdgcn.vgpr
     %c0_i32_mig4 = arith.constant 0 : i32
     %from_lds, %rtok = amdgcn.ds_read_b32 dest %r_dest addr %lds_addr offset c(%c0_i32_mig4) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait deps %rtok {sched.stage = 2 : i32} : !amdgcn.read_token<shared>
+    %wf8 = amdgcn.wait deps %rtok {sched.stage = 2 : i32} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_out ins %from_lds {sched.stage = 2 : i32} : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     amdgcn.dealloc_lds %lds {sched.stage = 2 : i32}
   }

@@ -579,7 +579,7 @@ def SSubbU32 : SOP2Out2In3Inst<"s_subb_u32"> {
 
 #ifndef SBARRIER_DEF
 #define SBARRIER_DEF
-def SBarrier : AMDISAInstruction<"s_barrier"> {
+def SBarrier : AMDISAInstruction<"s_barrier", [BarrierOpInterface]> {
   let props = [IsSALU, IsSOPP];
   let archs = [CDNA3Isa, CDNA4Isa];
   let description = [{

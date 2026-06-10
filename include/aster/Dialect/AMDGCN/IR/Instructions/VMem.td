@@ -162,6 +162,7 @@ class BufferLoadLDSInst<string mnemonic> : AMDISAInstruction<mnemonic, [BufferLo
     SC0:$sc0,
     SC1:$sc1
   );
+  // token: flat read token (vmcnt) that the wait consumes.
   let trailingResults = (outs FlatReadToken:$token);
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -505,6 +506,7 @@ class GlobalLoadLdsInst<string mnemonic> : AMDISAInstruction<mnemonic, [GlobalLo
     SC0:$sc0,
     SC1:$sc1
   );
+  // token: flat read token (vmcnt) consumed by the wait.
   let trailingResults = (outs FlatReadToken:$token);
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{

@@ -8,16 +8,16 @@ amdgcn.module @test_wait_analysis target = #amdgcn.target<gfx942> {
 // CHECK:       Op: %[[R_0:.*]], %[[R_1:.*]] = amdgcn.global_load_dword dest %[[R_2:.*]] addr %[[R_3:.*]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: <Empty>
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_1]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[R_1]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_1]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_1]], {{[0-9]*}}, 0, vm}]}
-// CHECK:       Op: amdgcn.wait deps %[[R_1]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_1]], {{[0-9]*}}, 0, vm}]}
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: []}
 // CHECK:       Op: %[[R_4:.*]] = amdgcn.global_store_dword data %[[R_0]] addr %[[R_3]] offset c(%{{.*}}) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: []}
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[R_4]], %[[R_1]] : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_4]], %[[R_1]] : !amdgcn.write_token<flat>, !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_4]], {{[0-9]*}}, 0, vm}]}
 // CHECK:       Op: func.return
@@ -30,11 +30,11 @@ func.func @test_duplicated_waits() {
   %3 = amdgcn.alloca : !amdgcn.vgpr
   %c0_i32_mig1 = arith.constant 0 : i32
   %result, %token = amdgcn.global_load_dword dest %3 addr %2 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait deps %token : !amdgcn.read_token<flat>
+  %wf0 = amdgcn.wait deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   // Wait again on the same token, so the second wait is redundant.
-  amdgcn.wait deps %token : !amdgcn.read_token<flat>
+  %wf1 = amdgcn.wait deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %5 = amdgcn.global_store_dword data %result addr %2 offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
-  amdgcn.wait deps %5, %token : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+  %wf2 = amdgcn.wait deps %5, %token : !amdgcn.write_token<flat>, !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -54,7 +54,7 @@ func.func @test_duplicated_waits() {
 // CHECK:       Op: %[[R_8:.*]]:3 = scf.for %[[R_9:.*]] = %[[R_10:.*]] to %[[R_11:.*]] step %[[R_12:.*]] iter_args(%[[R_13:.*]] = %[[R_2]], %[[R_14:.*]] = %[[R_5]], %[[R_15:.*]] = %[[R_7]]) -> (!amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>) {...}
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, vm}, {%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 2, vm}, {%[[R_7]], {{[0-9]*}}, 1, vm}, {%[[R_16:.*]], {{[0-9]*}}, 0, vm}, {%[[R_17:.*]], {{[0-9]*}}, 2, vm}, {%[[R_18:.*]], {{[0-9]*}}, 1, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[R_13]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_13]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, vm}, {%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}, {%[[R_13]], {{[0-9]*}}, 2, vm}, {%[[R_14]], {{[0-9]*}}, 1, vm}, {%[[R_15]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}, {%[[R_14]], {{[0-9]*}}, 1, vm}, {%[[R_15]], {{[0-9]*}}, 0, vm}], wait information = {counts: {vm_cnt: 2, lgkm_cnt: nowait}, waited_tokens: [{%[[R_13]], {{[0-9]*}}, 2, vm}], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 2, vm}, {%[[R_13]], {{[0-9]*}}, 2, vm}]}
 // CHECK:       Op: %{{.*}} = arith.constant 0 : i32
@@ -66,7 +66,7 @@ func.func @test_duplicated_waits() {
 // CHECK:       Op: scf.yield %[[R_14]], %[[R_15]], %[[R_20]] : !amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 2, vm}, {%[[R_7]], {{[0-9]*}}, 1, vm}, {%[[R_14]], {{[0-9]*}}, 2, vm}, {%[[R_15]], {{[0-9]*}}, 1, vm}, {%[[R_20]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 2, vm}, {%[[R_7]], {{[0-9]*}}, 1, vm}, {%[[R_14]], {{[0-9]*}}, 2, vm}, {%[[R_15]], {{[0-9]*}}, 1, vm}, {%[[R_20]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[R_16]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_16]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 2, vm}, {%[[R_7]], {{[0-9]*}}, 1, vm}, {%[[R_16]], {{[0-9]*}}, 0, vm}, {%[[R_17]], {{[0-9]*}}, 2, vm}, {%[[R_18]], {{[0-9]*}}, 1, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_5]], {{[0-9]*}}, 2, vm}, {%[[R_7]], {{[0-9]*}}, 1, vm}, {%[[R_16]], {{[0-9]*}}, 0, vm}, {%[[R_17]], {{[0-9]*}}, 2, vm}, {%[[R_18]], {{[0-9]*}}, 1, vm}]}
 // CHECK:       Op: func.return
@@ -86,12 +86,12 @@ func.func @test_pipelined_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %result_2, %token_3 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig4) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   // There's always at least 2 outstanding loads in the pipeline.
   %2:3 = scf.for %arg1 = %c0 to %c4 step %c1 iter_args(%arg2 = %token, %arg3 = %token_1, %arg4 = %token_3) -> (!amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>) {
-    amdgcn.wait deps %arg2 : !amdgcn.read_token<flat>
+    %wf3 = amdgcn.wait deps %arg2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %c0_i32_mig5 = arith.constant 0 : i32
     %result_4, %token_5 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig5) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %arg3, %arg4, %token_5 : !amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %2#2 : !amdgcn.read_token<flat>
+  %wf4 = amdgcn.wait deps %2#2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -138,7 +138,7 @@ func.func @test_escaped_waits_1(%arg0: !amdgcn.vgpr<[? + 2]>) {
 // CHECK:       Op: scf.yield
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_3]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_3]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait vm_cnt 0 lgkm_cnt 0
+// CHECK:       Op: %{{.*}} = amdgcn.wait vm_cnt 0 lgkm_cnt 0 -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{<escaped>, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: 0}, waited_tokens: [], implied_tokens: [{<escaped>, 0, vm}]}
 // CHECK:       Op: func.return
@@ -152,7 +152,7 @@ func.func @test_escaped_waits_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
     %result, %token = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig7) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   }
   // Catch escaped token with a full wait.
-  amdgcn.wait vm_cnt 0 lgkm_cnt 0
+  %wf5 = amdgcn.wait vm_cnt 0 lgkm_cnt 0 -> !amdgcn.fence_token
   return
 }
 
@@ -175,7 +175,7 @@ func.func @test_escaped_waits_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 // CHECK:       Op: scf.yield %[[R_4]] : !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[R_2]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 0, vm}]}
 // CHECK:       Op: func.return
@@ -194,7 +194,7 @@ func.func @test_if_flow_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
     %result, %token = amdgcn.global_load_dword dest %1 addr %arg0 offset c(%c0_i32_mig9) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %token : !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %2 : !amdgcn.read_token<flat>
+  %wf6 = amdgcn.wait deps %2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -223,7 +223,7 @@ func.func @test_if_flow_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 // CHECK:       Op: scf.yield %[[R_4]] : !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[R_2]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 0, vm}, {<escaped>, 1, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 0, vm}, {<escaped>, 1, vm}]}
 // CHECK:       Op: func.return
@@ -246,7 +246,7 @@ func.func @test_if_flow_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
     %result, %token = amdgcn.global_load_dword dest %1 addr %arg0 offset c(%c0_i32_mig13) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %token : !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %2 : !amdgcn.read_token<flat>
+  %wf7 = amdgcn.wait deps %2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -278,7 +278,7 @@ func.func @test_if_flow_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 // CHECK:       Op: scf.yield %[[R_4]] : !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_4]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[R_2]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 1, vm}, {<escaped>, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{<escaped>, 0, vm}], wait information = {counts: {vm_cnt: 1, lgkm_cnt: nowait}, waited_tokens: [{%[[R_2]], {{[0-9]*}}, 1, vm}], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 1, vm}]}
 // CHECK:       Op: func.return
@@ -303,7 +303,7 @@ func.func @test_if_flow_3(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
     %result_0, %token_1 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig18) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %token : !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %2 : !amdgcn.read_token<flat>
+  %wf8 = amdgcn.wait deps %2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -320,10 +320,10 @@ func.func @test_if_flow_3(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
 // CHECK:       Op: %[[R_6:.*]], %[[R_7:.*]] = amdgcn.global_load_dword dest %[[R_3]] addr %[[R_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 1, vm}, {%[[R_5]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, vm}, {%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[R_2]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, vm}, {%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}], wait information = {counts: {vm_cnt: 2, lgkm_cnt: nowait}, waited_tokens: [{%[[R_2]], {{[0-9]*}}, 2, vm}], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 2, vm}]}
-// CHECK:       Op: amdgcn.wait deps %[[R_7]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_7]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}], wait information = {counts: {vm_cnt: 2, lgkm_cnt: nowait}, waited_tokens: [{%[[R_2]], {{[0-9]*}}, 2, vm}], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 2, vm}]}
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}]}
 // CHECK:       Op: func.return
@@ -342,8 +342,8 @@ func.func @test_passthrough_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %c0_i32_mig21 = arith.constant 0 : i32
   %result_2, %token_3 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig21) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   // Test the first wait passes through loads.
-  amdgcn.wait deps %token : !amdgcn.read_token<flat>
-  amdgcn.wait deps %token_3 : !amdgcn.read_token<flat>
+  %wf9 = amdgcn.wait deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
+  %wf10 = amdgcn.wait deps %token_3 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -360,7 +360,7 @@ func.func @test_passthrough_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
 // CHECK:       Op: %[[R_9:.*]], %[[R_10:.*]] = amdgcn.global_load_dword dest %[[R_8]] addr %[[R_2]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_7]], {{[0-9]*}}, 0, lgkm}, {%[[R_4]], {{[0-9]*}}, 1, scalar_read}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, vm}, {%[[R_7]], {{[0-9]*}}, 0, lgkm}, {%[[R_4]], {{[0-9]*}}, 1, scalar_read}]
-// CHECK:       Op: amdgcn.wait deps %[[R_4]] : !amdgcn.read_token<constant>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[R_4]] : !amdgcn.read_token<constant> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, vm}, {%[[R_7]], {{[0-9]*}}, 0, lgkm}, {%[[R_4]], {{[0-9]*}}, 1, scalar_read}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_10]], {{[0-9]*}}, 0, vm}], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: 0}, waited_tokens: [], implied_tokens: [{%[[R_7]], {{[0-9]*}}, 0, lgkm}, {%[[R_4]], {{[0-9]*}}, 1, scalar_read}]}
 // CHECK:       Op: func.return
@@ -378,7 +378,7 @@ func.func @test_mixed_smem_dsmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vg
   %result_0, %token_1 = amdgcn.ds_read_b32 dest %1 addr %arg1 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   %c0_i32_mig22 = arith.constant 0 : i32
   %result_2, %token_3 = amdgcn.global_load_dword dest %1 addr %arg2 offset c(%c0_i32_mig22) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait deps %token : !amdgcn.read_token<constant>
+  %wf11 = amdgcn.wait deps %token : !amdgcn.read_token<constant> -> !amdgcn.fence_token
   return
 }
 
@@ -395,7 +395,7 @@ func.func @test_mixed_smem_dsmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vg
 // CHECK:       Op: %[[R_6:.*]], %[[R_7:.*]] = amdgcn.global_load_dword dest %[[R_3]] addr %[[R_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 1, vm}, {%[[R_5]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, vm}, {%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait vm_cnt 1 deps %[[R_2]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait vm_cnt 1 deps %[[R_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_2]], {{[0-9]*}}, 2, vm}, {%[[R_5]], {{[0-9]*}}, 1, vm}, {%[[R_7]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_7]], {{[0-9]*}}, 0, vm}], wait information = {counts: {vm_cnt: 1, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[R_2]], {{[0-9]*}}, 2, vm}, {%[[R_5]], {{[0-9]*}}, 1, vm}]}
 // CHECK:       Op: %{{.*}} = arith.constant 0 : i32
@@ -416,7 +416,7 @@ func.func @test_mixed_smem_dsmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vg
 // CHECK:       Op: %[[R_12:.*]], %[[R_13:.*]] = amdgcn.global_load_dword dest %[[R_3]] addr %[[R_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_7]], {{[0-9]*}}, 2, vm}, {%[[R_9]], {{[0-9]*}}, 1, vm}, {%[[R_11]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_7]], {{[0-9]*}}, 3, vm}, {%[[R_9]], {{[0-9]*}}, 2, vm}, {%[[R_11]], {{[0-9]*}}, 1, vm}, {%[[R_13]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait vm_cnt 4 deps %[[R_9]] : !amdgcn.read_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait vm_cnt 4 deps %[[R_9]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[R_7]], {{[0-9]*}}, 3, vm}, {%[[R_9]], {{[0-9]*}}, 2, vm}, {%[[R_11]], {{[0-9]*}}, 1, vm}, {%[[R_13]], {{[0-9]*}}, 0, vm}]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[R_11]], {{[0-9]*}}, 1, vm}, {%[[R_13]], {{[0-9]*}}, 0, vm}], wait information = {counts: {vm_cnt: 2, lgkm_cnt: nowait}, waited_tokens: [{%[[R_9]], {{[0-9]*}}, 2, vm}], implied_tokens: [{%[[R_7]], {{[0-9]*}}, 3, vm}, {%[[R_9]], {{[0-9]*}}, 2, vm}]}
 // CHECK:       Op: func.return
@@ -435,7 +435,7 @@ func.func @test_counts_strength(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %c0_i32_mig25 = arith.constant 0 : i32
   %result_2, %token_3 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig25) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   // Test that %token is not waited on as vm_cnt is stronger.
-  amdgcn.wait vm_cnt 1 deps %token : !amdgcn.read_token<flat>
+  %wf12 = amdgcn.wait vm_cnt 1 deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %c0_i32_mig26 = arith.constant 0 : i32
   %result_4, %token_5 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig26) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   %c0_i32_mig27 = arith.constant 0 : i32
@@ -443,12 +443,12 @@ func.func @test_counts_strength(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %c0_i32_mig28 = arith.constant 0 : i32
   %result_8, %token_9 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig28) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   // Test the token has precedence over vm_cnt.
-  amdgcn.wait vm_cnt 4 deps %token_5 : !amdgcn.read_token<flat>
+  %wf13 = amdgcn.wait vm_cnt 4 deps %token_5 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
 // CHECK-LABEL: Symbol: test_smem_zero
-// CHECK: amdgcn.wait deps
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %{{.*}} : !amdgcn.read_token<constant> -> !amdgcn.fence_token
 // CHECK-NEXT: WAIT STATE BEFORE: unhandled tokens = [{%{{.*}}, {{.*}}, 1, scalar_read}, {%{{.*}}, {{.*}}, 0, scalar_read}]
 // CHECK-NEXT: WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: nowait, lgkm_cnt: 0}
 func.func @test_smem_zero(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vgpr, %arg2: !amdgcn.vgpr<[? + 2]>) {
@@ -459,7 +459,7 @@ func.func @test_smem_zero(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vgpr, %ar
   %dest_res, %token = amdgcn.s_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig2) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
   %c0_i32_mig3 = arith.constant 0 : i32
   %dest_res1, %token_1 = amdgcn.s_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig3) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
-  amdgcn.wait deps %token : !amdgcn.read_token<constant>
+  %wf14 = amdgcn.wait deps %token : !amdgcn.read_token<constant> -> !amdgcn.fence_token
   return
 }
 
@@ -468,7 +468,7 @@ func.func @test_smem_zero(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vgpr, %ar
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[LD_TOK]], {{[0-9]*}}, 0, vm}]
 // CHECK:       Op: %[[ST_TOK:.*]] = amdgcn.global_store_dword data %[[LD_R]]
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[LD_TOK]], {{[0-9]*}}, 1, vm}, {%[[ST_TOK]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[ST_TOK]] : !amdgcn.write_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[ST_TOK]] : !amdgcn.write_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[LD_TOK]], {{[0-9]*}}, 1, vm}, {%[[ST_TOK]], {{[0-9]*}}, 0, vm}]}
 func.func @test_flat_read_write_coincrement(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %0 = amdgcn.alloca : !amdgcn.vgpr
@@ -478,22 +478,21 @@ func.func @test_flat_read_write_coincrement(%arg0: !amdgcn.vgpr<[? + 2]>) {
   // Store issued while the load is in flight: both share vm_cnt, so the load
   // token position co-increments.
   %st_tok = amdgcn.global_store_dword data %ld_r addr %arg0 offset c(%c0_i32_mig30) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
-  amdgcn.wait deps %st_tok : !amdgcn.write_token<flat>
+  %wf15 = amdgcn.wait deps %st_tok : !amdgcn.write_token<flat> -> !amdgcn.fence_token
   return
 }
 
 // CHECK-LABEL: test_cdna_store_only_dep
 // CHECK:       Op: %[[ST_TOK:.*]] = amdgcn.global_store_dword data %{{.*}}
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[ST_TOK]], {{[0-9]*}}, 0, vm}]
-// CHECK:       Op: amdgcn.wait deps %[[ST_TOK]] : !amdgcn.write_token<flat>
+// CHECK:       Op: %{{.*}} = amdgcn.wait deps %[[ST_TOK]] : !amdgcn.write_token<flat> -> !amdgcn.fence_token
 // CHECK:       	WAIT STATE AFTER: unhandled tokens = [], wait information = {counts: {vm_cnt: 0, lgkm_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[ST_TOK]], {{[0-9]*}}, 0, vm}]}
 func.func @test_cdna_store_only_dep(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: !amdgcn.vgpr) {
   %c0_i32_mig31 = arith.constant 0 : i32
   // Lone store dependency: the wait must resolve to vm_cnt (a write token routes
   // to vm, not lgkm), guarding the B5 double-collapse removal.
   %st_tok = amdgcn.global_store_dword data %arg1 addr %arg0 offset c(%c0_i32_mig31) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
-  amdgcn.wait deps %st_tok : !amdgcn.write_token<flat>
+  %wf16 = amdgcn.wait deps %st_tok : !amdgcn.write_token<flat> -> !amdgcn.fence_token
   return
 }
-
 }

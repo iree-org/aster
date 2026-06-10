@@ -129,25 +129,6 @@ class _TileTransfer:
 class KernelBuilderWithLayouts(KernelBuilder):
     """KernelBuilder with layout-first tile operations."""
 
-    def _flatten_wait_args(self, tokens: tuple[WaitArg, ...]) -> list[ir.Value]:
-        flat: list[ir.Value] = []
-        for tok in tokens:
-            if isinstance(tok, LayoutValues):
-                flat.extend(tok.token_values())
-            elif isinstance(tok, (list, tuple)):
-                flat.extend(tok)
-            else:
-                flat.append(tok)
-        return flat
-
-    def wait_deps(self, *tokens: WaitArg) -> None:
-        """Wait for dependency tokens (CDNA3/4)."""
-        super().wait_deps(*self._flatten_wait_args(tokens))
-
-    def wait_deps_gfx1250(self, *tokens: WaitArg) -> None:
-        """Wait for dependency tokens (gfx1250)."""
-        super().wait_deps_gfx1250(*self._flatten_wait_args(tokens))
-
     def _filter_layout_by_axes(
         self, layout: Layout, axes: tuple[Symbol, ...]
     ) -> Layout:
@@ -211,8 +192,12 @@ class KernelBuilderWithLayouts(KernelBuilder):
         buffer: Optional[TransferTileBuffer] = None,
         *,
         nt: bool = True,
+        fence_token: Optional[ir.Value] = None,
     ) -> _TileTransfer:
-        """Emit one tiled hardware transfer at tensor.ptr + tensor.offset."""
+        """Emit one tiled hardware transfer at tensor.ptr + tensor.offset.
+
+        fence_token: is an optional fence_token to pin the memory operations onto.
+        """
         copy_atom = tc.copy
         swizzle = tc.swizzle
         offsets = self.thread_value_offsets(tc.pid, tc.thread_layout, tc.value_layout)
@@ -222,6 +207,9 @@ class KernelBuilderWithLayouts(KernelBuilder):
         payloads: list[Any | None] = []
         tokens: list[Any] = []
         if src is MemSpace.GLOBAL and dst is MemSpace.REG:
+            assert fence_token is None, (
+                "global->reg transfer does not support fence_token"
+            )
             if buffer is not None:
                 # SRD bound handles ragged tail.
                 for voff in offsets:
@@ -243,6 +231,9 @@ class KernelBuilderWithLayouts(KernelBuilder):
                     payloads.append(rd)
                     tokens.append(tok)
         elif src is MemSpace.REG and dst is MemSpace.GLOBAL:
+            assert fence_token is None, (
+                "reg->global transfer does not support fence_token"
+            )
             assert data is not None, "reg->global transfer needs data"
             if not isinstance(data, (list, tuple)):
                 data = [data]
@@ -265,6 +256,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
                     payloads.append(None)
                     tokens.append(tok)
         elif src is MemSpace.REG and dst is MemSpace.LDS:
+            assert fence_token is None, "reg->lds transfer does not support fence_token"
             assert data is not None, "reg->lds transfer needs data"
             if not isinstance(data, (list, tuple)):
                 data = [data]
@@ -280,7 +272,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
         elif src is MemSpace.LDS and dst is MemSpace.REG:
             for voff in offsets:
                 addr = self._addr(tensor.ptr, tensor.byte_offset(self, voff), swizzle)
-                rd, tok = op(addr)
+                rd, tok = op(addr, fence_token=fence_token)
                 payloads.append(rd)
                 tokens.append(tok)
         else:
@@ -296,10 +288,13 @@ class KernelBuilderWithLayouts(KernelBuilder):
         data: Optional[LayoutValues] = None,
         buffer: Optional[TransferTileBuffer] = None,
         nt: bool = True,
+        fence_token: Optional[ir.Value] = None,
     ) -> LayoutValues:
         """Emit one transfer per unrolled tile coordinate and value coordinate.
 
         Use slice to bind some axes before calling this API.
+
+        fence_token: is an optional fence_token to pin the memory operations onto.
         """
         L = tensor.layout
         assert L is not None and L.axes is not None, (
@@ -338,7 +333,12 @@ class KernelBuilderWithLayouts(KernelBuilder):
             )
             sub_tensor = Tensor(tensor.ptr, tile_off)
             transfer = self._emit_transfer_tile(
-                tc, sub_tensor, data=per_tile_payloads(coords), buffer=buffer, nt=nt
+                tc,
+                sub_tensor,
+                data=per_tile_payloads(coords),
+                buffer=buffer,
+                nt=nt,
+                fence_token=fence_token,
             )
             flat_payloads.extend(transfer.payloads)
             flat_tokens.extend(transfer.tokens)
@@ -528,9 +528,12 @@ class KernelBuilderWithLayouts(KernelBuilder):
         data: Any = None,
         buffer: Optional[TransferTileBuffer] = None,
         nt: bool = True,
+        fence_token: Optional[ir.Value] = None,
     ) -> LayoutValues:
         """Emit hardware transfers for one tiled copy at ``tensor``'s offset."""
-        transfer = self._emit_transfer_tile(tc, tensor, data=data, buffer=buffer, nt=nt)
+        transfer = self._emit_transfer_tile(
+            tc, tensor, data=data, buffer=buffer, nt=nt, fence_token=fence_token
+        )
         return LayoutValues.from_flat(
             tc.value_layout,
             payloads=transfer.payloads,
@@ -618,11 +621,14 @@ class KernelBuilderWithLayouts(KernelBuilder):
         swizzle: Swizzle,
         tile_layout: Layout,
         read_fn,
+        fence_token: Optional[ir.Value] = None,
     ) -> list[tuple[ir.Value, ir.Value]]:
         """Read MFMA fragments from LDS with swizzle.
 
-        read_fn(addr) -> (data, tok). Returns a list of (data, tok)
-        pairs, one per sub-tile.
+        read_fn(addr, fence_token=fence_token) -> (data, tok).
+        fence_token: is an optional fence_token to pin the memory operations onto.
+
+        Returns a list of (data, tok) pairs, one per sub-tile.
         """
         d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
         n_subs = tile_layout.size()
@@ -634,7 +640,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
             frag_off = self.affine_apply(d0 + sub_off, [frag_off])
             swizzled = self.apply_swizzle(frag_off, swizzle)
             addr = self.affine_apply(d0 + d1, [lds_base, swizzled])
-            results.append(read_fn(addr))
+            results.append(read_fn(addr, fence_token=fence_token))
         return results
 
     def store_multi_fragment_to_global(

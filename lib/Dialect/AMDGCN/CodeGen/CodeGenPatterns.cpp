@@ -126,15 +126,27 @@ static Value getI32Constant(OpBuilder &builder, Location loc, int32_t value) {
 static FailureOr<Value> createDSRead(OpBuilder &rewriter, Location loc,
                                      Value dst, Value addr, int64_t numWords) {
   Value offset = getI32Constant(rewriter, loc, 0);
+  // Trailing optionals (gds, fence_token) must be passed explicitly: a codegen
+  // ds_read has no GDS flag and takes no fence token.
+  UnitAttr noGds = {};
+  Value noFenceToken = {};
   switch (numWords) {
   case 1:
-    return DsReadB32::create(rewriter, loc, dst, addr, offset).getDestRes();
+    return DsReadB32::create(rewriter, loc, dst, addr, offset, noGds,
+                             noFenceToken)
+        .getDestRes();
   case 2:
-    return DsReadB64::create(rewriter, loc, dst, addr, offset).getDestRes();
+    return DsReadB64::create(rewriter, loc, dst, addr, offset, noGds,
+                             noFenceToken)
+        .getDestRes();
   case 3:
-    return DsReadB96::create(rewriter, loc, dst, addr, offset).getDestRes();
+    return DsReadB96::create(rewriter, loc, dst, addr, offset, noGds,
+                             noFenceToken)
+        .getDestRes();
   case 4:
-    return DsReadB128::create(rewriter, loc, dst, addr, offset).getDestRes();
+    return DsReadB128::create(rewriter, loc, dst, addr, offset, noGds,
+                              noFenceToken)
+        .getDestRes();
   default:
     return failure();
   }
