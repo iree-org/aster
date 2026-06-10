@@ -31,11 +31,11 @@ def EndKernelOp : AMDISAInstruction<"end_kernel", [
   }];
   let asm_mnemonic = "s_endpgm";
   let encodings = [
-    InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000001>,
+    InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0000001>,
     InstEnc<[ENC_SOPP_GFX12_50], 0b0110000>
   ];
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic}">,
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic}">,
     ASMString<[ENC_SOPP_GFX12_50], "${mnemonic}">
   ];
 }
@@ -47,14 +47,14 @@ def SBranch : AMDISAInstruction<"s_branch", [
     AMDGCNInstOpInterface, Terminator, BranchOpInterface
   ]> {
   let props = [IsControlFlow, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Jump to a constant offset relative to the current PC.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000010>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0000010>];
   let successors = (successor BranchLabel:$dest);
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} $dest">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic} $dest">
   ];
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -79,14 +79,14 @@ def SBranch : AMDISAInstruction<"s_branch", [
 class SCbranchInst<string mnemonic, list<Type> srcType> :
     AMDISAInstruction<mnemonic, [Terminator, CBranchInstOpInterface]> {
   let props = [IsControlFlow, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let outputs = (ins);
   let inputs = (ins
     AnyRegOf<srcType>:$cond
   );
   let successors = (successor BranchLabel:$true_dest, BranchLabel:$false_dest);
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic} @printCondBr($true_dest, $false_dest)">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic} @printCondBr($true_dest, $false_dest)">
   ];
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -118,7 +118,7 @@ def SCbranchExecnz : SCbranchInst<"s_cbranch_execnz",
   let description = [{
     If EXECZ is 0 then jump to a constant offset relative to the current PC.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001001>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0001001>];
 }
 #endif // SCBRANCHEXECNZ_DEF
 
@@ -130,7 +130,7 @@ def SCbranchExecz : SCbranchInst<"s_cbranch_execz",
   let description = [{
     If EXECZ is 1 then jump to a constant offset relative to the current PC.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001000>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0001000>];
 }
 #endif // SCBRANCHEXECZ_DEF
 
@@ -142,7 +142,7 @@ def SCbranchScc0 : SCbranchInst<"s_cbranch_scc0",
   let description = [{
     If SCC is 0 then jump to a constant offset relative to the current PC.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000100>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0000100>];
 }
 #endif // SCBRANCHSCC0_DEF
 
@@ -154,7 +154,7 @@ def SCbranchScc1 : SCbranchInst<"s_cbranch_scc1",
   let description = [{
     If SCC is 1 then jump to a constant offset relative to the current PC.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000101>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0000101>];
 }
 #endif // SCBRANCHSCC1_DEF
 
@@ -166,7 +166,7 @@ def SCbranchVccnz : SCbranchInst<"s_cbranch_vccnz",
   let description = [{
     If VCCZ is 0 then jump to a constant offset relative to the current PC.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000111>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0000111>];
 }
 #endif // SCBRANCHVCCNZ_DEF
 
@@ -178,7 +178,7 @@ def SCbranchVccz : SCbranchInst<"s_cbranch_vccz",
   let description = [{
     If VCCZ is 1 then jump to a constant offset relative to the current PC.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0000110>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0000110>];
 }
 #endif // SCBRANCHVCCZ_DEF
 

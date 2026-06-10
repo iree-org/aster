@@ -209,7 +209,7 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
 
     # Per-WG and per-wave distributions; cooperative-load plan for A.
     wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg_m_count, wg_n_count))
-    wid = b.wave_id(wave_size=ws)
+    wid = b.wave_id()
     wave_m_idx, wave_n_idx = b.delinearize_index(wid, (wpw_m, wpw_n))
 
     plan_a = make_coop_load_plan(

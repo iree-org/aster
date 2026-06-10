@@ -186,7 +186,7 @@ def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K,
 
     # Per-WG and per-wave-compute distributions; cooperative-load plans for A and B.
     wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg_m_count, wg_n_count))
-    wid = b.wave_id(wave_size=WAVE_SIZE)
+    wid = b.wave_id()
     wave_m_idx, wave_n_idx = b.delinearize_index(wid, (wpw_m, wpw_n))
 
     plan_a = make_coop_load_plan(

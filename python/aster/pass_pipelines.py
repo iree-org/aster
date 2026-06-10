@@ -27,7 +27,7 @@ class PipelineConfig(PipelineConfigProtocol):
     prologue_peeling: int = 0
     ll_sched: int = 0
     hoist_wait: bool = False
-    set_mfma_priority: bool = True
+    set_mfma_priority: bool = False
     rotate_stage: int | None = None
 
 
@@ -256,7 +256,7 @@ PHASE_LOWER_TO_AMDGCN = (
 # TODO: NORMAL FORMS for amdgcn-backend.
 def phase_amdgcn_backend(
     num_vgprs=256, num_agprs=256, ll_sched=0, hoist_iter_arg_waits=False,
-    set_mfma_priority=True,
+    set_mfma_priority=False,
 ):
     """Build the amdgcn-backend pipeline string with optional register limits."""
     opts = []
@@ -270,8 +270,8 @@ def phase_amdgcn_backend(
     ll_sched = int(ll_sched)
     if ll_sched > 0:
         opts.append(f"ll-sched={ll_sched}")
-    if not set_mfma_priority:
-        opts.append("set-mfma-priority=false")
+    if set_mfma_priority:
+        opts.append("set-mfma-priority=true")
     if opts:
         return f"amdgcn-backend{{{' '.join(opts)}}}"
     return "amdgcn-backend"

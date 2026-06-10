@@ -152,7 +152,7 @@ struct AMDGCNBackendPipelineOptions
   mlir::detail::PassOptions::Option<bool> setMfmaPriority{
       *this, "set-mfma-priority",
       llvm::cl::desc("Insert s_setprio around MFMA groups"),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 };
 
 static void

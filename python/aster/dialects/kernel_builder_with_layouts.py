@@ -68,6 +68,11 @@ ds_read_64b = Copy("ds_read_b64", MemSpace.LDS, MemSpace.REG)
 g2s_buffer_load_dwordx4 = Copy("g2s_buffer_load_dwordx4", MemSpace.GLOBAL, MemSpace.LDS)
 global_store_dword = Copy("global_store_dword", MemSpace.REG, MemSpace.GLOBAL)
 
+# gfx1250 equivalents (different mnemonics, same logical operations).
+global_load_b128 = Copy("global_load_b128", MemSpace.GLOBAL, MemSpace.REG)
+ds_store_64b = Copy("ds_store_b64", MemSpace.REG, MemSpace.LDS)
+global_store_b32 = Copy("global_store_b32", MemSpace.REG, MemSpace.GLOBAL)
+
 
 @dataclass(frozen=True)
 class TiledCopy:
@@ -124,9 +129,7 @@ class _TileTransfer:
 class KernelBuilderWithLayouts(KernelBuilder):
     """KernelBuilder with layout-first tile operations."""
 
-    def wait_deps(self, *tokens: WaitArg) -> None:
-        """Wait for dependency tokens (supports various forms of WaitArg)."""
-
+    def _flatten_wait_args(self, tokens: tuple[WaitArg, ...]) -> list[ir.Value]:
         flat: list[ir.Value] = []
         for tok in tokens:
             if isinstance(tok, LayoutValues):
@@ -135,7 +138,15 @@ class KernelBuilderWithLayouts(KernelBuilder):
                 flat.extend(tok)
             else:
                 flat.append(tok)
-        super().wait_deps(*flat)
+        return flat
+
+    def wait_deps(self, *tokens: WaitArg) -> None:
+        """Wait for dependency tokens (CDNA3/4)."""
+        super().wait_deps(*self._flatten_wait_args(tokens))
+
+    def wait_deps_gfx1250(self, *tokens: WaitArg) -> None:
+        """Wait for dependency tokens (gfx1250)."""
+        super().wait_deps_gfx1250(*self._flatten_wait_args(tokens))
 
     def _filter_layout_by_axes(
         self, layout: Layout, axes: tuple[Symbol, ...]
@@ -363,7 +374,6 @@ class KernelBuilderWithLayouts(KernelBuilder):
         *,
         buffer_num_records_bytes: int,
         spatial_dim: int,
-        wave_size: int,
         tile_row_bytes: int,
         global_load_bytes: int,
         global_row_stride: int,
@@ -388,7 +398,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
         soff = self.s_mov_b32(0)
         m0 = self.alloc_m0()
 
-        lanes_per_row = wave_size // spatial_dim
+        lanes_per_row = self.wave_size // spatial_dim
         tile_local = Layout(
             (spatial_dim, lanes_per_row), (tile_row_bytes, global_load_bytes)
         )
@@ -472,9 +482,7 @@ class KernelBuilderWithLayouts(KernelBuilder):
 
     def _scope_count(self, scope: Scope) -> int:
         if scope is Scope.LANE:
-            # wave_size on CDNA; matches lane_id()'s default
-            # TODO: programmatically extract from target info
-            return 64
+            return self.wave_size
         raise NotImplementedError(f"scope {scope.value!r} has no count wired")
 
     def _scope_pid(self, scope: Scope) -> Any:
@@ -651,7 +659,17 @@ class KernelBuilderWithLayouts(KernelBuilder):
         d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
         n_subs = tile_layout.size()
         lane = self.lane_id()
-        agprs = self.split_ax4(acc)
+        # Split accumulator into individual registers.
+        # split_register_range with n_subs = register count gives individual regs.
+        from aster._mlir_libs._amdgcn import AGPRRangeType
+
+        if isinstance(acc.type, AGPRRangeType):
+            agprs = self.split_ax4(acc)
+        else:
+            from aster.dialects._amdgcn_ops_gen import SplitRegisterRangeOp
+
+            op = SplitRegisterRangeOp(input=acc, loc=self._loc, ip=self._kip)
+            agprs = tuple(op.results_)
         n_agprs = len(agprs) // n_subs
         tokens = []
         for s in range(n_subs):

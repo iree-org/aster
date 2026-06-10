@@ -24,7 +24,7 @@ The returned module can be passed directly to aster.compiler compile_kernel_modu
 from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from aster import ir
 from aster.layout import Layout, Swizzle, SwizzledLayout
@@ -50,6 +50,9 @@ from aster.dialects._amdgcn_ops_gen import (
     DsReadB32,
     DsReadB64,
     DsReadB128,
+    DsLoadB128,
+    DsStoreB64,
+    DsStoreB128,
     DsWriteB32,
     DsWriteB64,
     DsWriteB128,
@@ -57,7 +60,9 @@ from aster.dialects._amdgcn_ops_gen import (
     GetLDSOffsetOp,
     GlobalLoadDword,
     GlobalLoadDwordx2,
+    GlobalLoadB128,
     GlobalLoadDwordx4,
+    GlobalStoreB32,
     GlobalStoreDword,
     GlobalStoreDwordx4,
     KernelOp,
@@ -67,7 +72,9 @@ from aster.dialects._amdgcn_ops_gen import (
     ModuleOp,
     SplitRegisterRangeOp,
     SWaitcnt,
+    TensorLoadToLds,
     WaitOp,
+    WaitGfx1250Op,
     VAddU32 as _VAddU32,
     VReadfirstlaneB32 as _VReadfirstlaneB32,
 )
@@ -150,7 +157,9 @@ class KernelBuilder:
         module_name: str,
         kernel_name: str,
         target: str = "gfx942",
+        wave_size: int = 64,
     ):
+        assert wave_size in (32, 64), f"wave_size must be 32 or 64, got {wave_size}"
         ctx = ir.Context.current
         self._ctx = ctx
         self._loc = ir.Location.unknown(ctx)
@@ -183,6 +192,11 @@ class KernelBuilder:
             loc=self._loc,
             ip=mod_ip,
         )
+        self.wave_size = wave_size
+        if wave_size == 32:
+            self._kernel_op.operation.attributes["wavefront_size32"] = ir.UnitAttr.get(
+                ctx
+            )
 
         # Create the kernel body block. All instruction methods insert here.
         self._kernel_block = ir.Block.create_at_start(self._kernel_op.body_region, [])
@@ -371,16 +385,17 @@ class KernelBuilder:
         d = ir.Attribute.parse(f"#gpu<dim {dim}>")
         return _GPUGridDimOp(d, loc=self._loc, ip=self._kip).result
 
-    def lane_id(self, wave_size: int = 64) -> ir.Value:
-        """Lane ID within the wave: linear_thread_id % wave_size."""
+    def lane_id(self) -> ir.Value:
+        """Lane ID within the wave: linear_thread_id % self.wave_size."""
         ltid = ir.AffineExpr.get_dim(0)
-        return self.affine_apply(ltid % wave_size, [self.linear_thread_id()])
+        return self.affine_apply(ltid % self.wave_size, [self.linear_thread_id()])
 
-    def wave_id(self, wave_size: int = 64) -> ir.Value:
-        """Wave ID within the workgroup: linear_thread_id // wave_size."""
+    def wave_id(self) -> ir.Value:
+        """Wave ID within the workgroup: linear_thread_id // self.wave_size."""
         ltid = ir.AffineExpr.get_dim(0)
         return self.affine_apply(
-            ir.AffineExpr.get_floor_div(ltid, wave_size), [self.linear_thread_id()]
+            ir.AffineExpr.get_floor_div(ltid, self.wave_size),
+            [self.linear_thread_id()],
         )
 
     def delinearize_index(self, linear_id, sizes):
@@ -512,6 +527,10 @@ class KernelBuilder:
             SGPRType.get(self._ctx, reg), loc=self._loc, ip=self._kip
         ).result
 
+    def alloc_sgpr_range(self, n: int) -> ir.Value:
+        """Allocate an n-SGPR register range."""
+        return self._make_register_range([self.alloca_sgpr() for _ in range(n)])
+
     def alloca_agpr(self, reg: Optional[int] = None) -> ir.Value:
         """Allocate an AGPR register."""
         return AllocaOp(
@@ -528,6 +547,16 @@ class KernelBuilder:
     def alloc_vgprx4(self) -> ir.Value:
         """Allocate a 4-VGPR register range."""
         return self._make_register_range([self.alloca_vgpr() for _ in range(4)])
+
+    def init_vgprx8(self, init_val: ir.Value) -> ir.Value:
+        """Allocate and initialize an 8-VGPR register range (WMMA accumulator)."""
+        from aster.dialects._amdgcn_ops_gen import v_mov_b32
+
+        inited = [
+            v_mov_b32(self.alloca_vgpr(), init_val, loc=self._loc, ip=self._kip)
+            for _ in range(8)
+        ]
+        return self._make_register_range(inited)
 
     def init_agprx4(self, init_val: ir.Value) -> ir.Value:
         """Allocate and initialize a 4-AGPR register range."""
@@ -559,10 +588,32 @@ class KernelBuilder:
         )
 
     def s_mov_b32(self, value: int) -> ir.Value:
-        """Move an i32 immediate into an SGPR via s_mov_b32."""
+        """Move an i32 immediate into a fresh SGPR via s_mov_b32."""
         dest = self.alloca_sgpr()
         c = self.constant_i32(value)
         return s_mov_b32(dest, c, loc=self._loc, ip=self._kip)
+
+    def alloca_scc(self) -> ir.Value:
+        """Allocate the SCC architectural register."""
+        return AllocaOp(
+            ir.Type.parse("!amdgcn.scc<0>"), loc=self._loc, ip=self._kip
+        ).result
+
+    def s_add_u32(self, src: ir.Value, value) -> ir.Value:
+        """Add a value (int immediate, i32, or SGPR) to an SGPR (SCC discarded)."""
+        if isinstance(value, int):
+            value = self.s_mov_b32(value)
+        dst = self.alloca_sgpr()
+        op = _ops_gen.SAddU32(
+            dst,
+            self.alloca_scc(),
+            src,
+            value,
+            results=[dst.type, None],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.operation.results[0]
 
     # ---------------------------------------------------------------------------
     # Vector ALU
@@ -601,7 +652,7 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        return op.dst0_res
+        return op.operation.results[0]
 
     def _emit_vop3(
         self, opcode_str: str, dest: ir.Value, src0, src1, *, src2=None
@@ -724,7 +775,7 @@ class KernelBuilder:
             loc=self._loc,
             ip=self._kip,
         )
-        return op.dst0_res
+        return op.operation.results[0]
 
     # ---------------------------------------------------------------------------
     # Pointer arithmetic (ptr dialect)
@@ -945,6 +996,7 @@ class KernelBuilder:
         "global_load_dword": GlobalLoadDword,
         "global_load_dwordx2": GlobalLoadDwordx2,
         "global_load_dwordx4": GlobalLoadDwordx4,
+        "global_load_b128": GlobalLoadB128,
     }
 
     def _global_load_op(
@@ -1006,16 +1058,30 @@ class KernelBuilder:
         const_offset: Optional[ir.Value] = None,
         dynamic_offset: Optional[ir.Value] = None,
     ) -> tuple[ir.Value, ir.Value]:
-        """Global load of 4 dwords."""
+        """Global load of 4 dwords (CDNA3/4)."""
         dest = self.alloc_vgprx4()
         op = self._global_load_op(
             "global_load_dwordx4", dest, addr, const_offset, dynamic_offset
         )
         return op.results[0], op.results[1]
 
+    def global_load_b128(
+        self,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+        dynamic_offset: Optional[ir.Value] = None,
+    ) -> tuple[ir.Value, ir.Value]:
+        """Global load of 128 bits (gfx1250)."""
+        dest = self.alloc_vgprx4()
+        op = self._global_load_op(
+            "global_load_b128", dest, addr, const_offset, dynamic_offset
+        )
+        return op.results[0], op.results[1]
+
     _GLOBAL_STORE_OPS = {
         "global_store_dword": GlobalStoreDword,
         "global_store_dwordx4": GlobalStoreDwordx4,
+        "global_store_b32": GlobalStoreB32,
     }
 
     def _global_store(
@@ -1050,9 +1116,22 @@ class KernelBuilder:
         dynamic_offset: Optional[ir.Value] = None,
         nt: bool = False,
     ) -> ir.Value:
-        """Global store of 1 dword."""
+        """Global store of 1 dword (CDNA3/4)."""
         return self._global_store(
             "global_store_dword", data, addr, const_offset, dynamic_offset, nt=nt
+        )
+
+    def global_store_b32(
+        self,
+        data: ir.Value,
+        addr: ir.Value,
+        const_offset: Optional[ir.Value] = None,
+        dynamic_offset: Optional[ir.Value] = None,
+        nt: bool = False,
+    ) -> ir.Value:
+        """Global store of 32 bits (gfx1250)."""
+        return self._global_store(
+            "global_store_b32", data, addr, const_offset, dynamic_offset, nt=nt
         )
 
     # Note: global_load/store_dwordx2/3 do not have coalescing and do not fill a
@@ -1153,6 +1232,158 @@ class KernelBuilder:
         """DS read 128-bit (4 dwords) from LDS."""
         return self._ds_read("ds_read_b128", self.alloc_vgprx4(), addr, const_offset)
 
+    _DS_STORE_OPS = {
+        "ds_store_b64": DsStoreB64,
+        "ds_store_b128": DsStoreB128,
+    }
+
+    def _ds_store(self, opcode, data, addr, const_offset=None):
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        addr = self._ds_addr(addr)
+        op_cls = self._DS_STORE_OPS[opcode]
+        op = op_cls(
+            addr=addr,
+            data=data,
+            const_offset=const_offset,
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.result
+
+    def ds_store_b64(self, data, addr, const_offset=None):
+        """DS store 64-bit (2 dwords) to LDS (gfx1250)."""
+        return self._ds_store("ds_store_b64", data, addr, const_offset)
+
+    def ds_store_b128(self, data, addr, const_offset=None):
+        """DS store 128-bit (4 dwords) to LDS (gfx1250)."""
+        return self._ds_store("ds_store_b128", data, addr, const_offset)
+
+    _DS_LOAD_OPS = {
+        "ds_load_b128": DsLoadB128,
+    }
+
+    def _ds_load(self, opcode, dest, addr, const_offset=None):
+        if const_offset is None:
+            const_offset = self.constant_i32(0)
+        addr = self._ds_addr(addr)
+        op_cls = self._DS_LOAD_OPS[opcode]
+        op = op_cls(
+            dest=dest,
+            addr=addr,
+            const_offset=const_offset,
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.results[0], op.results[1]
+
+    def ds_load_b128(self, addr, const_offset=None) -> tuple[ir.Value, ir.Value]:
+        """DS load 128-bit (4 dwords) from LDS (gfx1250)."""
+        return self._ds_load("ds_load_b128", self.alloc_vgprx4(), addr, const_offset)
+
+    # ---------------------------------------------------------------------------
+    # TDM: Tensor Data Mover (gfx1250)
+    # ---------------------------------------------------------------------------
+
+    def _to_sgpr(self, value: Union[int, ir.Value]) -> ir.Value:
+        """Materialize an int or index value into an SGPR (SGPRs pass through)."""
+        if isinstance(value, int):
+            return self.s_mov_b32(value)
+        if value.type == self.idx_type:
+            return self.index_to_sgpr(value)
+        return value
+
+    def make_tdm_descriptor(
+        self,
+        lds_offset: Union[int, ir.Value],
+        global_addr: Union[int, ir.Value],
+        *,
+        element_bytes: int,
+        dim0: int,
+        dim1: int,
+        tile0: int,
+        tile1: int,
+        stride: int,
+        global_byte_offset: Optional[ir.Value] = None,
+    ) -> tuple[ir.Value, ir.Value, ir.Value, ir.Value]:
+        """Build a TDM tensor descriptor (4 SGPR groups).
+
+        Returns (group0, group1, group2, group3) ready for tensor_load_to_lds.
+
+        Field layout follows TensileLite TensorDataMover:
+          group0: resource descriptor (type + LDS addr + global addr)
+          group1: tensor descriptor (data_size + dims + tiles + stride)
+          group2/group3: zeroed (2-group behavior, software iteration)
+
+        Args:
+            lds_offset: LDS destination byte offset: int immediate, index
+                (e.g. the address returned by alloc_lds), i32, or SGPR.
+            global_addr: 64-bit global source address: a kernel pointer
+                argument (SGPR pair, split internally) or an int immediate.
+            element_bytes: element size in bytes (1, 2, 4, or 8); encoded as
+                log2 in the descriptor's data_size field.
+            dim0: tensor dimension 0 (elements).
+            dim1: tensor dimension 1 (elements).
+            tile0: tile size along dim0 (elements).
+            tile1: tile size along dim1 (elements).
+            stride: row stride in elements (NOT bytes).
+            global_byte_offset: optional wave-uniform byte offset (index or
+                i32) folded into the low address word. The add ignores carry,
+                so base + offset must not cross a 4 GiB boundary.
+        """
+        # group0: [type=1, lds_offset, global_lo, global_hi | 0x80000000]
+        if isinstance(global_addr, int):
+            addr_lo = self.s_mov_b32(global_addr & 0xFFFFFFFF)
+            addr_hi = self.s_mov_b32((global_addr >> 32) | 0x80000000)
+        else:
+            lo, hi = self.split_register_range(global_addr, 2)
+            addr_lo = lo
+            # SGPR holding the VA high word; bit31 is clear, so +MSB == |MSB.
+            addr_hi = self.s_add_u32(hi, 0x80000000)
+        if global_byte_offset is not None:
+            addr_lo = self.s_add_u32(addr_lo, self._to_sgpr(global_byte_offset))
+        g0 = self._make_register_range(
+            [
+                self.s_mov_b32(1),
+                self._to_sgpr(lds_offset),
+                addr_lo,
+                addr_hi,
+            ]
+        )
+        assert element_bytes in (1, 2, 4, 8), f"bad element_bytes {element_bytes}"
+        data_size = element_bytes.bit_length() - 1  # log2: 1B=0, 2B=1, 4B=2, 8B=3
+        # group1: [data_size<<16, dim0_lo<<16, dim0_hi|dim1_lo<<16,
+        #          dim1_hi|tile0<<16, tile1, stride, 0, 0]
+        g1 = self._make_register_range(
+            [
+                self.s_mov_b32(data_size << 16),
+                self.s_mov_b32((dim0 & 0xFFFF) << 16),
+                self.s_mov_b32(((dim0 >> 16) & 0xFFFF) | ((dim1 & 0xFFFF) << 16)),
+                self.s_mov_b32(((dim1 >> 16) & 0xFFFF) | (tile0 << 16)),
+                self.s_mov_b32(tile1),
+                self.s_mov_b32(stride),
+                self.s_mov_b32(0),
+                self.s_mov_b32(0),
+            ]
+        )
+
+        # group2/group3: zeroed (no hardware iteration).
+        def z4():
+            return self._make_register_range([self.s_mov_b32(0) for _ in range(4)])
+
+        return g0, g1, z4(), z4()
+
+    def tensor_load_to_lds(self, desc0, desc1, desc2, desc3) -> ir.Value:
+        """Load tensor from global memory into LDS via TDM (gfx1250)."""
+        return TensorLoadToLds(
+            desc0=desc0,
+            desc1=desc1,
+            desc2=desc2,
+            desc3=desc3,
+            loc=self._loc,
+            ip=self._kip,
+        ).result
+
     # ---------------------------------------------------------------------------
     # G2S: Global-to-LDS direct loads (CDNA4)
     # ---------------------------------------------------------------------------
@@ -1241,8 +1472,12 @@ class KernelBuilder:
     # ---------------------------------------------------------------------------
 
     def wait_deps(self, *tokens):
-        """Wait for dependency tokens (from global_load or ds_write)."""
+        """Wait for dependency tokens (CDNA3/4: amdgcn.wait)."""
         WaitOp(dependencies=list(tokens), loc=self._loc, ip=self._kip)
+
+    def wait_deps_gfx1250(self, *tokens):
+        """Wait for dependency tokens (gfx1250: amdgcn.wait_gfx1250)."""
+        WaitGfx1250Op(dependencies=list(tokens), loc=self._loc, ip=self._kip)
 
     def wait_vmcnt(self, count: int = 0):
         """Insert s_waitcnt vmcnt=count."""

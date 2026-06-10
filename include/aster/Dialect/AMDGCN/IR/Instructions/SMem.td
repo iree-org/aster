@@ -19,7 +19,7 @@ include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.td"
 #define SLOADDWORDINST_DEF
 class SLoadDwordInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<mnemonic, [SLoadDwordInstOpInterface]> {
   let props = [IsSMEM];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let effects = [ConstantRead];
   let outputs = (ins
     AnyRegOf<dataType>:$dest
@@ -42,7 +42,7 @@ class SLoadDwordInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<m
     custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
   }];
   let asm_syntax = [
-    ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], "${mnemonic} $dest, $addr, @printLSOffset($soffset, [const_offset]) [glc]">
+    ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], "${mnemonic} $dest, $addr, @printLSOffset($soffset, [const_offset]) [glc]">
   ];
   let hasVerifier = 1;
   let extraClassDefinition = [{
@@ -65,7 +65,7 @@ def SLoadDword : SLoadDwordInst<"s_load_dword",
   let description = [{
     Load 32 bits of dest from the scalar memory into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00000000>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00000000>];
 }
 #endif // SLOADDWORD_DEF
 
@@ -77,7 +77,7 @@ def SLoadDwordx16 : SLoadDwordInst<"s_load_dwordx16",
   let description = [{
     Load 512 bits of dest from the scalar memory into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00000100>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00000100>];
 }
 #endif // SLOADDWORDX16_DEF
 
@@ -89,7 +89,7 @@ def SLoadDwordx2 : SLoadDwordInst<"s_load_dwordx2",
   let description = [{
     Load 64 bits of dest from the scalar memory into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00000001>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00000001>];
 }
 #endif // SLOADDWORDX2_DEF
 
@@ -101,7 +101,7 @@ def SLoadDwordx4 : SLoadDwordInst<"s_load_dwordx4",
   let description = [{
     Load 128 bits of dest from the scalar memory into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00000010>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00000010>];
 }
 #endif // SLOADDWORDX4_DEF
 
@@ -113,7 +113,7 @@ def SLoadDwordx8 : SLoadDwordInst<"s_load_dwordx8",
   let description = [{
     Load 256 bits of dest from the scalar memory into a scalar register.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00000011>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00000011>];
 }
 #endif // SLOADDWORDX8_DEF
 
@@ -121,11 +121,11 @@ def SLoadDwordx8 : SLoadDwordInst<"s_load_dwordx8",
 #define SMEMREALTIME_DEF
 def SMemrealtime : AMDISAInstruction<"s_memrealtime"> {
   let props = [IsSMEM];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Return current 64-bit RTC.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00100101>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00100101>];
   let outputs = (ins
     TwoSGPROrVCCType:$dest
   );
@@ -133,7 +133,7 @@ def SMemrealtime : AMDISAInstruction<"s_memrealtime"> {
   let trailingArgs = (ins);
   let trailingResults = (outs ConstantReadToken:$token);
   let asm_syntax = [
-    ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], "${mnemonic} $dest">
+    ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], "${mnemonic} $dest">
   ];
 }
 #endif // SMEMREALTIME_DEF
@@ -142,11 +142,11 @@ def SMemrealtime : AMDISAInstruction<"s_memrealtime"> {
 #define SMEMTIME_DEF
 def SMemtime : AMDISAInstruction<"s_memtime"> {
   let props = [IsSMEM];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let description = [{
     Return current 64-bit timestamp.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00100100>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00100100>];
   let outputs = (ins
     TwoSGPROrVCCType:$dest
   );
@@ -154,7 +154,7 @@ def SMemtime : AMDISAInstruction<"s_memtime"> {
   let trailingArgs = (ins);
   let trailingResults = (outs ConstantReadToken:$token);
   let asm_syntax = [
-    ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], "${mnemonic} $dest">
+    ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], "${mnemonic} $dest">
   ];
 }
 #endif // SMEMTIME_DEF
@@ -163,7 +163,7 @@ def SMemtime : AMDISAInstruction<"s_memtime"> {
 #define SSTOREDWORDINST_DEF
 class SStoreDwordInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<mnemonic, [SStoreDwordInstOpInterface]> {
   let props = [IsSMEM];
-  let archs = [CDNA3Isa, CDNA4Isa];
+  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let effects = [ConstantWrite];
   let outputs = (ins);
   let inputs = (ins
@@ -184,7 +184,7 @@ class SStoreDwordInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<
     (`mods` `(` type($const_offset)^ `)`)? `->` qualified(type($token))
   }];
   let asm_syntax = [
-    ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], "${mnemonic} $data, $addr, @printLSOffset($soffset, [const_offset]) [glc]">
+    ASMString<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], "${mnemonic} $data, $addr, @printLSOffset($soffset, [const_offset]) [glc]">
   ];
   let hasVerifier = 1;
   let extraClassDefinition = [{
@@ -207,7 +207,7 @@ def SStoreDword : SStoreDwordInst<"s_store_dword",
   let description = [{
     Store 32 bits of data from a scalar register into the scalar memory.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00010000>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00010000>];
 }
 #endif // SSTOREDWORD_DEF
 
@@ -219,7 +219,7 @@ def SStoreDwordx2 : SStoreDwordInst<"s_store_dwordx2",
   let description = [{
     Store 64 bits of data from a scalar register into the scalar memory.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00010001>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00010001>];
 }
 #endif // SSTOREDWORDX2_DEF
 
@@ -231,7 +231,7 @@ def SStoreDwordx4 : SStoreDwordInst<"s_store_dwordx4",
   let description = [{
     Store 128 bits of data from a scalar register into the scalar memory.
   }];
-  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4], 0b00010010>];
+  let encodings = [InstEnc<[ENC_SMEM_CDNA3, ENC_SMEM_CDNA4, ENC_SMEM_GFX12_50], 0b00010010>];
 }
 #endif // SSTOREDWORDX4_DEF
 

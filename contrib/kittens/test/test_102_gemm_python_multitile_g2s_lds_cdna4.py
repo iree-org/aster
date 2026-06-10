@@ -248,7 +248,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
     # -- Distribution --
     wg_m_idx, wg_n_idx = b.delinearize_index(b.linear_block_id(), (wg[DIM_M], wg[DIM_N]))
-    wid = b.wave_id(wave_size=ws)
+    wid = b.wave_id()
     wave_m_idx, wave_n_idx = b.delinearize_index(wid, (wpw[DIM_M], wpw[DIM_N]))
 
     # Cooperative load starts: wave_id -> (spatial_start, k_start) with OOB
