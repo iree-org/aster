@@ -28,6 +28,7 @@ add_mlir_library(AMDGCNTransforms
   ToAMDGCN.cpp
   ToAMDGCNPatterns.cpp
   ToRegisterSemantics.cpp
+  StripWaits.cpp
   WaitInsertion.cpp
 
   DEPENDS

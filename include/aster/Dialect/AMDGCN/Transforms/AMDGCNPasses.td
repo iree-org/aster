@@ -31,6 +31,15 @@ def AMDGCNConvertWaits : InterfacePass<"amdgcn-convert-waits", "mlir::aster::Mod
   ];
 }
 
+def AMDGCNStripWaits : InterfacePass<"amdgcn-strip-waits", "mlir::aster::ModuleOpInterface"> {
+  let summary = "Erase all wait ops";
+  let description = [{
+    Produce wait-free, token-free AMDGCN so they can later be recreated from
+    low-level post-regalloc IR.
+  }];
+  let dependentDialects = ["mlir::ub::UBDialect"];
+}
+
 def LegalizeOperands : Pass<"amdgcn-legalize-operands"> {
   let summary = "Legalize operand constraints for AMDGCN instructions";
   let description = [{
