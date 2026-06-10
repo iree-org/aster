@@ -3,12 +3,13 @@
 # Licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-"""Pipelined GEMM for gfx1250 with TDM (tensor_load_to_lds)."""
+"""Minimal pipelined gfx1250 GEMM with TDM and StinkyTofu handoff."""
 
 import os
 import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+import tempfile
+import shutil
+import subprocess
 
 import numpy as np
 import pytest
@@ -25,6 +26,7 @@ from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import make_default_pass_pipeline, PipelineConfig
+from aster.pass_pipelines_stinkytofu import make_stinkytofu_handoff_pipeline
 
 from aster.layout import Layout, Swizzle, Tensor
 
@@ -60,7 +62,9 @@ def _build_gemm_pipelined_gfx1250(M, N, K):
     GLOBAL_STORE_TILE_C = Layout((2, 16, 8), (8 * stride_c, 4, stride_c))
     GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
 
-    b = KernelBuilder("gemm_gfx1250_mod", "gemm_gfx1250", target=MCPU, wave_size=WAVE_SIZE)
+    b = KernelBuilder(
+        "gemm_gfx1250_mod", "gemm_gfx1250", target=MCPU, wave_size=WAVE_SIZE
+    )
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.WriteOnly)
@@ -114,7 +118,9 @@ def _build_gemm_pipelined_gfx1250(M, N, K):
             b.wait_deps_gfx1250(a_load_res)
             sA = Tensor(lds_a)
             # Two b128 loads -> four b64 stores, in value-layout order.
-            a_data = list(b.split_vx4(a_load_res.data_at(0))) + list(b.split_vx4(a_load_res.data_at(1)))
+            a_data = list(b.split_vx4(a_load_res.data_at(0))) + list(
+                b.split_vx4(a_load_res.data_at(1))
+            )
             dsw_a_res = b.transfer_tile(sA, tc_dsw_a, data=a_data)
 
         with b.stage(STAGE_READ):
@@ -151,11 +157,89 @@ def _build_gemm_pipelined_gfx1250(M, N, K):
     return b.build()
 
 
-def _run_gemm_pipelined_gfx1250(M, N, K, print_opts=None):
-    """Compile, assemble, and (if a gfx1250 GPU is present) execute + check.
+def _handoff_asm_to_stinkytofu(asm, *, kernel_name="gemm_gfx1250", print_opts=None):
+    """Run stinkytofu-opt on labeled ASTER asm (schedule + wait insertion)."""
+    st_opt = shutil.which("stinkytofu-opt")
+    if st_opt is None:
+        return "no-stinkytofu", None
 
-    Returns (status, asm): status is "ok", "no-assembler", or "no-gpu".
-    """
+    # StinkyTofu passes run on the region between --from-label/--to-label;
+    # bracket the whole kernel body (kernel label to s_endpgm).
+    lines = []
+    for line in asm.splitlines():
+        if line.strip() == "s_endpgm":
+            lines.append("aster_handoff_end:")
+        lines.append(line)
+        if line.strip() == f"{kernel_name}:":
+            lines.append("aster_handoff_begin:")
+    labeled_asm = "\n".join(lines) + "\n"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        s_path = os.path.join(tmp, "handoff.s")
+        out_path = os.path.join(tmp, "scheduled.s")
+        with open(s_path, "w") as f:
+            f.write(labeled_asm)
+        # Per-pass IR dumps land in cwd as before.txt/after.txt.
+        result = subprocess.run(
+            [
+                st_opt,
+                "--arch",
+                "gfx1250",
+                s_path,
+                "--StinkyBuildImplicitDependencyPass",
+                "--StinkyDAGSchedulerPass",
+                "--StinkyWaitCntInsertionPass",
+                "--emit-asm",
+                "--from-label",
+                "aster_handoff_begin",
+                "--to-label",
+                "aster_handoff_end",
+                "-o",
+                out_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=tmp,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"stinkytofu-opt failed:\n{result.stderr}")
+        if print_opts is not None and getattr(print_opts, "print_ir_after_all", False):
+            with open(os.path.join(tmp, "after.txt")) as f:
+                print(f.read())
+        with open(out_path) as f:
+            st_asm = f.read()
+    return "ok", st_asm
+
+
+def _run_gemm_pipelined_gfx1250(
+    M,
+    N,
+    K,
+    print_opts=None,
+    config=PipelineConfig(),
+    *,
+    stinkytofu_handoff=False,
+):
+    """Compile the pipelined gfx1250 GEMM kernel."""
+    ctx = ir.Context()
+    ctx.allow_unregistered_dialects = True
+    with ctx:
+        module = _build_gemm_pipelined_gfx1250(M, N, K)
+        pass_pipeline = (
+            make_stinkytofu_handoff_pipeline(config)
+            if stinkytofu_handoff
+            else make_default_pass_pipeline(config)
+        )
+        asm = compile_mlir_module_to_asm(
+            module,
+            pass_pipeline=pass_pipeline,
+            print_opts=print_opts,
+        )
+
+    if stinkytofu_handoff:
+        return _handoff_asm_to_stinkytofu(asm, print_opts=print_opts)
+
     import ml_dtypes
 
     bf16 = ml_dtypes.bfloat16
@@ -163,16 +247,6 @@ def _run_gemm_pipelined_gfx1250(M, N, K, print_opts=None):
     A = (np.random.randn(M, K) * 0.1).astype(bf16)
     B = (np.random.randn(N, K) * 0.1).astype(bf16)
     C_output = np.zeros(M * N, dtype=np.float32)
-
-    ctx = ir.Context()
-    ctx.allow_unregistered_dialects = True
-    with ctx:
-        module = _build_gemm_pipelined_gfx1250(M, N, K)
-        asm = compile_mlir_module_to_asm(
-            module,
-            pass_pipeline=make_default_pass_pipeline(PipelineConfig()),
-            print_opts=print_opts,
-        )
 
     path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=WAVE_SIZE)
     if path is None:
@@ -198,7 +272,7 @@ def _run_gemm_pipelined_gfx1250(M, N, K, print_opts=None):
     return "ok", asm
 
 
-class TestGfx1250GEMMPipelined:
+class TestMinimalGemmGfx1250Pipelined:
     @pytest.mark.parametrize("M, N, K", [(16, 16, 128), (16, 16, 256)])
     def test_gemm_pipelined_gfx1250(self, M, N, K):
         pytest.importorskip("ml_dtypes")
@@ -207,6 +281,14 @@ class TestGfx1250GEMMPipelined:
             pytest.skip(f"LLVM assembler not compiled with {MCPU} support")
         if status == "no-gpu":
             pytest.skip(f"{MCPU} GPU not available")
+
+    @pytest.mark.parametrize("k", [128])
+    def test_gemm_handoff_to_stinkytofu(self, k):
+        """End-to-end: ASTER wait-free ASM -> stinkytofu-opt raise, schedule, insert waits."""
+        status, st_asm = _run_gemm_pipelined_gfx1250(16, 16, k, stinkytofu_handoff=True)
+        if status == "no-stinkytofu":
+            pytest.skip("stinkytofu-opt not found in PATH")
+        assert st_asm is not None
 
 
 if __name__ == "__main__":
@@ -218,18 +300,34 @@ if __name__ == "__main__":
     parser.add_argument("--K", type=int, default=256)
     parser.add_argument("--print-asm", action="store_true")
     parser.add_argument("--print-ir-after-all", action="store_true")
+    parser.add_argument("--stinkytofu-handoff", action="store_true")
+    parser.add_argument("--ll-sched", type=int, default=1)
     args = parser.parse_args()
 
     from aster.compiler.core import PrintOptions
+
+    print_opts = PrintOptions.from_flags(
+        print_ir_after_all=args.print_ir_after_all,
+        print_asm=args.print_asm,
+    )
+    if args.stinkytofu_handoff:
+        status, asm = _run_gemm_pipelined_gfx1250(
+            args.M, args.N, args.K, print_opts, stinkytofu_handoff=True
+        )
+        if status == "no-stinkytofu":
+            print("FAIL: stinkytofu-opt not found in PATH")
+            sys.exit(1)
+        if args.print_asm:
+            print(asm)
+        print(f"PASS: handoff M={args.M} N={args.N} K={args.K} scheduled by StinkyTofu")
+        sys.exit(0)
 
     status, asm = _run_gemm_pipelined_gfx1250(
         args.M,
         args.N,
         args.K,
-        print_opts=PrintOptions.from_flags(
-            print_ir_after_all=args.print_ir_after_all,
-            print_asm=args.print_asm,
-        ),
+        print_opts,
+        config=PipelineConfig(ll_sched=args.ll_sched),
     )
     if args.print_asm:
         print(asm)

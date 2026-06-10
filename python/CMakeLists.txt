@@ -28,6 +28,7 @@ declare_mlir_python_sources(ASTERPythonSources.core
   SOURCES
     __init__.py
     pass_pipelines.py
+    pass_pipelines_stinkytofu.py
     test_pass_pipelines.py
     core/__init__.py
     core/target.py

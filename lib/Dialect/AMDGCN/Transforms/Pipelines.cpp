@@ -12,13 +12,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "PipelinesInternal.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AsterUtils/Transforms/Passes.h"
 #include "aster/Transforms/Passes.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Pass/PassOptions.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -29,31 +29,6 @@ using namespace mlir::aster::amdgcn;
 //===----------------------------------------------------------------------===//
 // RegAlloc Pipeline
 //===----------------------------------------------------------------------===//
-
-/// Options for the RegAlloc pass pipeline.
-struct RegAllocPipelineOptions
-    : public PassPipelineOptions<RegAllocPipelineOptions> {
-  mlir::detail::PassOptions::Option<std::string> buildMode{
-      *this, "mode",
-      llvm::cl::desc("Graph build mode: \"minimal\" (default) or \"full\""),
-      llvm::cl::init("minimal")};
-  mlir::detail::PassOptions::Option<int32_t> numVGPRs{
-      *this, "num-vgprs",
-      llvm::cl::desc("Maximum VGPRs for allocation (default 256)"),
-      llvm::cl::init(256)};
-  mlir::detail::PassOptions::Option<int32_t> numAGPRs{
-      *this, "num-agprs",
-      llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
-      llvm::cl::init(256)};
-  mlir::detail::PassOptions::Option<int32_t> numSGPRs{
-      *this, "num-sgprs",
-      llvm::cl::desc("Maximum SGPRs for allocation (default 102)"),
-      llvm::cl::init(102)};
-  mlir::detail::PassOptions::Option<bool> hoistIterArgWaits{
-      *this, "hoist-iter-arg-waits",
-      llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
-      llvm::cl::init(false)};
-};
 
 /// Build the RegAlloc pass pipeline.
 ///
@@ -67,8 +42,8 @@ struct RegAllocPipelineOptions
 /// 4. PostRegAllocLegalization - expands lsir.copy to hardware mov instructions
 ///    and erases redundant movs whose source and destination are the same
 ///    physical register.
-static void buildRegAllocPassPipeline(OpPassManager &pm,
-                                      const RegAllocPipelineOptions &options) {
+void mlir::aster::amdgcn::buildRegAllocPassPipeline(
+    OpPassManager &pm, const RegAllocPipelineOptions &options) {
   // The low-level scheduler and LDS allocation run upstream of this pipeline
   // (buildAMDGCNBackendPassPipeline runs the scheduler, then
   // buildLdsAllocPassPipeline), so register allocation sees folded LDS offsets.
@@ -116,7 +91,7 @@ static void registerRegAllocPassPipeline() {
 /// amdgcn-lds-alloc assigns byte offsets (and the kernel shared_memory_size).
 /// amdgcn-convert-lds-buffers folds get_lds_offset to constants and erases the
 /// handles.
-static void buildLdsAllocPassPipeline(OpPassManager &pm) {
+void mlir::aster::amdgcn::buildLdsAllocPassPipeline(OpPassManager &pm) {
   pm.addPass(createLDSAlloc());
   pm.addPass(createConvertLDSBuffers());
   pm.addPass(createCSEPass());
@@ -151,31 +126,6 @@ static void registerLateWaitsPassPipeline() {
 //===----------------------------------------------------------------------===//
 // AMDGCN Backend Pipeline
 //===----------------------------------------------------------------------===//
-
-struct AMDGCNBackendPipelineOptions
-    : public PassPipelineOptions<AMDGCNBackendPipelineOptions> {
-  mlir::detail::PassOptions::Option<int32_t> numVGPRs{
-      *this, "num-vgprs",
-      llvm::cl::desc("Maximum VGPRs for allocation (default 256)"),
-      llvm::cl::init(256)};
-  mlir::detail::PassOptions::Option<int32_t> numAGPRs{
-      *this, "num-agprs",
-      llvm::cl::desc("Maximum AGPRs for allocation (default 256)"),
-      llvm::cl::init(256)};
-  mlir::detail::PassOptions::Option<bool> hoistIterArgWaits{
-      *this, "hoist-iter-arg-waits",
-      llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
-      llvm::cl::init(false)};
-  mlir::detail::PassOptions::Option<int32_t> llSched{
-      *this, "ll-sched",
-      llvm::cl::desc("Low-level scheduler preset (0 = off, 1+ = run with "
-                     "preset N; see SchedAttrs.cpp)"),
-      llvm::cl::init(0)};
-  mlir::detail::PassOptions::Option<bool> setMfmaPriority{
-      *this, "set-mfma-priority",
-      llvm::cl::desc("Insert s_setprio around MFMA groups"),
-      llvm::cl::init(false)};
-};
 
 static void
 buildAMDGCNBackendPassPipeline(OpPassManager &pm,
@@ -253,4 +203,5 @@ void mlir::aster::amdgcn::registerPipelines() {
   registerLdsAllocationPassPipeline();
   registerLateWaitsPassPipeline();
   registerAMDGCNBackendPassPipeline();
+  registerStinkyTofuPipelines();
 }

@@ -33,6 +33,9 @@ void populateToAMDGCNPatterns(RewritePatternSet &patterns);
 /// Register all AMDGCN pass pipelines.
 void registerPipelines();
 
+/// Register pass pipelines used for ASTER -> StinkyTofu handoff.
+void registerStinkyTofuPipelines();
+
 } // namespace amdgcn
 } // namespace mlir::aster
 
