@@ -97,7 +97,7 @@ def DsPermuteB32 : AMDISAInstruction<"ds_permute_b32", [FutureOpInterface]> {
 
 #ifndef DSREAD2INST_DEF
 #define DSREAD2INST_DEF
-class DSRead2Inst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnemonic, [DSRead2InstOpInterface]> {
+class DSRead2Inst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnemonic, [DSRead2InstOpInterface, FenceableOpInterface]> {
   let props = [IsDS];
   let archs = [CDNA3Isa, CDNA4Isa];
   let effects = [LDSRead];
@@ -110,7 +110,8 @@ class DSRead2Inst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnem
   let trailingArgs = (ins
     OffsetType<8>:$const_offset0,
     OffsetType<8>:$const_offset1,
-    GDS:$gds
+    GDS:$gds,
+    Optional<FenceToken>:$fence_token
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -119,6 +120,7 @@ class DSRead2Inst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnem
     `outs``(` type($dest) `)` `ins` `(` type($addr) `)`
     `mods` `(` type($const_offset0) `,` type($const_offset1) `)` `->`
     custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+    (`fence_token` $fence_token^ `:` type($fence_token))?
   }];
   let trailingResults = (outs DSReadToken:$token);
   let asm_syntax = [
@@ -157,7 +159,7 @@ def DsRead2B64 : DSRead2Inst<"ds_read2_b64",
 
 #ifndef DSREADINST_DEF
 #define DSREADINST_DEF
-class DSReadInst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnemonic, [DSReadInstOpInterface]> {
+class DSReadInst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnemonic, [DSReadInstOpInterface, FenceableOpInterface]> {
   let props = [IsDS];
   let archs = [CDNA3Isa, CDNA4Isa];
   let effects = [LDSRead];
@@ -169,13 +171,15 @@ class DSReadInst<string mnemonic, list<Type> dst0Type> : AMDISAInstruction<mnemo
   );
   let trailingArgs = (ins
     OffsetType<16>:$const_offset,
-    GDS:$gds
+    GDS:$gds,
+    Optional<FenceToken>:$fence_token
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
     `dest` $dest `addr` $addr `offset` `c` `(`$const_offset`)` attr-dict `:`
     `outs``(` type($dest) `)` `ins` `(` type($addr) `)` `mods` `(` type($const_offset) `)` `->`
     custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+    (`fence_token` $fence_token^ `:` type($fence_token))?
   }];
   let trailingResults = (outs DSReadToken:$token);
   let asm_syntax = [
@@ -200,7 +204,7 @@ def DsReadB128 : DSReadInst<"ds_read_b128",
 #define DSLOADINST_DEF
 // Plain gfx1250 DS load (M0-based), the ds_load_b* family.
 class DSLoadInst<string mnemonic, list<Type> dstType>
-    : AMDISAInstruction<mnemonic, [DSReadInstOpInterface]> {
+    : AMDISAInstruction<mnemonic, [DSReadInstOpInterface, FenceableOpInterface]> {
   let props = [IsDS];
   let archs = [GFX12_50Isa];
   let effects = [LDSRead];
@@ -212,13 +216,15 @@ class DSLoadInst<string mnemonic, list<Type> dstType>
   );
   let trailingArgs = (ins
     OffsetType<16>:$const_offset,
-    GDS:$gds
+    GDS:$gds,
+    Optional<FenceToken>:$fence_token
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
     `dest` $dest `addr` $addr `offset` `c` `(`$const_offset`)` attr-dict `:`
     `outs``(` type($dest) `)` `ins` `(` type($addr) `)` `mods` `(` type($const_offset) `)` `->`
     custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+    (`fence_token` $fence_token^ `:` type($fence_token))?
   }];
   let trailingResults = (outs DSReadToken:$token);
   let asm_syntax = [

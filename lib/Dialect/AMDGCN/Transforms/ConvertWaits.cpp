@@ -13,6 +13,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Interfaces/DependentOpInterface.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
@@ -50,7 +51,8 @@ public:
 /// store+ds) fuse into the combined s_wait_{load,store}cnt_dscnt form; loadcnt
 /// takes priority for the ds pairing; km and tensor never fuse.
 static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
-                               const WaitCnt &counts) {
+                               const WaitCnt &counts,
+                               SmallVectorImpl<Operation *> &toErase) {
   Location loc = waitOpOp->getLoc();
   const WaitCntGfx1250 &c = std::get<WaitCntGfx1250>(counts);
   auto get = [&](WaitCounterKind s) { return c.getCount(s); };
@@ -78,28 +80,32 @@ static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
   if (present(get(WaitCounterKind::Tensor)))
     SWaitTensorcnt::create(rewriter, loc)
         .setCount(get(WaitCounterKind::Tensor));
-  rewriter.eraseOp(waitOpOp);
+  toErase.push_back(waitOpOp);
 }
 
 /// Rewrite a CDNA wait op to a single s_waitcnt with merged vm/lgkm counts.
 static void rewriteCdnaWait(IRRewriter &rewriter, Operation *waitOpOp,
-                            const WaitCnt &counts) {
+                            const WaitCnt &counts,
+                            SmallVectorImpl<Operation *> &toErase) {
   auto present = [](int32_t c) { return c < TokenState::kMaxPosition; };
   const WaitCntCdna3 &c = std::get<WaitCntCdna3>(counts);
   int32_t vm = c.vmcnt;
   int32_t lgkm = c.lgkmcnt;
   bool hasVm = present(vm), hasLgkm = present(lgkm);
+  // Create the s_waitcnt without optional fence_token then mark the wait for
+  // erasure.
   if (!hasVm && !hasLgkm) {
-    rewriter.eraseOp(waitOpOp);
+    toErase.push_back(waitOpOp);
     return;
   }
-  auto newWait = rewriter.replaceOpWithNewOp<SWaitcnt>(waitOpOp);
+  auto newWait = SWaitcnt::create(rewriter, waitOpOp->getLoc());
   if (hasVm)
     newWait.setVmcnt(
         std::min(static_cast<int32_t>(newWait.getVmcnt()) - 1, vm));
   if (hasLgkm)
     newWait.setLgkmcnt(
         std::min(static_cast<int32_t>(newWait.getLgkmcnt()) - 1, lgkm));
+  toErase.push_back(waitOpOp);
 }
 
 /// Run the wait analysis on `root` with `model`, then rewrite every wait op
@@ -113,20 +119,35 @@ static LogicalResult convertWaitsOn(Operation *root, ISAVersion isaVersion,
     root->emitError() << "failed to run wait analysis";
     return failure();
   }
+  // Note: FenceToken return values disappear during legalization; strip
+  // consumer fence_token operands before erasing wait/barrier producers.
+  SmallVector<Operation *> toErase;
   IRRewriter rewriter(root->getContext());
   root->walk([&](WaitCntOpInterface waitOp) {
-    Operation *waitOpOp = waitOp.getOperation();
     const auto *afterState =
-        solver.lookupState<WaitState>(solver.getProgramPointAfter(waitOpOp));
+        solver.lookupState<WaitState>(solver.getProgramPointAfter(waitOp));
     assert(afterState &&
            "expected valid wait analysis states before and after wait op");
     OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPoint(waitOpOp);
-    if (isa<WaitGfx1250Op>(waitOpOp))
-      rewriteGfx1250Wait(rewriter, waitOpOp, afterState->waitOpInfo->counts);
+    rewriter.setInsertionPoint(waitOp);
+    const WaitCnt &counts = afterState->waitOpInfo->counts;
+    if (isa<WaitGfx1250Op>(waitOp))
+      rewriteGfx1250Wait(rewriter, waitOp, counts, toErase);
     else
-      rewriteCdnaWait(rewriter, waitOpOp, afterState->waitOpInfo->counts);
+      rewriteCdnaWait(rewriter, waitOp, counts, toErase);
   });
+  root->walk([&](CrossWaveTokenBarrierOp barrier) {
+    rewriter.setInsertionPoint(barrier);
+    SBarrier::create(rewriter, barrier.getLoc());
+    toErase.push_back(barrier);
+  });
+  root->walk([&](FenceableOpInterface fenceable) {
+    if (!fenceable.hasFenceToken())
+      return;
+    rewriter.modifyOpInPlace(fenceable, [&]() { fenceable.eraseFence(); });
+  });
+  for (Operation *op : llvm::reverse(toErase))
+    rewriter.eraseOp(op);
   return success();
 }
 

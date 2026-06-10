@@ -12,10 +12,10 @@ func.func @test_duplicated_waits() {
   %3 = amdgcn.alloca : !amdgcn.vgpr
   %c0_i32_mig1 = arith.constant 0 : i32
   %result, %token = amdgcn.global_load_dword dest %3 addr %2 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait deps %token : !amdgcn.read_token<flat>
-  amdgcn.wait deps %token : !amdgcn.read_token<flat>
+  %wf0 = amdgcn.wait deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
+  %wf1 = amdgcn.wait deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %5 = amdgcn.global_store_dword data %result addr %2 offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
-  amdgcn.wait deps %5, %token : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
+  %wf2 = amdgcn.wait deps %5, %token : !amdgcn.write_token<flat>, !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -38,12 +38,12 @@ func.func @test_pipelined_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %c0_i32_mig4 = arith.constant 0 : i32
   %result_2, %token_3 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig4) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   %2:3 = scf.for %arg1 = %c0 to %c4 step %c1 iter_args(%arg2 = %token, %arg3 = %token_1, %arg4 = %token_3) -> (!amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>) {
-    amdgcn.wait deps %arg2 : !amdgcn.read_token<flat>
+    %wf3 = amdgcn.wait deps %arg2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %c0_i32_mig5 = arith.constant 0 : i32
     %result_4, %token_5 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig5) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %arg3, %arg4, %token_5 : !amdgcn.read_token<flat>, !amdgcn.read_token<flat>, !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %2#2 : !amdgcn.read_token<flat>
+  %wf4 = amdgcn.wait deps %2#2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -56,7 +56,7 @@ func.func @test_escaped_waits_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
     %c0_i32_mig6 = arith.constant 0 : i32
     %result, %token = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig6) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   }
-  amdgcn.wait vm_cnt 63 lgkm_cnt 15
+  %wf5 = amdgcn.wait vm_cnt 63 lgkm_cnt 15 -> !amdgcn.fence_token
   return
 }
 
@@ -77,7 +77,7 @@ func.func @test_if_flow_1(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
     %result, %token = amdgcn.global_load_dword dest %1 addr %arg0 offset c(%c0_i32_mig8) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %token : !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %2 : !amdgcn.read_token<flat>
+  %wf6 = amdgcn.wait deps %2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -102,7 +102,7 @@ func.func @test_if_flow_2(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
     %result, %token = amdgcn.global_load_dword dest %1 addr %arg0 offset c(%c0_i32_mig12) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %token : !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %2 : !amdgcn.read_token<flat>
+  %wf7 = amdgcn.wait deps %2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -129,7 +129,7 @@ func.func @test_if_flow_3(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: i1) {
     %result_0, %token_1 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig17) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %token : !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %2 : !amdgcn.read_token<flat>
+  %wf8 = amdgcn.wait deps %2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -148,8 +148,8 @@ func.func @test_passthrough_pattern(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %result_0, %token_1 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig19) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   %c0_i32_mig20 = arith.constant 0 : i32
   %result_2, %token_3 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig20) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait deps %token : !amdgcn.read_token<flat>
-  amdgcn.wait deps %token_3 : !amdgcn.read_token<flat>
+  %wf9 = amdgcn.wait deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
+  %wf10 = amdgcn.wait deps %token_3 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -166,7 +166,7 @@ func.func @test_mixed_smem_dsmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdgcn.vg
   %result_0, %token_1 = amdgcn.ds_read_b32 dest %1 addr %arg1 offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   %c0_i32_mig21 = arith.constant 0 : i32
   %result_2, %token_3 = amdgcn.global_load_dword dest %1 addr %arg2 offset c(%c0_i32_mig21) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait deps %token : !amdgcn.read_token<constant>
+  %wf11 = amdgcn.wait deps %token : !amdgcn.read_token<constant> -> !amdgcn.fence_token
   return
 }
 
@@ -183,8 +183,8 @@ func.func @test_mixed_smem_dsmem_vmem(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdg
   %result_0, %token_1 = amdgcn.ds_read_b32 dest %1 addr %arg1 offset c(%c0_i32_mig2) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   %c0_i32_mig22 = arith.constant 0 : i32
   %result_2, %token_3 = amdgcn.global_load_dword dest %1 addr %arg2 offset c(%c0_i32_mig22) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait deps %token : !amdgcn.read_token<constant>
-  amdgcn.wait deps %token_3 : !amdgcn.read_token<flat>
+  %wf12 = amdgcn.wait deps %token : !amdgcn.read_token<constant> -> !amdgcn.fence_token
+  %wf13 = amdgcn.wait deps %token_3 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -203,14 +203,14 @@ func.func @test_counts_strength(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %result_0, %token_1 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig24) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   %c0_i32_mig25 = arith.constant 0 : i32
   %result_2, %token_3 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig25) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait vm_cnt 1 deps %token : !amdgcn.read_token<flat>
+  %wf14 = amdgcn.wait vm_cnt 1 deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %c0_i32_mig26 = arith.constant 0 : i32
   %result_4, %token_5 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig26) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   %c0_i32_mig27 = arith.constant 0 : i32
   %result_6, %token_7 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig27) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   %c0_i32_mig28 = arith.constant 0 : i32
   %result_8, %token_9 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig28) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait vm_cnt 4 deps %token_5 : !amdgcn.read_token<flat>
+  %wf15 = amdgcn.wait vm_cnt 4 deps %token_5 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -231,13 +231,13 @@ func.func @test_mixed_iter_args(%arg0: !amdgcn.vgpr<[? + 2]>) -> index {
   %c0_i32_mig29 = arith.constant 0 : i32
   %result, %token = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig29) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   %out:2 = scf.for %i = %c0 to %c4 step %c1 iter_args(%tok = %token, %acc = %c0) -> (!amdgcn.read_token<flat>, index) {
-    amdgcn.wait deps %tok : !amdgcn.read_token<flat>
+    %wf16 = amdgcn.wait deps %tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %c0_i32_mig30 = arith.constant 0 : i32
     %result2, %token2 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig30) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     %new_acc = arith.addi %acc, %c1 : index
     scf.yield %token2, %new_acc : !amdgcn.read_token<flat>, index
   }
-  amdgcn.wait deps %out#0 : !amdgcn.read_token<flat>
+  %wf17 = amdgcn.wait deps %out#0 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return %out#1 : index
 }
 
@@ -259,12 +259,12 @@ func.func @cf_args(%arg0: !amdgcn.vgpr<[? + 2]>, %cond: i1)  -> !amdgcn.read_tok
   %result, %token = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig31) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   cf.cond_br %cond, ^bb1(%token : !amdgcn.read_token<flat>), ^bb2(%token : !amdgcn.read_token<flat>)
 ^bb1(%1: !amdgcn.read_token<flat>):
-  amdgcn.wait deps %1 : !amdgcn.read_token<flat>
+  %wf18 = amdgcn.wait deps %1 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %c0_i32_mig32 = arith.constant 0 : i32
   %result_0, %token_1 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig32) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   cf.cond_br %cond, ^bb1(%token_1 : !amdgcn.read_token<flat>), ^bb2 (%token_1 : !amdgcn.read_token<flat>)
 ^bb2(%2: !amdgcn.read_token<flat>):
-  amdgcn.wait deps %2 : !amdgcn.read_token<flat>
+  %wf19 = amdgcn.wait deps %2 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %3 = scf.if %cond -> (!amdgcn.read_token<flat>) {
     %c0_i32_mig33 = arith.constant 0 : i32
     %result_2, %token_2 = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig33) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
@@ -287,7 +287,7 @@ func.func @cf_args(%arg0: !amdgcn.vgpr<[? + 2]>, %cond: i1)  -> !amdgcn.read_tok
 // CHECK:           return
 func.func @wait_on_poison_read_token() {
   %poison = ub.poison : !amdgcn.read_token<flat>
-  amdgcn.wait deps %poison : !amdgcn.read_token<flat>
+  %wf20 = amdgcn.wait deps %poison : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -297,7 +297,7 @@ func.func @wait_on_poison_read_token() {
 // CHECK:           return
 func.func @wait_on_poison_write_token() {
   %poison = ub.poison : !amdgcn.write_token<flat>
-  amdgcn.wait deps %poison : !amdgcn.write_token<flat>
+  %wf21 = amdgcn.wait deps %poison : !amdgcn.write_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -307,7 +307,7 @@ func.func @wait_on_poison_write_token() {
 func.func @wait_on_poison_lgkm() {
   %poison_const = ub.poison : !amdgcn.read_token<constant>
   %poison_shared = ub.poison : !amdgcn.read_token<shared>
-  amdgcn.wait deps %poison_const, %poison_shared : !amdgcn.read_token<constant>, !amdgcn.read_token<shared>
+  %wf22 = amdgcn.wait deps %poison_const, %poison_shared : !amdgcn.read_token<constant>, !amdgcn.read_token<shared> -> !amdgcn.fence_token
   return
 }
 
@@ -319,7 +319,7 @@ func.func @wait_on_mixed_real_and_poison(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %c0_i32_mig35 = arith.constant 0 : i32
   %result, %token = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig35) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
   %poison = ub.poison : !amdgcn.read_token<flat>
-  amdgcn.wait deps %token, %poison : !amdgcn.read_token<flat>, !amdgcn.read_token<flat>
+  %wf23 = amdgcn.wait deps %token, %poison : !amdgcn.read_token<flat>, !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -336,12 +336,12 @@ func.func @for_with_poison_init(%arg0: !amdgcn.vgpr<[? + 2]>) {
   %c4 = arith.constant 4 : index
   %poison = ub.poison : !amdgcn.read_token<flat>
   %out = scf.for %i = %c0 to %c4 step %c1 iter_args(%tok = %poison) -> (!amdgcn.read_token<flat>) {
-    amdgcn.wait deps %tok : !amdgcn.read_token<flat>
+    %wf24 = amdgcn.wait deps %tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %c0_i32_mig36 = arith.constant 0 : i32
     %result, %token = amdgcn.global_load_dword dest %0 addr %arg0 offset c(%c0_i32_mig36) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     scf.yield %token : !amdgcn.read_token<flat>
   }
-  amdgcn.wait deps %out : !amdgcn.read_token<flat>
+  %wf25 = amdgcn.wait deps %out : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -373,12 +373,58 @@ func.func @test_wait_canonicalization(%addr: !amdgcn.vgpr) {
   %c0_i32_mig6 = arith.constant 0 : i32
   %result_3, %token_3 = amdgcn.ds_read_b32 dest %1 addr %addr offset c(%c0_i32_mig6) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   // These 2 waits can be canonicalized into a single wait with lgkmcnt = 2.
-  amdgcn.wait deps %token : !amdgcn.read_token<shared>
-  amdgcn.wait deps %token_1 : !amdgcn.read_token<shared>
+  %wf26 = amdgcn.wait deps %token : !amdgcn.read_token<shared> -> !amdgcn.fence_token
+  %wf27 = amdgcn.wait deps %token_1 : !amdgcn.read_token<shared> -> !amdgcn.fence_token
   amdgcn.test_inst : () -> ()
-  amdgcn.wait deps %token_2 : !amdgcn.read_token<shared>
+  %wf28 = amdgcn.wait deps %token_2 : !amdgcn.read_token<shared> -> !amdgcn.fence_token
   amdgcn.test_inst : () -> ()
-  amdgcn.wait deps %token_3 : !amdgcn.read_token<shared>
+  %wf29 = amdgcn.wait deps %token_3 : !amdgcn.read_token<shared> -> !amdgcn.fence_token
+  return
+}
+
+// CHECK-LABEL:   func.func @test_cross_wave_token_barrier_legalized(
+// CHECK:           amdgcn.s_waitcnt lgkmcnt = 0
+// CHECK-NEXT:      amdgcn.s_barrier
+// CHECK-NOT:       cross_wave_token_barrier
+func.func @test_cross_wave_token_barrier_legalized(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
+  %c0_i32_mig7 = arith.constant 0 : i32
+  %token = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0_i32_mig7) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  %wf30 = amdgcn.wait deps %token : !amdgcn.write_token<shared> -> !amdgcn.fence_token
+  %fence = amdgcn.cross_wave_token_barrier deps %token : !amdgcn.write_token<shared>
+  return
+}
+
+// The fence token threaded into a ds_read via `fence_token` is dropped: the
+// barrier legalizes to s_barrier and the ds_read loses its fence_token operand.
+// CHECK-LABEL:   func.func @test_cross_wave_token_barrier_after_legalized(
+// CHECK:           amdgcn.s_barrier
+// CHECK:           amdgcn.ds_read_b32
+// CHECK-NOT:       fence_token
+// CHECK-NOT:       cross_wave_token_barrier
+func.func @test_cross_wave_token_barrier_after_legalized(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
+  %c0 = arith.constant 0 : i32
+  %token = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  %fence = amdgcn.cross_wave_token_barrier deps %token : !amdgcn.write_token<shared>
+  %r, %t = amdgcn.ds_read_b32 dest %dst addr %addr offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared> fence_token %fence : !amdgcn.fence_token
+  return
+}
+
+// Full write -> wait -> barrier -> read chain: the wait produces a fence the
+// barrier deps on, and the barrier produces a fence the read acquires. After
+// legalization the wait becomes s_waitcnt, the barrier s_barrier, and all fence
+// tokens / fence_token operands are gone.
+// CHECK-LABEL:   func.func @test_wait_fence_to_barrier_legalized(
+// CHECK:           amdgcn.s_waitcnt lgkmcnt = 0
+// CHECK:           amdgcn.s_barrier
+// CHECK:           amdgcn.ds_read_b32
+// CHECK-NOT:       fence_token
+// CHECK-NOT:       cross_wave_token_barrier
+func.func @test_wait_fence_to_barrier_legalized(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
+  %c0 = arith.constant 0 : i32
+  %token = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
+  %wfence = amdgcn.wait deps %token : !amdgcn.write_token<shared> -> !amdgcn.fence_token
+  %bfence = amdgcn.cross_wave_token_barrier deps %wfence : !amdgcn.fence_token
+  %r, %t = amdgcn.ds_read_b32 dest %dst addr %addr offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared> fence_token %bfence : !amdgcn.fence_token
   return
 }
 }

@@ -225,17 +225,19 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
     # LDS read helpers.
     read_ret = [b.any_type] * n_frags_per_tile + [b.lds_read_tok] * n_frags_per_tile
 
-    @b.define_helper("_read_a", [b.idx_type], read_ret)
-    def read_a_fn(bb, lds_off):
+    # The barrier fence token is passed as the last arg, every LDS read
+    # acquires it so the reads are pinned after the cross_wave_token_barrier.
+    @b.define_helper("_read_a", [b.idx_type, b.fence_tok], read_ret)
+    def read_a_fn(bb, lds_off, fence):
         frags = bb.read_multi_fragment_from_lds(
-            lds_off, lds_read_tile_a, lds_swizzle, lds_read_sub_tile_a, bb.ds_read_b64
+            lds_off, lds_read_tile_a, lds_swizzle, lds_read_sub_tile_a, bb.ds_read_b64, fence_token=fence
         )
         return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 
-    @b.define_helper("_read_b", [b.idx_type], read_ret)
-    def read_b_fn(bb, lds_off):
+    @b.define_helper("_read_b", [b.idx_type, b.fence_tok], read_ret)
+    def read_b_fn(bb, lds_off, fence):
         frags = bb.read_multi_fragment_from_lds(
-            lds_off, lds_read_tile_b, lds_swizzle, lds_read_sub_tile_b, bb.ds_read_b64
+            lds_off, lds_read_tile_b, lds_swizzle, lds_read_sub_tile_b, bb.ds_read_b64, fence_token=fence
         )
         return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 
@@ -304,16 +306,14 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
         # -- LDS READ A: wait G2S + barrier + read + dealloc --
         with b.stage(STG_A_LDS_READ):
-
-            @b.foreach_tile(n_coop_a)
-            def _(i):
-                b.wait_deps(b.memref_load(g2s_toks_a, i))
-
-            @b.foreach_tile(n_coop_b)
-            def _(i):
-                b.wait_deps(b.memref_load(g2s_toks_b, i))
-
-            b.s_barrier()
+            g2s_a = [b.memref_load(g2s_toks_a, b.constant_index(i)) for i in range(n_coop_a)]
+            g2s_b = [b.memref_load(g2s_toks_b, b.constant_index(i)) for i in range(n_coop_b)]
+            # wait_deps drains the G2S vmcnt and produces a fence token, the
+            # barrier deps on it (write -> wait -> barrier) and produces its own
+            # fence, which the LDS reads below acquire so they pin after the
+            # barrier (pure-SSA ordering).
+            wfence = b.wait_deps(*g2s_a, *g2s_b)
+            bfence = b.cross_wave_token_barrier(wfence)
 
             @b.foreach_tile(n_read_a, types=[(b.any_type, n_frags_per_tile), (b.lds_read_tok, n_frags_per_tile)])
             def read_a(idx):
@@ -322,7 +322,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
                     lds_a,
                     b.layout_apply((wave_m_idx, wave_n_idx, k, m), WAVE_READ_FULL_A),
                 )
-                return b.call_helper(read_a_fn, [off], read_ret)
+                return b.call_helper(read_a_fn, [off, bfence], read_ret)
 
             frag_buf_a, rtok_buf_a = read_a
             b.dealloc_lds(lds_a_h)
@@ -337,7 +337,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
                     lds_b,
                     b.layout_apply((wave_m_idx, wave_n_idx, k, n), WAVE_READ_FULL_B),
                 )
-                return b.call_helper(read_b_fn, [off], read_ret)
+                return b.call_helper(read_b_fn, [off, bfence], read_ret)
 
             frag_buf_b, rtok_buf_b = read_b
             b.dealloc_lds(lds_b_h)

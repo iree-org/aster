@@ -120,14 +120,14 @@ amdgcn.module @kittens_gemm_multitile_lds_pipelined target = #amdgcn.target<gfx9
           : (index, !future_global_read) -> (!lds_write_token, !lds_write_token)
 
       // === Stage DS_READ: Wait + read K0/K1 sub-tiles ===
-      amdgcn.wait deps %tA0_0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tA0_1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tA1_0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tA1_1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tB0_0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tB0_1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tB1_0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
-      amdgcn.wait deps %tB1_1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token
+      %wf0 = amdgcn.wait deps %tA0_0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf1 = amdgcn.wait deps %tA0_1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf2 = amdgcn.wait deps %tA1_0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf3 = amdgcn.wait deps %tA1_1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf4 = amdgcn.wait deps %tB0_0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf5 = amdgcn.wait deps %tB0_1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf6 = amdgcn.wait deps %tB1_0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
+      %wf7 = amdgcn.wait deps %tB1_1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
 
       // K0 sub-tiles (byte offset 0 within LDS row)
       %A0_K0_fut = func.call @load_lds_A_swizzled(%lds_A0, %c0, %c2)

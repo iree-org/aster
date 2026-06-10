@@ -14,6 +14,7 @@
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Scheduler/Scheduler.h"
 #include "aster/Dialect/AMDGCN/Scheduler/SchedulerCostModel.h"
+#include "aster/Interfaces/DependentOpInterface.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/IR/MLIRContext.h"
@@ -371,7 +372,7 @@ BarrierClosures BarrierClosures::create(const SchedGraph &schedGraph) {
   result.containingBarriers.resize(schedGraph.sizeNodes());
 
   for (int32_t b = 0; b < schedGraph.sizeNodes(); ++b) {
-    if (!isa<SBarrier>(schedGraph.getOp(b)))
+    if (!isa<BarrierOpInterface>(schedGraph.getOp(b)))
       continue;
     DenseSet<int32_t> closure = schedGraph.bfs(b, /*reverseOrder=*/true);
     int32_t memCount = 0;
@@ -387,7 +388,7 @@ BarrierClosures BarrierClosures::create(const SchedGraph &schedGraph) {
 }
 
 void BarrierClosures::markIssued(const SchedGraph &schedGraph, int32_t nodeId) {
-  if (isa<SBarrier>(schedGraph.getOp(nodeId))) {
+  if (isa<BarrierOpInterface>(schedGraph.getOp(nodeId))) {
     unscheduledMemPreds.erase(nodeId);
   } else if (isMemoryNode(schedGraph, nodeId)) {
     for (int32_t b : containingBarriers[nodeId]) {

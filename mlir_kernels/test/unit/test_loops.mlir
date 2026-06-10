@@ -4,11 +4,11 @@ amdgcn.module @test_uniform_loop target = <gfx942> {
   kernel @test_uniform_loop arguments <[#amdgcn.buffer_arg<address_space = generic, access = read_only>, #amdgcn.buffer_arg<address_space = generic>]> {
     %0 = load_arg 0 : !amdgcn.sgpr<[? + 2]>
     %1 = load_arg 1 : !amdgcn.sgpr<[? + 2]>
-    wait lgkm_cnt 0
+    %wf0 = wait lgkm_cnt 0 -> !amdgcn.fence_token
     %2 = alloca : !amdgcn.sgpr
     %c0_i32_mig1 = arith.constant 0 : i32
     %result, %token = amdgcn.s_load_dword dest %2 addr %0 offset c(%c0_i32_mig1) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
-    wait deps %token : !amdgcn.read_token<constant>
+    %wf1 = wait deps %token : !amdgcn.read_token<constant> -> !amdgcn.fence_token
     %3 = lsir.from_reg %result : !amdgcn.sgpr -> i32
     %c0_i32 = arith.constant 0 : i32
     %c1_i32 = arith.constant 1 : i32

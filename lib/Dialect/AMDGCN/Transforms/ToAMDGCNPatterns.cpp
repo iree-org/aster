@@ -875,19 +875,29 @@ LogicalResult LoadOpPattern::matchAndRewrite(lsir::LoadOp op,
                                          "for load from shared memory space");
     }
     offset = getI32Constant(rewriter, loc, off);
+    // Trailing optionals (gds, fence_token): no GDS flag, no fence token.
+    UnitAttr noGds = {};
+    Value noFenceToken = {};
     switch (numWords) {
     case 1:
-      result = DsReadB32::create(rewriter, loc, dst, addr, offset).getDestRes();
+      result = DsReadB32::create(rewriter, loc, dst, addr, offset, noGds,
+                                 noFenceToken)
+                   .getDestRes();
       break;
     case 2:
-      result = DsReadB64::create(rewriter, loc, dst, addr, offset).getDestRes();
+      result = DsReadB64::create(rewriter, loc, dst, addr, offset, noGds,
+                                 noFenceToken)
+                   .getDestRes();
       break;
     case 3:
-      result = DsReadB96::create(rewriter, loc, dst, addr, offset).getDestRes();
+      result = DsReadB96::create(rewriter, loc, dst, addr, offset, noGds,
+                                 noFenceToken)
+                   .getDestRes();
       break;
     case 4:
-      result =
-          DsReadB128::create(rewriter, loc, dst, addr, offset).getDestRes();
+      result = DsReadB128::create(rewriter, loc, dst, addr, offset, noGds,
+                                  noFenceToken)
+                   .getDestRes();
       break;
     default:
       return rewriter.notifyMatchFailure(

@@ -100,6 +100,12 @@ def TensorReadToken :
   CPPType<"::mlir::aster::amdgcn::ReadTokenType", "read token type">,
   InferrableType<"$_builder.getType<ReadTokenType>(MemoryInstructionKind::Tensor)">;
 
+// Ordering-only fence token. Produced by wait ops and cross_wave_token_barrier;
+// a memory op may optionally take it via `fence_token`. Not tracked by wait counters.
+def FenceToken :
+  CPPType<"::mlir::aster::amdgcn::FenceTokenType", "fence token type">,
+  InferrableType<"$_builder.getType<FenceTokenType>()">;
+
 //===----------------------------------------------------------------------===//
 // Common type constraint classes
 //===----------------------------------------------------------------------===//

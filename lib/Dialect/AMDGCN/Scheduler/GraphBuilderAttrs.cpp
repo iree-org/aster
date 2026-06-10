@@ -11,6 +11,7 @@
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
+#include "aster/Interfaces/DependentOpInterface.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/SliceAnalysis.h"
@@ -47,9 +48,11 @@ private:
   /// Handle a wait operation.
   void handleWaitOp(SchedGraph &graph, int64_t pos, WaitCntOpInterface wait);
 
-  /// Handle a barrier operation. With barriers we must add dependencies before
-  /// and after if the operation affects SALU or SGPRs.
-  void handleBarrier(SchedGraph &graph, int64_t pos, Operation *barrier);
+  /// Conservative pinning for hardware s_barrier.
+  void handleSBarrier(SchedGraph &graph, int64_t pos, SBarrier barrier);
+
+  /// Serialize barrier ops in program order.
+  void addBarrierSerializationEdges(SchedGraph &graph);
 
   /// Add serialization edges for i1-producing ops within a block.
   void addI1SerializationEdges(SchedGraph &graph);
@@ -189,8 +192,13 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
       continue;
     }
     if (auto barrierOp = dyn_cast<SBarrier>(op)) {
-      handleBarrier(graph, i, barrierOp);
+      handleSBarrier(graph, i, barrierOp);
       // Mark the sync point as processed.
+      i = -1;
+      continue;
+    }
+    // Cross-wave ordering is entirely SSA, nothing to add here.
+    if (isa<CrossWaveTokenBarrierOp>(op)) {
       i = -1;
       continue;
     }
@@ -198,6 +206,8 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
 
   // Erase all the processed sync points.
   llvm::erase(syncPoints, -1);
+
+  addBarrierSerializationEdges(graph);
 
   // Add fence edges for the remaining sync points: every preceding op in
   // the segment must precede the sync point, and every following op in the
@@ -232,10 +242,6 @@ static bool isTokenOfKind(Type type, MemoryInstructionKind kind) {
   if (auto wt = dyn_cast<WriteTokenType>(type))
     return wt.getKind() == kind;
   return false;
-}
-
-static bool isFlatToken(Type type) {
-  return isTokenOfKind(type, MemoryInstructionKind::Flat);
 }
 
 static bool isLgkmToken(Type type) {
@@ -318,8 +324,8 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos,
   }
 }
 
-void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
-                                 Operation *barrier) {
+void GraphBuilder::handleSBarrier(SchedGraph &graph, int64_t pos,
+                                  SBarrier barrier) {
   // Direction depends on whether op is a predecessor or successor of the
   // barrier.
   auto addEdge = [&](Operation *op, int64_t i) {
@@ -329,12 +335,15 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
       graph.addEdge(barrier, op);
   };
 
+  // TODO: Gradually phase off these heuristics as we encourage finer-grained
+  // barrier usage.
+
   // Iterate over all the operations in the graph.
   for (auto opIndex : llvm::enumerate(graph.getOps())) {
     Operation *op = opIndex.value();
     int64_t i = opIndex.index();
 
-    // Skip itself.
+    // Skip self.
     if (op == barrier)
       continue;
 
@@ -352,6 +361,7 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
       addEdge(op, i);
       continue;
     }
+
     // Pin DS and VMEM ops to barriers (s_barrier is a memory fence).
     if (instOp.hasAnyProps({InstProp::Ds, InstProp::IsVmem})) {
       addEdge(op, i);
@@ -364,6 +374,17 @@ void GraphBuilder::handleBarrier(SchedGraph &graph, int64_t pos,
     });
     if (hasSGPROut)
       addEdge(op, i);
+  }
+}
+
+void GraphBuilder::addBarrierSerializationEdges(SchedGraph &graph) {
+  Operation *prevBarrier = nullptr;
+  for (Operation &op : *block) {
+    if (!isa<BarrierOpInterface>(op))
+      continue;
+    if (prevBarrier)
+      graph.addEdge(prevBarrier, &op);
+    prevBarrier = &op;
   }
 }
 

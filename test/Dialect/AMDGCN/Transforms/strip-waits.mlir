@@ -23,7 +23,7 @@ amdgcn.module @gfx1250_strip_mod target = #amdgcn.target<gfx1250> {
     %ltok = amdgcn.tensor_load_to_lds desc0 %d0 desc1 %d1 desc2 %d2 desc3 %d3
         : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<[8 : 16]>, !amdgcn.sgpr<[16 : 20]>,
               !amdgcn.sgpr<[20 : 24]>) -> !amdgcn.read_token<tensor>
-    amdgcn.wait_gfx1250 deps %ltok : !amdgcn.read_token<tensor>
+    %wf0 = amdgcn.wait_gfx1250 deps %ltok : !amdgcn.read_token<tensor> -> !amdgcn.fence_token
 
     %v32 = lsir.alloca : !amdgcn.vgpr<32>
     %b_lo = lsir.alloca : !amdgcn.vgpr<[16 : 20]>
@@ -34,7 +34,7 @@ amdgcn.module @gfx1250_strip_mod target = #amdgcn.target<gfx1250> {
     %off16 = arith.constant 16 : i32
     %dtok1 = amdgcn.ds_load_b128 dest %b_hi addr %v32 offset c(%off16)
         : outs(!amdgcn.vgpr<[20 : 24]>) ins(!amdgcn.vgpr<32>) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait_gfx1250 deps %dtok0, %dtok1 : !amdgcn.read_token<shared>, !amdgcn.read_token<shared>
+    %wf1 = amdgcn.wait_gfx1250 deps %dtok0, %dtok1 : !amdgcn.read_token<shared>, !amdgcn.read_token<shared> -> !amdgcn.fence_token
 
     %acc = lsir.alloca : !amdgcn.vgpr<[0 : 8]>
     %a_frag = lsir.alloca : !amdgcn.vgpr<[8 : 16]>

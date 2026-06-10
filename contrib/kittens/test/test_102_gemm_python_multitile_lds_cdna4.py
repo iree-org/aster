@@ -305,17 +305,17 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
             bb.ds_write_b64,
         )
 
-    @b.define_helper("_read_a", [idx_type], read_ret)
-    def read_a_fn(bb, lds_off):
+    @b.define_helper("_read_a", [idx_type, b.fence_tok], read_ret)
+    def read_a_fn(bb, lds_off, fence):
         frags = bb.read_multi_fragment_from_lds(
-            lds_off, lds_read_tile_a, lds_swizzle, lds_read_sub_tile_a, bb.ds_read_b64
+            lds_off, lds_read_tile_a, lds_swizzle, lds_read_sub_tile_a, bb.ds_read_b64, fence_token=fence
         )
         return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 
-    @b.define_helper("_read_b", [idx_type], read_ret)
-    def read_b_fn(bb, lds_off):
+    @b.define_helper("_read_b", [idx_type, b.fence_tok], read_ret)
+    def read_b_fn(bb, lds_off, fence):
         frags = bb.read_multi_fragment_from_lds(
-            lds_off, lds_read_tile_b, lds_swizzle, lds_read_sub_tile_b, bb.ds_read_b64
+            lds_off, lds_read_tile_b, lds_swizzle, lds_read_sub_tile_b, bb.ds_read_b64, fence_token=fence
         )
         return [bb.to_any(d) for d, t in frags] + [t for d, t in frags]
 
@@ -400,12 +400,11 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
 
         # -- LDS READ A + DEALLOC --
         with b.stage(STG_A_LDS_READ):
-
-            @b.foreach_tile(n_coop_a * n_wtoks_per_tile)
-            def _(i):
-                b.wait_deps(b.memref_load(wtok_buf_a, i))
-
-            b.s_barrier()
+            # One barrier acts as a fence for both A and B cooperative LDS reads.
+            a_wtoks = [b.memref_load(wtok_buf_a, b.constant_index(i)) for i in range(n_coop_a * n_wtoks_per_tile)]
+            b_wtoks = [b.memref_load(wtok_buf_b, b.constant_index(i)) for i in range(n_coop_b * n_wtoks_per_tile)]
+            b.wait_deps(*a_wtoks, *b_wtoks)
+            bfence = b.cross_wave_token_barrier(*a_wtoks, *b_wtoks)
 
             @b.foreach_tile(n_read_a, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
             def read_a(idx):
@@ -414,17 +413,13 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
                     lds_a,
                     b.layout_apply((wave_m_idx, wave_n_idx, k, m), WAVE_READ_FULL_A),
                 )
-                return b.call_helper(read_a_fn, [off], read_ret)
+                return b.call_helper(read_a_fn, [off, bfence], read_ret)
 
             frag_buf_a, rtok_buf_a = read_a
             b.dealloc_lds(lds_a_h)
 
         # -- LDS READ B + DEALLOC --
         with b.stage(STG_B_LDS_READ):
-
-            @b.foreach_tile(n_coop_b * n_wtoks_per_tile)
-            def _(i):
-                b.wait_deps(b.memref_load(wtok_buf_b, i))
 
             @b.foreach_tile(n_read_b, types=[(any_type, n_frags_per_tile), (lds_read_tok, n_frags_per_tile)])
             def read_b(idx):
@@ -433,7 +428,7 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance", ping_pong_staggered: boo
                     lds_b,
                     b.layout_apply((wave_m_idx, wave_n_idx, k, n), WAVE_READ_FULL_B),
                 )
-                return b.call_helper(read_b_fn, [off], read_ret)
+                return b.call_helper(read_b_fn, [off, bfence], read_ret)
 
             b.dealloc_lds(lds_b_h)
 

@@ -70,4 +70,21 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.s_barrier
     amdgcn.end_kernel
   }
+
+  // Tokenized barrier with fence token keeps write-before-read ordering.
+  // CHECK-LABEL: kernel @cross_wave_token_barrier_order
+  // CHECK:         ds_write_b32
+  // CHECK:         cross_wave_token_barrier
+  // CHECK:         ds_read_b32
+  // CHECK:         end_kernel
+  amdgcn.kernel @cross_wave_token_barrier_order {
+    %addr = amdgcn.alloca : !v
+    %data = amdgcn.alloca : !v
+    %rd = amdgcn.alloca : !v
+    %c0 = arith.constant 0 : i32
+    %wtok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
+    %bar = amdgcn.cross_wave_token_barrier deps %wtok : !amdgcn.write_token<shared>
+    %r, %t = amdgcn.ds_read_b32 dest %rd addr %addr offset c(%c0) : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared> fence_token %bar : !amdgcn.fence_token
+    amdgcn.end_kernel
+  }
 }

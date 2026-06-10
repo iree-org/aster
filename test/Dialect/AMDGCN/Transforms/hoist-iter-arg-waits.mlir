@@ -3,7 +3,7 @@
 
 // HOIST-LABEL: func.func @hoist_pure_iter_arg_wait
 // HOIST:       scf.for {{.*}} iter_args(%[[TOK:.*]] = %{{.*}}, %[[DATA:.*]] = %{{.*}})
-// HOIST-NEXT:    amdgcn.wait deps %[[TOK]] : !amdgcn.read_token<flat>
+// HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %[[TOK]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // HOIST:         amdgcn.global_load_dword
 // HOIST:         amdgcn.test_inst
 // HOIST:         scf.yield
@@ -21,12 +21,12 @@ func.func @hoist_pure_iter_arg_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
       -> (!amdgcn.read_token<flat>, !amdgcn.vgpr) {
     %c0_i32_mig2 = arith.constant 0 : i32
     %new_data, %new_tok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig2) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-    amdgcn.wait deps %iter_tok : !amdgcn.read_token<flat>
+    %wf0 = amdgcn.wait deps %iter_tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_compute ins %iter_data
       : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     scf.yield %new_tok, %new_data : !amdgcn.read_token<flat>, !amdgcn.vgpr
   }
-  amdgcn.wait deps %res#0 : !amdgcn.read_token<flat>
+  %wf1 = amdgcn.wait deps %res#0 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %final = amdgcn.test_inst outs %s_compute ins %res#1
     : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
   return
@@ -34,9 +34,9 @@ func.func @hoist_pure_iter_arg_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
 
 // HOIST-LABEL: func.func @clone_mixed_dep_wait
 // HOIST:       scf.for {{.*}} iter_args(%[[ITOK:.*]] = %{{.*}}, %[[IDATA:.*]] = %{{.*}})
-// HOIST-NEXT:    amdgcn.wait deps %[[ITOK]] : !amdgcn.read_token<flat>
+// HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %[[ITOK]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // HOIST:         %[[ND:.*]], %[[NT:.*]] = amdgcn.global_load_dword
-// HOIST:         amdgcn.wait deps %[[NT]] : !amdgcn.read_token<flat>
+// HOIST:         %{{.*}} = amdgcn.wait deps %[[NT]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // HOIST:         amdgcn.test_inst
 // HOIST:         scf.yield
 
@@ -54,13 +54,12 @@ func.func @clone_mixed_dep_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
       -> (!amdgcn.read_token<flat>, !amdgcn.vgpr) {
     %c0_i32_mig4 = arith.constant 0 : i32
     %new_data, %new_tok = amdgcn.global_load_dword dest %dest2 addr %addr offset c(%c0_i32_mig4) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-    amdgcn.wait deps %iter_tok, %new_tok
-      : !amdgcn.read_token<flat>, !amdgcn.read_token<flat>
+    %wf2 = amdgcn.wait deps %iter_tok, %new_tok : !amdgcn.read_token<flat>, !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_compute ins %iter_data
       : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     scf.yield %new_tok, %new_data : !amdgcn.read_token<flat>, !amdgcn.vgpr
   }
-  amdgcn.wait deps %res#0 : !amdgcn.read_token<flat>
+  %wf3 = amdgcn.wait deps %res#0 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %final = amdgcn.test_inst outs %s_compute ins %res#1
     : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
   return
@@ -68,8 +67,8 @@ func.func @clone_mixed_dep_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
 
 // HOIST-LABEL: func.func @hoist_multiple_waits
 // HOIST:       scf.for {{.*}} iter_args(
-// HOIST-NEXT:    amdgcn.wait deps %{{.*}} : !amdgcn.write_token<shared>
-// HOIST-NEXT:    amdgcn.wait deps %{{.*}} : !amdgcn.write_token<shared>
+// HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %{{.*}} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
+// HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %{{.*}} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // HOIST:         amdgcn.ds_write_b32
 // HOIST:         amdgcn.ds_read_b32
 // HOIST:         amdgcn.test_inst
@@ -77,7 +76,7 @@ func.func @clone_mixed_dep_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
 
 // MERGE-LABEL: func.func @hoist_multiple_waits
 // MERGE:       scf.for {{.*}} iter_args(
-// MERGE-NEXT:    amdgcn.wait deps %{{.*}}, %{{.*}} : !amdgcn.write_token<shared>, !amdgcn.write_token<shared>
+// MERGE-NEXT:    %{{.*}} = amdgcn.wait deps %{{.*}}, %{{.*}} : !amdgcn.write_token<shared>, !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // MERGE:         amdgcn.ds_write_b32
 // MERGE:         amdgcn.ds_read_b32
 // MERGE:         amdgcn.test_inst
@@ -96,18 +95,17 @@ func.func @hoist_multiple_waits(%data_in: !amdgcn.vgpr, %lds_addr_a: !amdgcn.vgp
       iter_args(%iter_wtok_a = %wtok_a, %iter_wtok_b = %wtok_b)
       -> (!amdgcn.write_token<shared>, !amdgcn.write_token<shared>) {
     %new_wtok_a = amdgcn.ds_write_b32 data %data_in addr %lds_addr_a offset c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
-    amdgcn.wait deps %iter_wtok_a : !amdgcn.write_token<shared>
+    %wf4 = amdgcn.wait deps %iter_wtok_a : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %c0_i32_mig1 = arith.constant 0 : i32
     %read_data, %rtok = amdgcn.ds_read_b32 dest %s_read addr %lds_addr_a offset c(%c0_i32_mig1) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
     %new_wtok_b = amdgcn.ds_write_b32 data %data_in addr %lds_addr_b offset c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
-    amdgcn.wait deps %iter_wtok_b : !amdgcn.write_token<shared>
+    %wf5 = amdgcn.wait deps %iter_wtok_b : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_out ins %read_data
       : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     scf.yield %new_wtok_a, %new_wtok_b
       : !amdgcn.write_token<shared>, !amdgcn.write_token<shared>
   }
-  amdgcn.wait deps %res#0, %res#1
-    : !amdgcn.write_token<shared>, !amdgcn.write_token<shared>
+  %wf6 = amdgcn.wait deps %res#0, %res#1 : !amdgcn.write_token<shared>, !amdgcn.write_token<shared> -> !amdgcn.fence_token
   return
 }
 
@@ -115,7 +113,7 @@ func.func @hoist_multiple_waits(%data_in: !amdgcn.vgpr, %lds_addr_a: !amdgcn.vgp
 // HOIST-LABEL: func.func @no_hoist_intra_only_wait
 // HOIST:       scf.for {{.*}} iter_args(%[[TOK:.*]] = %{{.*}}, %[[DATA:.*]] = %{{.*}})
 // HOIST:         %[[ND:.*]], %[[NT:.*]] = amdgcn.global_load_dword
-// HOIST-NEXT:    amdgcn.wait deps %[[NT]] : !amdgcn.read_token<flat>
+// HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %[[NT]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // HOIST:         scf.yield
 
 func.func @no_hoist_intra_only_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
@@ -132,21 +130,21 @@ func.func @no_hoist_intra_only_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
     // Wait depends only on intra-iteration token -- must stay after load
     %c0_i32_mig6 = arith.constant 0 : i32
     %new_data, %new_tok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig6) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-    amdgcn.wait deps %new_tok : !amdgcn.read_token<flat>
+    %wf7 = amdgcn.wait deps %new_tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_compute ins %new_data
       : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     scf.yield %new_tok, %new_data : !amdgcn.read_token<flat>, !amdgcn.vgpr
   }
-  amdgcn.wait deps %res#0 : !amdgcn.read_token<flat>
+  %wf8 = amdgcn.wait deps %res#0 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
 // Nested loop: inner loop's iter_arg wait must not be hoisted to outer loop.
 // HOIST-LABEL: func.func @no_hoist_across_nested_loops
 // HOIST:       scf.for
-// HOIST-NEXT:    amdgcn.wait deps %{{.*}} : !amdgcn.read_token<flat>
+// HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %{{.*}} : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // HOIST:         scf.for
-// HOIST-NEXT:      amdgcn.wait deps %{{.*}} : !amdgcn.write_token<shared>
+// HOIST-NEXT:      %{{.*}} = amdgcn.wait deps %{{.*}} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // HOIST:           scf.yield
 // HOIST:         scf.yield
 
@@ -165,25 +163,25 @@ func.func @no_hoist_across_nested_loops(%addr: !amdgcn.vgpr<[? + 2]>, %lds_addr:
       -> (!amdgcn.read_token<flat>, !amdgcn.vgpr) {
     %c0_i32_mig8 = arith.constant 0 : i32
     %new_data, %new_tok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig8) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-    amdgcn.wait deps %outer_tok : !amdgcn.read_token<flat>
+    %wf9 = amdgcn.wait deps %outer_tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
     // Inner loop with its own iter_arg token
     %init_wtok = amdgcn.ds_write_b32 data %outer_data addr %lds_addr offset c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
     %inner_res = scf.for %j = %c0 to %c4 step %c1
         iter_args(%inner_wtok = %init_wtok) -> (!amdgcn.write_token<shared>) {
-      amdgcn.wait deps %inner_wtok : !amdgcn.write_token<shared>
+      %wf10 = amdgcn.wait deps %inner_wtok : !amdgcn.write_token<shared> -> !amdgcn.fence_token
       %new_inner_wtok = amdgcn.ds_write_b32 data %outer_data addr %lds_addr offset c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
       scf.yield %new_inner_wtok : !amdgcn.write_token<shared>
     }
     scf.yield %new_tok, %new_data : !amdgcn.read_token<flat>, !amdgcn.vgpr
   }
-  amdgcn.wait deps %res#0 : !amdgcn.read_token<flat>
+  %wf11 = amdgcn.wait deps %res#0 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
 // Barrier with no waits after it is moved after the hoisted waits.
 // HOIST-LABEL: func.func @hoist_barrier_after_waits
 // HOIST:       scf.for {{.*}} iter_args(%[[TOK:.*]] = %{{.*}}, %[[DATA:.*]] = %{{.*}})
-// HOIST-NEXT:    amdgcn.wait deps %[[TOK]] : !amdgcn.write_token<shared>
+// HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %[[TOK]] : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // HOIST-NEXT:    amdgcn.s_barrier
 // HOIST:         %{{.*}}, %{{.*}} = amdgcn.ds_read_b32
 // HOIST:         amdgcn.ds_write_b32
@@ -201,7 +199,7 @@ func.func @hoist_barrier_after_waits(%data_in: !amdgcn.vgpr, %lds_addr: !amdgcn.
   %res:2 = scf.for %i = %c1 to %c4 step %c1
       iter_args(%iter_wtok = %init_wtok, %iter_data = %init_data)
       -> (!amdgcn.write_token<shared>, !amdgcn.vgpr) {
-    amdgcn.wait deps %iter_wtok : !amdgcn.write_token<shared>
+    %wf12 = amdgcn.wait deps %iter_wtok : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     amdgcn.s_barrier
     %c0_i32_mig3 = arith.constant 0 : i32
     %read_data, %rtok = amdgcn.ds_read_b32 dest %s_read addr %lds_addr offset c(%c0_i32_mig3) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
@@ -209,17 +207,17 @@ func.func @hoist_barrier_after_waits(%data_in: !amdgcn.vgpr, %lds_addr: !amdgcn.
     scf.yield %new_wtok, %read_data
       : !amdgcn.write_token<shared>, !amdgcn.vgpr
   }
-  amdgcn.wait deps %res#0 : !amdgcn.write_token<shared>
+  %wf13 = amdgcn.wait deps %res#0 : !amdgcn.write_token<shared> -> !amdgcn.fence_token
   return
 }
 
 // Barrier with a wait AFTER it must NOT be moved.
 // HOIST-LABEL: func.func @no_move_barrier_with_wait_after
 // HOIST:       scf.for {{.*}} iter_args(%[[TOK:.*]] = %{{.*}}, %[[DATA:.*]] = %{{.*}})
-// HOIST-NEXT:    amdgcn.wait deps %[[TOK]] : !amdgcn.write_token<shared>
+// HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %[[TOK]] : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // HOIST:         amdgcn.ds_write_b32
 // HOIST-NEXT:    amdgcn.s_barrier
-// HOIST:         amdgcn.wait deps %{{.*}} : !amdgcn.read_token<shared>
+// HOIST:         %{{.*}} = amdgcn.wait deps %{{.*}} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
 // HOIST:         scf.yield
 
 func.func @no_move_barrier_with_wait_after(%data_in: !amdgcn.vgpr, %lds_addr: !amdgcn.vgpr) {
@@ -234,16 +232,16 @@ func.func @no_move_barrier_with_wait_after(%data_in: !amdgcn.vgpr, %lds_addr: !a
   %res:2 = scf.for %i = %c1 to %c4 step %c1
       iter_args(%iter_wtok = %init_wtok, %iter_data = %init_data)
       -> (!amdgcn.write_token<shared>, !amdgcn.vgpr) {
-    amdgcn.wait deps %iter_wtok : !amdgcn.write_token<shared>
+    %wf14 = amdgcn.wait deps %iter_wtok : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %new_wtok = amdgcn.ds_write_b32 data %data_in addr %lds_addr offset c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
     amdgcn.s_barrier
     %c0_i32_mig5 = arith.constant 0 : i32
     %read_data, %rtok = amdgcn.ds_read_b32 dest %s_read addr %lds_addr offset c(%c0_i32_mig5) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
-    amdgcn.wait deps %rtok : !amdgcn.read_token<shared>
+    %wf15 = amdgcn.wait deps %rtok : !amdgcn.read_token<shared> -> !amdgcn.fence_token
     scf.yield %new_wtok, %read_data
       : !amdgcn.write_token<shared>, !amdgcn.vgpr
   }
-  amdgcn.wait deps %res#0 : !amdgcn.write_token<shared>
+  %wf16 = amdgcn.wait deps %res#0 : !amdgcn.write_token<shared> -> !amdgcn.fence_token
   return
 }
 
@@ -252,7 +250,7 @@ func.func @no_move_barrier_with_wait_after(%data_in: !amdgcn.vgpr, %lds_addr: !a
 // HOIST:       scf.for {{.*}} iter_args(%[[TOK:.*]] = %{{.*}}, %[[DATA:.*]] = %{{.*}})
 // HOIST:         amdgcn.global_load_dword
 // HOIST:         scf.if
-// HOIST:           amdgcn.wait deps %[[TOK]]
+// HOIST:           %{{.*}} = amdgcn.wait deps %[[TOK]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // HOIST:         scf.yield
 
 func.func @no_hoist_wait_inside_scf_if(%addr: !amdgcn.vgpr<[? + 2]>, %cond: i1) {
@@ -270,13 +268,13 @@ func.func @no_hoist_wait_inside_scf_if(%addr: !amdgcn.vgpr<[? + 2]>, %cond: i1) 
     %new_data, %new_tok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig10) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     // Wait is inside scf.if -- not a direct child of the for body
     scf.if %cond {
-      amdgcn.wait deps %iter_tok : !amdgcn.read_token<flat>
+      %wf17 = amdgcn.wait deps %iter_tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
       %result = amdgcn.test_inst outs %s_compute ins %iter_data
         : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     }
     scf.yield %new_tok, %new_data : !amdgcn.read_token<flat>, !amdgcn.vgpr
   }
-  amdgcn.wait deps %res#0 : !amdgcn.read_token<flat>
+  %wf18 = amdgcn.wait deps %res#0 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }
 
@@ -284,7 +282,7 @@ func.func @no_hoist_wait_inside_scf_if(%addr: !amdgcn.vgpr<[? + 2]>, %cond: i1) 
 // HOIST-LABEL: func.func @no_hoist_count_only_wait
 // HOIST:       scf.for {{.*}} iter_args(%[[TOK:.*]] = %{{.*}}, %[[DATA:.*]] = %{{.*}})
 // HOIST:         amdgcn.global_load_dword
-// HOIST:         amdgcn.wait vm_cnt 0
+// HOIST:         %{{.*}} = amdgcn.wait vm_cnt 0 -> !amdgcn.fence_token
 // HOIST:         scf.yield
 
 func.func @no_hoist_count_only_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
@@ -301,11 +299,11 @@ func.func @no_hoist_count_only_wait(%addr: !amdgcn.vgpr<[? + 2]>) {
     %c0_i32_mig12 = arith.constant 0 : i32
     %new_data, %new_tok = amdgcn.global_load_dword dest %dest addr %addr offset c(%c0_i32_mig12) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
     // Count-only wait has no token deps -- must not be hoisted
-    amdgcn.wait vm_cnt 0
+    %wf19 = amdgcn.wait vm_cnt 0 -> !amdgcn.fence_token
     %result = amdgcn.test_inst outs %s_compute ins %iter_data
       : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
     scf.yield %new_tok, %new_data : !amdgcn.read_token<flat>, !amdgcn.vgpr
   }
-  amdgcn.wait deps %res#0 : !amdgcn.read_token<flat>
+  %wf20 = amdgcn.wait deps %res#0 : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   return
 }

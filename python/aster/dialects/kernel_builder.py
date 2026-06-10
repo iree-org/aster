@@ -24,10 +24,11 @@ The returned module can be passed directly to aster.compiler compile_kernel_modu
 from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import List, Optional, TypeAlias, Union
 
 from aster import ir
 from aster.layout import Layout, Swizzle, SwizzledLayout
+from aster.layout.values import LayoutValues
 from aster.dialects import arith
 from aster.dialects import affine as affined
 from aster.dialects import func as funcd
@@ -91,6 +92,7 @@ from aster.dialects._amdgcn_ops_gen import (
     s_barrier,
     s_mov_b32,
     s_nop,
+    cross_wave_token_barrier as _CrossWaveTokenBarrierOp,
     v_accvgpr_write,
 )
 from aster.dialects import lsir as lsird
@@ -102,6 +104,12 @@ from aster.dialects.amdgcn import (
     get_kernel_arguments,
 )
 from aster.dialects import ptr as ptrd
+
+# Wait arguments to wait_deps / cross_wave_token_barrier:
+#   - a LayoutValues with flattened token_values(), or
+#   - a list/tuple of tokens, or
+#   - a bare ir.Value token.
+WaitArg: TypeAlias = Union[LayoutValues, list[ir.Value], tuple[ir.Value, ...], ir.Value]
 
 
 def _i8(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -218,6 +226,8 @@ class KernelBuilder:
         self.flat_write_tok = ir.Type.parse("!amdgcn.write_token<flat>")
         self.lds_read_tok = ir.Type.parse("!amdgcn.read_token<shared>")
         self.lds_write_tok = ir.Type.parse("!amdgcn.write_token<shared>")
+        # Ordering-only fence token produced by FenceOpInterface.
+        self.fence_tok = ir.Type.parse("!amdgcn.fence_token")
 
     # ---------------------------------------------------------------------------
     # Pipeline stage annotation
@@ -1194,7 +1204,12 @@ class KernelBuilder:
         "ds_read_b128": DsReadB128,
     }
 
-    def _ds_read(self, opcode, dest, addr, const_offset=None):
+    def _ds_read(self, opcode, dest, addr, const_offset=None, fence_token=None):
+        """DS read operation.
+
+        fence_token optionally pins this read after a
+        cross_wave_token_barrier.
+        """
         if const_offset is None:
             const_offset = self.constant_i32(0)
         addr = self._ds_addr(addr)
@@ -1203,6 +1218,7 @@ class KernelBuilder:
             dest=dest,
             addr=addr,
             const_offset=const_offset,
+            fence_token=fence_token,
             loc=self._loc,
             ip=self._kip,
         )
@@ -1220,17 +1236,29 @@ class KernelBuilder:
         """DS write 128-bit (4 dwords) to LDS."""
         return self._ds_write("ds_write_b128", data, addr, const_offset)
 
-    def ds_read_b32(self, addr, const_offset=None) -> tuple[ir.Value, ir.Value]:
+    def ds_read_b32(
+        self, addr, const_offset=None, fence_token=None
+    ) -> tuple[ir.Value, ir.Value]:
         """DS read 32-bit (1 dword) from LDS."""
-        return self._ds_read("ds_read_b32", self.alloca_vgpr(), addr, const_offset)
+        return self._ds_read(
+            "ds_read_b32", self.alloca_vgpr(), addr, const_offset, fence_token
+        )
 
-    def ds_read_b64(self, addr, const_offset=None) -> tuple[ir.Value, ir.Value]:
+    def ds_read_b64(
+        self, addr, const_offset=None, fence_token=None
+    ) -> tuple[ir.Value, ir.Value]:
         """DS read 64-bit (2 dwords) from LDS."""
-        return self._ds_read("ds_read_b64", self.alloc_vgprx2(), addr, const_offset)
+        return self._ds_read(
+            "ds_read_b64", self.alloc_vgprx2(), addr, const_offset, fence_token
+        )
 
-    def ds_read_b128(self, addr, const_offset=None) -> tuple[ir.Value, ir.Value]:
+    def ds_read_b128(
+        self, addr, const_offset=None, fence_token=None
+    ) -> tuple[ir.Value, ir.Value]:
         """DS read 128-bit (4 dwords) from LDS."""
-        return self._ds_read("ds_read_b128", self.alloc_vgprx4(), addr, const_offset)
+        return self._ds_read(
+            "ds_read_b128", self.alloc_vgprx4(), addr, const_offset, fence_token
+        )
 
     _DS_STORE_OPS = {
         "ds_store_b64": DsStoreB64,
@@ -1421,7 +1449,7 @@ class KernelBuilder:
             voffset: Per-lane dynamic offset (VGPR).
             const_offset: Optional constant offset (i32).
         Returns:
-            Read token for vmcnt tracking.
+            Flat read token for vmcnt tracking.
         """
         if const_offset is None:
             const_offset = self.constant_i32(0)
@@ -1448,6 +1476,7 @@ class KernelBuilder:
         """G2S: buffer_load_dword with LDS flag (32-bit per lane).
 
         Same as g2s_buffer_load_dwordx4 but loads only 32 bits per lane.
+        Returns the flat read token.
         """
         if const_offset is None:
             const_offset = self.constant_i32(0)
@@ -1470,22 +1499,66 @@ class KernelBuilder:
     # ---------------------------------------------------------------------------
     # Synchronization
     # ---------------------------------------------------------------------------
+    def _flatten_wait_args(self, tokens: tuple[WaitArg, ...]) -> list[ir.Value]:
+        flat: list[ir.Value] = []
+        for tok in tokens:
+            if isinstance(tok, LayoutValues):
+                flat.extend(tok.token_values())
+            elif isinstance(tok, (list, tuple)):
+                flat.extend(tok)
+            else:
+                flat.append(tok)
+        return flat
 
-    def wait_deps(self, *tokens):
-        """Wait for dependency tokens (CDNA3/4: amdgcn.wait)."""
-        WaitOp(dependencies=list(tokens), loc=self._loc, ip=self._kip)
+    def wait_deps(self, *tokens: WaitArg) -> ir.Value:
+        """Wait for dependency tokens (CDNA3/4: amdgcn.wait).
 
-    def wait_deps_gfx1250(self, *tokens):
-        """Wait for dependency tokens (gfx1250: amdgcn.wait_gfx1250)."""
-        WaitGfx1250Op(dependencies=list(tokens), loc=self._loc, ip=self._kip)
+        Returns the fence_token produced by the wait.
+        """
+        op = WaitOp(
+            self.fence_tok,
+            dependencies=self._flatten_wait_args(tokens),
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.fence_token
 
-    def wait_vmcnt(self, count: int = 0):
+    def wait_deps_gfx1250(self, *tokens: WaitArg) -> ir.Value:
+        """Wait for dependency tokens (gfx1250: amdgcn.wait_gfx1250).
+
+        Returns the fence_token produced by the wait.
+        """
+        op = WaitGfx1250Op(
+            self.fence_tok,
+            dependencies=self._flatten_wait_args(tokens),
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.fence_token
+
+    def wait_vmcnt(self, count: int = 0) -> None:
         """Insert s_waitcnt vmcnt=count."""
         SWaitcnt(vmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
-    def wait_lgkmcnt(self, count: int = 0):
+    def wait_lgkmcnt(self, count: int = 0) -> None:
         """Insert s_waitcnt lgkmcnt=count."""
         SWaitcnt(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
+
+    def s_barrier(self) -> None:
+        """Insert a workgroup synchronization barrier."""
+        s_barrier(loc=self._loc, ip=self._kip)
+
+    def cross_wave_token_barrier(self, *deps: WaitArg) -> ir.Value:
+        """Emit amdgcn.cross_wave_token_barrier with flattened deps.
+
+        Returns a fence_token on which later memory ops can pin.
+        """
+        op = _CrossWaveTokenBarrierOp(
+            dependencies=self._flatten_wait_args(deps),
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op
 
     # ---------------------------------------------------------------------------
     # LDS allocation
@@ -1956,14 +2029,6 @@ class KernelBuilder:
             ip=self._kip,
         )
         return op.results[0]
-
-    # ---------------------------------------------------------------------------
-    # Barrier
-    # ---------------------------------------------------------------------------
-
-    def s_barrier(self):
-        """Insert s_barrier for workgroup synchronization."""
-        s_barrier(loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Build

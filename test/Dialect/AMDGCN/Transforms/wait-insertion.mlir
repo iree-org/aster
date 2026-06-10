@@ -11,7 +11,7 @@ amdgcn.module @test_wait_insertion target = #amdgcn.target<gfx942> {
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
@@ -36,7 +36,7 @@ func.func @simple_load_store() {
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_2]]) ins(%[[ALLOCA_1]]) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<?>)
 // CHECK:           amdgcn.test_inst ins %[[ALLOCA_2]] : (!amdgcn.vgpr<?>) -> ()
 // CHECK:           return
@@ -70,10 +70,10 @@ func.func @load_then_vop() {
 // CHECK:           %[[LOAD_1:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_1]]) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_1]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[LOAD_2:.*]] = memref.load %[[ALLOCA_1]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_2]]) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           %[[LOAD_3:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_3]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_3]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_1:.*]] = amdgcn.global_store_dword data %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%[[CONSTANT_0]]) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
@@ -101,9 +101,9 @@ func.func @multiple_loads_multiple_consumers() {
 // CHECK:           %[[ALLOCA_3:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_0]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_0]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ALLOCA_3]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
@@ -114,7 +114,7 @@ func.func @load_with_existing_wait() {
   %3 = amdgcn.alloca : !amdgcn.vgpr<?>
   %c0_i32_mig3 = arith.constant 0 : i32
   %token = amdgcn.global_load_dword dest %3 addr %2 offset c(%c0_i32_mig3) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
-  amdgcn.wait deps %token : !amdgcn.read_token<flat>
+  %wf0 = amdgcn.wait deps %token : !amdgcn.read_token<flat> -> !amdgcn.fence_token
   %c0_i32_mig2 = arith.constant 0 : i32
   %4 = amdgcn.global_store_dword data %3 addr %2 offset c(%c0_i32_mig2) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
   return
@@ -136,14 +136,14 @@ func.func @load_with_existing_wait() {
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_4]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_1]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_1]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           lsir.copy %[[ALLOCA_2]], %[[ALLOCA_4]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb2:
 // CHECK:           %[[LOAD_2:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_5]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_2]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[LOAD_3:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_3]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_3]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           lsir.copy %[[ALLOCA_2]], %[[ALLOCA_5]] : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb3:
@@ -209,7 +209,7 @@ func.func @no_load_consumption() {
 // CHECK:           %[[LOAD_1:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_1]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[LOAD_2:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           %[[ADDI_0:.*]] = arith.addi %[[VAL_0]], %[[CONSTANT_1]] : index
 // CHECK:           %[[CMPI_0:.*]] = arith.cmpi ult, %[[ADDI_0]], %[[CONSTANT_0]] : index
@@ -245,7 +245,7 @@ func.func @load_in_loop() {
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_1]] addr %[[ALLOCA_2]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(<?>) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<shared>>
 // CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<shared>>
-// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<shared>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<shared> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[ALLOCA_1]] addr %[[ALLOCA_2]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, <?>) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           return
 // CHECK:         }
@@ -297,9 +297,9 @@ func.func @one_load_two_consumers() {
 // CHECK:           %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_1]] addr %[[MRR]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_0]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           %[[TOK_0:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[TOK_0]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[TOK_0]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           amdgcn.v_mov_b32 outs(%[[ALLOCA_1]]) ins(%[[ALLOCA_2]]) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<?>)
-// CHECK-NOT:       amdgcn.wait
+// CHECK-NOT:       amdgcn.wait -> !amdgcn.fence_token
 // CHECK:           %{{.*}} = amdgcn.global_store_dword data %[[ALLOCA_1]] addr %[[MRR]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
@@ -330,12 +330,12 @@ func.func @load_killed_before_consumer() {
 // CHECK:           cf.cond_br %[[ARG0]], ^bb1, ^bb2
 // CHECK:         ^bb1:
 // CHECK:           %[[TOK_0:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[TOK_0]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[TOK_0]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %{{.*}} = amdgcn.global_store_dword data %[[ALLOCA_1]] addr %[[MRR]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb2:
 // CHECK:           %[[TOK_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[TOK_1]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[TOK_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %{{.*}} = amdgcn.global_store_dword data %[[ALLOCA_1]] addr %[[MRR]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb3:
@@ -372,14 +372,14 @@ func.func @load_before_branch_consumed_in_both(%cond: i1) {
 // CHECK:           cf.cond_br %[[ARG0]], ^bb1, ^bb2
 // CHECK:         ^bb1:
 // CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb2:
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb3:
 // CHECK:           %[[LOAD_2:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_1:.*]] = amdgcn.global_store_dword data %[[ALLOCA_1]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }
@@ -415,18 +415,18 @@ func.func @load_before_branch_consumed_in_single(%cond: i1) {
 // CHECK:           cf.cond_br %[[ARG0]], ^bb1, ^bb2
 // CHECK:         ^bb1:
 // CHECK:           %[[LOAD_1:.*]] = memref.load %[[ALLOCA_1]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_1]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_0:.*]] = amdgcn.global_store_dword data %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb2:
 // CHECK:           %[[LOAD_2:.*]] = memref.load %[[ALLOCA_1]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_2]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[LOAD_3:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr<?>) ins(!amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           memref.store %[[LOAD_3]], %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
 // CHECK:           cf.br ^bb3
 // CHECK:         ^bb3:
 // CHECK:           %[[LOAD_4:.*]] = memref.load %[[ALLOCA_0]][] : memref<!amdgcn.read_token<flat>>
-// CHECK:           amdgcn.wait deps %[[LOAD_4]] : !amdgcn.read_token<flat>
+// CHECK:           amdgcn.wait deps %[[LOAD_4]] : !amdgcn.read_token<flat> -> !amdgcn.fence_token
 // CHECK:           %[[STORE_1:.*]] = amdgcn.global_store_dword data %[[ALLOCA_2]] addr %[[MAKE_REGISTER_RANGE_0]] offset c(%{{.*}}) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
 // CHECK:           return
 // CHECK:         }

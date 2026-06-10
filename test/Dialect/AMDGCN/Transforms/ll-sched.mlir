@@ -224,6 +224,39 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 
+  // Cross-wave token barrier with fence tokens orders LDS write-then-read.
+  // CHECK-LABEL: kernel @cross_wave_barrier_separates_lds
+  // CHECK:         ds_write_b64
+  // CHECK:         ds_write_b64
+  // CHECK:         cross_wave_token_barrier
+  // CHECK:         ds_read_b64
+  // CHECK:         ds_read_b64
+  // CHECK:         end_kernel
+  amdgcn.kernel @cross_wave_barrier_separates_lds {
+    %addr0 = amdgcn.alloca : !v
+    %addr1 = amdgcn.alloca : !v
+    %wd0 = amdgcn.alloca : !v
+    %wd1 = amdgcn.alloca : !v
+    %data0 = amdgcn.make_register_range %wd0, %wd1 : !v, !v
+    %wd2 = amdgcn.alloca : !v
+    %wd3 = amdgcn.alloca : !v
+    %data1 = amdgcn.make_register_range %wd2, %wd3 : !v, !v
+    %rd0 = amdgcn.alloca : !v
+    %rd1 = amdgcn.alloca : !v
+    %dst0 = amdgcn.make_register_range %rd0, %rd1 : !v, !v
+    %rd2 = amdgcn.alloca : !v
+    %rd3 = amdgcn.alloca : !v
+    %dst1 = amdgcn.make_register_range %rd2, %rd3 : !v, !v
+    %c0 = arith.constant 0 : i32
+    %c8 = arith.constant 8 : i32
+    %wt0 = amdgcn.ds_write_b64 data %data0 addr %addr0 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
+    %wt1 = amdgcn.ds_write_b64 data %data1 addr %addr1 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
+    %bar = amdgcn.cross_wave_token_barrier deps %wt0, %wt1 : !amdgcn.write_token<shared>, !amdgcn.write_token<shared>
+    %rr0, %rt0 = amdgcn.ds_read_b64 dest %dst0 addr %addr0 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared> fence_token %bar : !amdgcn.fence_token
+    %rr1, %rt1 = amdgcn.ds_read_b64 dest %dst1 addr %addr1 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared> fence_token %bar : !amdgcn.fence_token
+    amdgcn.end_kernel
+  }
+
   // LDS ops: with LGKM_R/LGKM_W merged into one bucket all three DS ops
   // share priority; smallest-id (block order) tie-break preserves IR order.
   // CHECK-LABEL: kernel @lds_ops_ordered
@@ -275,7 +308,7 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %dst = amdgcn.make_register_range %rd0, %rd1 : !v, !v
     %data = amdgcn.make_register_range %wd0, %wd1 : !v, !v
     %wt = amdgcn.ds_write_b64 data %data addr %waddr offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
-    amdgcn.wait deps %wt : !amdgcn.write_token<shared>
+    %wf0 = amdgcn.wait deps %wt : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %rr, %rt = amdgcn.ds_read_b64 dest %dst addr %raddr offset c(%c0) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     amdgcn.end_kernel
   }

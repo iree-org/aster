@@ -344,4 +344,15 @@ def WriteTokenType : AMDGCN_Type<"WriteToken", "write_token",
   let assemblyFormat = "`<` $kind `>`";
 }
 
+def FenceTokenType : AMDGCN_Type<"FenceToken", "fence_token",
+    [TokenDependencyTypeInterface, MemRefElementTypeInterface]> {
+  let summary = "Fence token type";
+  let description = [{
+    Ordering-only SSA token for workgroup barrier synchronization, produced by
+    FenceOpInterface (e.g. cross_wave_token_barrier) and consumed by
+    FenceableOpInterface (e.g. LDS read).
+  }];
+  let assemblyFormat = "";
+}
+
 #endif // ASTER_AMDGCN_TYPES_TD
