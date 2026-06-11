@@ -197,25 +197,33 @@ def MemoryInstructionKind : AutoI8EnumCases<"MemoryInstructionKind",
     PrettyEnumCaseInfo<"none">,
     PrettyEnumCaseInfo<"flat">,
     PrettyEnumCaseInfo<"constant">,
+    PrettyEnumCaseInfo<"exec">,
     PrettyEnumCaseInfo<"shared">,
     PrettyEnumCaseInfo<"tensor">,
+    PrettyEnumCaseInfo<"async">,
   ]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
 // CDNA3/CDNA4 merge into 2 counters:
 //   vm = vmem loads+stores, lgkm = LDS+scalar
-// GFX12.5 splits into 5 counters:
-//   load = vmem read, store = vmem write, ds = LDS, km = scalar and tensor
+// GFX12.5 splits into 7 hardware counters:
+//   load, store, ds, km, tensor, exec (X_CNT), async (ASYNC_CNT)
+// Note: scalar_read is a logical token kind (scalar memory reads, out-of-order
+// per CDNA3/4 manual 4.4) that maps to lgkmcnt (CDNA3/4) or km_cnt (GFX12.50).
+// TODO: verify GFX12.50 mapping is still correct once ISA manual is available.
 def WaitCounterKind : AutoI8EnumCases<"WaitCounterKind",
   "AMDGCN hardware wait counter kind", [
     PrettyEnumCaseInfo<"vm">,
     PrettyEnumCaseInfo<"lgkm">,
+    PrettyEnumCaseInfo<"scalar_read">,
+    PrettyEnumCaseInfo<"exec">,
     PrettyEnumCaseInfo<"load">,
     PrettyEnumCaseInfo<"store">,
     PrettyEnumCaseInfo<"ds">,
     PrettyEnumCaseInfo<"km">,
     PrettyEnumCaseInfo<"tensor">,
+    PrettyEnumCaseInfo<"async">,
   ]> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }

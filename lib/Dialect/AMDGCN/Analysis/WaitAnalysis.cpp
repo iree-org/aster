@@ -10,13 +10,11 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
-#include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/IR/Utils.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/DebugLog.h"
@@ -92,34 +90,6 @@ getStateFingerprint(const WaitState &state) {
       info ? info->impliedTokens.size() : -1, info ? info->counts : WaitCnt());
 }
 
-/// Map a token value to its hardware wait-counter kind. Returns nullopt if the
-/// value is not a dependency token.
-static std::optional<WaitCounterKind> getCounterKind(Value token) {
-  Type type = token.getType();
-  bool isWrite = false;
-  MemoryInstructionKind kind;
-  if (auto readToken = dyn_cast<ReadTokenType>(type)) {
-    kind = readToken.getKind();
-  } else if (auto writeToken = dyn_cast<WriteTokenType>(type)) {
-    kind = writeToken.getKind();
-    isWrite = true;
-  } else {
-    return std::nullopt;
-  }
-  switch (kind) {
-  case MemoryInstructionKind::Flat:
-    return isWrite ? WaitCounterKind::Store : WaitCounterKind::Load;
-  case MemoryInstructionKind::Shared:
-    return WaitCounterKind::Ds;
-  case MemoryInstructionKind::Constant:
-    return WaitCounterKind::Km;
-  case MemoryInstructionKind::Tensor:
-    return WaitCounterKind::Tensor;
-  default:
-    return std::nullopt;
-  }
-}
-
 //===----------------------------------------------------------------------===//
 // TokenState
 //===----------------------------------------------------------------------===//
@@ -131,25 +101,7 @@ bool TokenState::merge(const TokenState &other) {
   return position != prevPos;
 }
 
-static StringRef kindName(WaitCounterKind kind, WaitCounterModel model) {
-  if (model != WaitCounterModel::GFX12_50) {
-    // CDNA: load+store share "flat", ds = "shared", km = "constant".
-    switch (kind) {
-    case WaitCounterKind::Load:
-    case WaitCounterKind::Store:
-      return "flat";
-    case WaitCounterKind::Ds:
-      return "shared";
-    case WaitCounterKind::Km:
-      return "constant";
-    default:
-      break;
-    }
-  }
-  return stringifyWaitCounterKind(kind);
-}
-
-void TokenState::print(raw_ostream &os, WaitCounterModel model) const {
+void TokenState::print(raw_ostream &os) const {
   os << "{";
   if (token) {
     token.printAsOperand(os, OpPrintingFlags());
@@ -158,7 +110,7 @@ void TokenState::print(raw_ostream &os, WaitCounterModel model) const {
     os << "<escaped>";
   }
   os << ", " << position;
-  os << ", " << kindName(kind, model);
+  os << ", " << stringifyWaitCounterKind(kind);
   os << "}";
 }
 
@@ -197,103 +149,44 @@ WaitCounterModel mlir::aster::amdgcn::getWaitCounterModelForOp(Operation *op) {
 // WaitCnt
 //===----------------------------------------------------------------------===//
 
-/// Return all counter kinds that share the same physical hardware counter as
-/// `kind` (including `kind` itself). On CDNA4, load+store share vmcnt and
-/// ds+km share lgkmcnt. On GFX12_50 every kind is independent.
-static llvm::SmallDenseSet<WaitCounterKind, 4>
-aliasingCounters(WaitCounterKind kind, WaitCounterModel model) {
-  llvm::SmallDenseSet<WaitCounterKind, 4> result;
-  if (model == WaitCounterModel::GFX12_50) {
-    result.insert(kind);
-    return result;
-  }
-  switch (kind) {
-  case WaitCounterKind::Vm:
-  case WaitCounterKind::Load:
-  case WaitCounterKind::Store:
-    result.insert(WaitCounterKind::Load);
-    result.insert(WaitCounterKind::Store);
-    break;
-  case WaitCounterKind::Lgkm:
-  case WaitCounterKind::Ds:
-  case WaitCounterKind::Km:
-    result.insert(WaitCounterKind::Ds);
-    result.insert(WaitCounterKind::Km);
-    break;
-  case WaitCounterKind::Tensor:
-    result.insert(WaitCounterKind::Tensor);
-    break;
-  }
-  return result;
+static void printCount(llvm::raw_ostream &os, const char *name,
+                       TokenState::Position c, bool sep) {
+  os << name << ": ";
+  if (c == TokenState::kMaxPosition)
+    os << "nowait";
+  else
+    os << c;
+  if (sep)
+    os << ", ";
 }
 
-WaitCnt WaitCnt::fromOp(WaitCntOpInterface waitOp, WaitCounterModel model) {
-  WaitCnt c;
-  // Query every counter kind the op might carry. For each reported value,
-  // compute the min across the value and all existing aliasing counters (since
-  // they share a physical counter), then set all aliases to that min.
-  for (size_t i = 0; i < kNumKinds; ++i) {
-    auto opKind = static_cast<WaitCounterKind>(i);
-    uint16_t v = waitOp.getCounterValue(opKind);
-    if (v == WaitCntOpInterface::kNoWaitCount)
-      continue;
-    auto aliases = aliasingCounters(opKind, model);
-    Position mn = static_cast<Position>(v);
-    for (WaitCounterKind k : aliases)
-      mn = std::min<int32_t>(mn, c.getCount(k));
-    for (WaitCounterKind k : aliases)
-      c.updateCount(k, mn);
-  }
-  return c;
-}
-
-void WaitCnt::updateCount(ArrayRef<TokenState> tokens) {
-  for (const TokenState &tok : tokens)
-    updateCount(tok.getKind(), tok.getPosition());
-}
-
-void WaitCnt::print(llvm::raw_ostream &os, WaitCounterModel model) const {
-  auto p = [&](const char *name, WaitCounterKind kind, bool sep) {
-    os << name << ": ";
-    int32_t c = getCount(kind);
-    if (c == kMaxPosition)
-      os << "nowait";
-    else
-      os << c;
-    if (sep)
-      os << ", ";
-  };
+void WaitCntCdna3::print(llvm::raw_ostream &os) const {
   os << "{";
-  if (model == WaitCounterModel::GFX12_50) {
-    p("load_cnt", WaitCounterKind::Load, true);
-    p("store_cnt", WaitCounterKind::Store, true);
-    p("ds_cnt", WaitCounterKind::Ds, true);
-    p("km_cnt", WaitCounterKind::Km, true);
-    p("tensor_cnt", WaitCounterKind::Tensor, false);
-  } else {
-    p("vm_cnt", WaitCounterKind::Load, true);
-    p("lgkm_cnt", WaitCounterKind::Ds, false);
-  }
+  printCount(os, "vm_cnt", vmcnt, true);
+  printCount(os, "lgkm_cnt", lgkmcnt, false);
   os << "}";
 }
 
-void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
-                         ValueRange dependencies,
-                         SmallVectorImpl<TokenState> &waitedTokens,
-                         SmallVectorImpl<TokenState> &impliedTokens,
-                         SmallVectorImpl<TokenState> &nextReachingTokens,
-                         llvm::function_ref<TokenState(Value)> getState,
-                         WaitCounterModel model) {
-  // Clear the waited tokens.
-  waitedTokens.clear();
+void WaitCntGfx1250::print(llvm::raw_ostream &os) const {
+  os << "{";
+  printCount(os, "load_cnt", loadcnt, true);
+  printCount(os, "store_cnt", storecnt, true);
+  printCount(os, "ds_cnt", dscnt, true);
+  printCount(os, "km_cnt", kmcnt, true);
+  printCount(os, "tensor_cnt", tensorcnt, false);
+  os << "}";
+}
 
-  bool hasLgkmDeps = false;
-
-  // Compute which dependencies are in the reaching set.
-  for (Value v : dependencies) {
+/// Find the dependency tokens that are in the reaching set, i.e. the tokens a
+/// wait op actually waits on.
+static SmallVector<TokenState>
+findWaitedTokens(ArrayRef<TokenState> reaching, ValueRange deps,
+                 llvm::function_ref<TokenState(Value)> getState) {
+  SmallVector<TokenState> waited;
+  for (Value v : deps) {
     TokenState tok = getState(v);
-    auto lb = llvm::lower_bound(reachingTokens, tok);
-    if (lb == reachingTokens.end() || lb->getToken() != v) {
+    auto lb = llvm::lower_bound(reaching, tok);
+    if (lb == reaching.end() || lb->getToken() != v) {
       LDBG_OS([&](raw_ostream &os) {
         os << "  Wait dependency: ";
         v.printAsOperand(os, OpPrintingFlags());
@@ -301,100 +194,60 @@ void WaitCnt::handleWait(ArrayRef<TokenState> reachingTokens,
       });
       continue;
     }
-    waitedTokens.push_back(*lb);
-
-    // Count the number of DS and SMem tokens (the lgkm group: ds + km kinds).
-    if (tok.getKind() == WaitCounterKind::Km ||
-        tok.getKind() == WaitCounterKind::Ds) {
-      hasLgkmDeps = true;
-    }
+    waited.push_back(*lb);
   }
+  return waited;
+}
 
-  bool hasSmemToks = false;
-
-  // If there are LGKM tokens, check whether any SMEM (km) tokens are reaching.
-  if (hasLgkmDeps) {
-    for (const TokenState &tok : reachingTokens) {
-      // End early if a km token has been found.
-      if (hasSmemToks)
-        break;
-
-      if (tok.getKind() == WaitCounterKind::Km)
-        hasSmemToks = true;
-    }
-  }
-
-  // SMEM (km) returns out of order, so the only consistent wait is to drain
-  // the km counter fully. All aliasing counters must also drain.
-  if (hasSmemToks) {
-    for (WaitCounterKind k : aliasingCounters(WaitCounterKind::Km, model))
-      updateCount(k, 0);
-  }
-
-  // Update the wait counts based on the waited tokens.
-  updateCount(waitedTokens);
-
-  // Collapse aliasing counters to min: kinds sharing a physical counter must
-  // report the same (tightest) wait count.
-  for (size_t i = 0; i < kNumKinds; ++i) {
-    auto kind = static_cast<WaitCounterKind>(i);
-    auto aliases = aliasingCounters(kind, model);
-    if (aliases.size() <= 1)
-      continue;
-    Position mn = kMaxPosition;
-    for (WaitCounterKind k : aliases)
-      mn = std::min<int32_t>(mn, getCount(k));
-    for (WaitCounterKind k : aliases)
-      updateCount(k, mn);
-  }
-
-  // Invalidate tokens that are dominated by the wait counts.
-  for (TokenState &token : waitedTokens) {
-    int32_t count = getCount(token.getKind());
-    // Skip tokens that match the wait count and are greater than zero.
+/// Prune `waited` tokens that the final counts fully cover and split `reaching`
+/// into implied (count-dominated, returned via `implied`) vs still-pending
+/// (returned).
+/// `countOf` maps a token to its physical counter's wait count to adapt to
+/// different counter models.
+static SmallVector<TokenState>
+resolveReaching(ArrayRef<TokenState> reaching,
+                llvm::function_ref<int32_t(const TokenState &)> countOf,
+                SmallVectorImpl<TokenState> &waited,
+                SmallVectorImpl<TokenState> &implied) {
+  assert(implied.empty() &&
+         "implied output must be cleared before resolveReaching");
+  for (TokenState &token : waited) {
+    int32_t count = countOf(token);
     if (token.getPosition() <= count && count > 0)
       continue;
-    LDBG_OS([&](raw_ostream &os) {
-      if (token.getToken() == nullptr)
-        return;
-      os << "  Invalidating dependency token: ";
-      token.getToken().printAsOperand(os, OpPrintingFlags());
-    });
     token = TokenState();
   }
-
-  // Remove invalidated tokens.
-  waitedTokens.erase(
-      std::remove(waitedTokens.begin(), waitedTokens.end(), TokenState()),
-      waitedTokens.end());
-
-  // Compute implied tokens and next reaching tokens.
-  for (const TokenState &token : reachingTokens) {
-    int32_t count = getCount(token.getKind());
-    // Preserve tokens that are not waited on.
+  waited.erase(std::remove(waited.begin(), waited.end(), TokenState()),
+               waited.end());
+  SmallVector<TokenState> next;
+  for (const TokenState &token : reaching) {
+    int32_t count = countOf(token);
     if (token.getPosition() < count)
-      nextReachingTokens.push_back(token);
-
-    // Collect implied tokens.
+      next.push_back(token);
     if (token.getPosition() >= count)
-      impliedTokens.push_back(token);
+      implied.push_back(token);
   }
+  return next;
 }
 
 //===----------------------------------------------------------------------===//
 // WaitState
 //===----------------------------------------------------------------------===//
 
-void WaitOpInfo::print(llvm::raw_ostream &os, WaitCounterModel model) const {
+void WaitOpInfo::print(llvm::raw_ostream &os) const {
+  // Token-kind names follow the active model, derived from the WaitCnt variant
+  // (CDNA3/CDNA4 share kind names, so any non-GFX12_50 value selects them).
+  WaitCounterModel model = std::holds_alternative<WaitCntGfx1250>(counts)
+                               ? WaitCounterModel::GFX12_50
+                               : WaitCounterModel::CDNA3;
   os << "{counts: ";
-  counts.print(os, model);
+  std::visit([&](const auto &c) { c.print(os); }, counts);
   os << ", waited_tokens: [";
   llvm::interleave(
-      waitedTokens, os, [&](const TokenState &t) { t.print(os, model); }, ", ");
+      waitedTokens, os, [&](const TokenState &t) { t.print(os); }, ", ");
   os << "], implied_tokens: [";
   llvm::interleave(
-      impliedTokens, os, [&](const TokenState &t) { t.print(os, model); },
-      ", ");
+      impliedTokens, os, [&](const TokenState &t) { t.print(os); }, ", ");
   os << "]}";
 }
 
@@ -405,13 +258,12 @@ void WaitState::print(raw_ostream &os, WaitCounterModel model) const {
   }
   os << "unhandled tokens = [";
   llvm::interleave(
-      reachingTokens, os, [&](const TokenState &t) { t.print(os, model); },
-      ", ");
+      reachingTokens, os, [&](const TokenState &t) { t.print(os); }, ", ");
   os << "]";
   if (!waitOpInfo.has_value())
     return;
   os << ", wait information = ";
-  waitOpInfo->print(os, model);
+  waitOpInfo->print(os);
 }
 
 ChangeResult WaitState::join(const WaitState &lattice) {
@@ -429,67 +281,185 @@ ChangeResult WaitState::join(const WaitState &lattice) {
                                                        : ChangeResult::NoChange;
 }
 
-ChangeResult WaitState::joinWait(ValueRange deps, const WaitState &before,
-                                 WaitCnt waitCounts,
-                                 llvm::function_ref<TokenState(Value)> getState,
-                                 WaitCounterModel model) {
-  // Get a fingerprint for change detection.
-  auto oldFingerprint = getStateFingerprint(*this);
-  LDBG_OS([&](raw_ostream &os) {
-    os << "  Merging wait dependencies:\n";
-    os << "  Reaching tokens: "
-       << llvm::interleaved_array(before.reachingTokens) << "\n";
-    os << "  Wait dependencies: " << llvm::interleaved_array(deps) << "\n";
-    os << "  Wait counts: " << waitCounts;
-  });
-
-  // Update or create the wait op info.
-  if (waitOpInfo.has_value()) {
-    waitOpInfo->counts = waitCounts;
-    waitOpInfo->waitedTokens.clear();
-    waitOpInfo->impliedTokens.clear();
-  } else {
-    waitOpInfo = WaitOpInfo(waitCounts);
-  }
-
-  // Compute the new reaching tokens after the wait.
-  SmallVector<TokenState> newReachingToks;
-  waitOpInfo->counts.handleWait(
-      before.reachingTokens, deps, waitOpInfo->waitedTokens,
-      waitOpInfo->impliedTokens, newReachingToks, getState, model);
-  bool changed = oldFingerprint != getStateFingerprint(*this);
-
-  // Update the reaching tokens.
-  if (reachingTokens != newReachingToks) {
-    changed = true;
-    reachingTokens = std::move(newReachingToks);
-  }
-  LDBG() << "  Wait information: " << *waitOpInfo;
-  return changed ? ChangeResult::Change : ChangeResult::NoChange;
-}
-
-ChangeResult WaitState::addTokens(ArrayRef<TokenState> tokens,
-                                  WaitCounterModel model) {
-  // Determine which counter kinds are affected (directly or via aliasing).
-  bool affected[WaitCnt::kNumKinds] = {};
-  for (const TokenState &tok : tokens)
-    for (WaitCounterKind k : aliasingCounters(tok.getKind(), model))
-      affected[static_cast<size_t>(k)] = true;
-
-  // Only increment positions of reaching tokens whose counter kind is affected;
-  // independent counters do not interfere.
-  for (TokenState &token : reachingTokens)
-    if (affected[static_cast<size_t>(token.getKind())])
-      ++token;
-  return merge(reachingTokens, tokens) ? ChangeResult::Change
-                                       : ChangeResult::NoChange;
-}
-
 MLIR_DEFINE_EXPLICIT_TYPE_ID(mlir::aster::amdgcn::WaitState)
 
 //===----------------------------------------------------------------------===//
 // WaitAnalysis
 //===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// WaitAnalysisCdna -- two physical counters (vmcnt, lgkmcnt)
+//===----------------------------------------------------------------------===//
+
+// CDNA3/CDNA4 token kinds: vmem (Vm) -> vmcnt; ds (LDS) and scalar_read/km
+// (scalar) -> lgkmcnt. ds and scalar_read stay distinct so only scalar reads
+// force a full lgkm drain.
+static bool isVmKind(WaitCounterKind k) { return k == WaitCounterKind::Vm; }
+static bool isLgkmKind(WaitCounterKind k) {
+  return k == WaitCounterKind::Ds || k == WaitCounterKind::Km ||
+         k == WaitCounterKind::ScalarRead || k == WaitCounterKind::Lgkm;
+}
+
+WaitCnt WaitAnalysisCdna::countsFromWaitOp(WaitCntOpInterface waitOp) const {
+  WaitCntCdna3 c;
+  uint16_t vm = waitOp.getCounterValue(WaitCounterKind::Vm);
+  if (vm != WaitCntOpInterface::kNoWaitCount)
+    c.updateCount(WaitCounterKind::Vm, vm);
+  uint16_t lgkm = waitOp.getCounterValue(WaitCounterKind::Lgkm);
+  if (lgkm != WaitCntOpInterface::kNoWaitCount)
+    c.updateCount(WaitCounterKind::Lgkm, lgkm);
+  return c;
+}
+
+ChangeResult
+WaitAnalysisCdna::advanceAndAdd(WaitState &state,
+                                ArrayRef<TokenState> produced) const {
+  // A produced vmem token advances every reaching vmem token (shared vmcnt); a
+  // produced lgkm token advances every reaching lgkm token (shared lgkmcnt).
+  bool bumpVm = false, bumpLgkm = false;
+  for (const TokenState &t : produced) {
+    bumpVm |= isVmKind(t.getKind());
+    bumpLgkm |= isLgkmKind(t.getKind());
+  }
+  for (TokenState &t : state.reachingTokens) {
+    if (bumpVm && isVmKind(t.getKind()))
+      ++t;
+    if (bumpLgkm && isLgkmKind(t.getKind()))
+      ++t;
+  }
+  return merge(state.reachingTokens, produced) ? ChangeResult::Change
+                                               : ChangeResult::NoChange;
+}
+
+ChangeResult WaitAnalysisCdna::transferWait(
+    const WaitState &before, ValueRange deps, WaitCnt counts, WaitState &after,
+    llvm::function_ref<TokenState(Value)> getState) const {
+  std::optional<WaitOpInfo> oldInfo = after.waitOpInfo;
+  if (after.waitOpInfo.has_value()) {
+    after.waitOpInfo->counts = counts;
+    after.waitOpInfo->waitedTokens.clear();
+    after.waitOpInfo->impliedTokens.clear();
+  } else {
+    after.waitOpInfo = WaitOpInfo(counts);
+  }
+  WaitCntCdna3 &c = std::get<WaitCntCdna3>(after.waitOpInfo->counts);
+
+  SmallVector<TokenState> waited =
+      findWaitedTokens(before.reachingTokens, deps, getState);
+  bool waitsLgkm = llvm::any_of(
+      waited, [](const TokenState &t) { return isLgkmKind(t.getKind()); });
+  bool outOfOrderReaching =
+      llvm::any_of(before.reachingTokens, [&](const TokenState &t) {
+        return drainBehavior(t.getKind()) == DrainBehavior::OutOfOrder;
+      });
+
+  // An out-of-order kind (scalar memory) outstanding on lgkmcnt makes a partial
+  // lgkm wait unsound, so drain lgkmcnt fully. A pure in-order (ds) lgkm wait
+  // keeps its partial count.
+  if (waitsLgkm && outOfOrderReaching)
+    c.updateCount(WaitCounterKind::Lgkm, 0);
+
+  for (const TokenState &t : waited)
+    c.updateCount(t.getKind(), t.getPosition());
+
+  auto countOf = [&](const TokenState &t) { return c.getCount(t.getKind()); };
+  SmallVector<TokenState> next = resolveReaching(
+      before.reachingTokens, countOf, waited, after.waitOpInfo->impliedTokens);
+  after.waitOpInfo->waitedTokens = std::move(waited);
+
+  bool changed = !(oldInfo == after.waitOpInfo);
+  if (after.reachingTokens != next) {
+    changed = true;
+    after.reachingTokens = std::move(next);
+  }
+  return changed ? ChangeResult::Change : ChangeResult::NoChange;
+}
+
+//===----------------------------------------------------------------------===//
+// WaitAnalysisGfx1250
+//===----------------------------------------------------------------------===//
+
+WaitCnt WaitAnalysisGfx1250::countsFromWaitOp(WaitCntOpInterface waitOp) const {
+  WaitCntGfx1250 c;
+  for (WaitCounterKind k : WaitCntGfx1250::kKinds) {
+    uint16_t v = waitOp.getCounterValue(k);
+    if (v != WaitCntOpInterface::kNoWaitCount)
+      c.updateCount(k, v);
+  }
+  return c;
+}
+
+ChangeResult
+WaitAnalysisGfx1250::advanceAndAdd(WaitState &state,
+                                   ArrayRef<TokenState> produced) const {
+  // Each counter is independent: a produced token advances only reaching tokens
+  // of the same kind.
+  DenseSet<WaitCounterKind> bumped;
+  for (const TokenState &t : produced)
+    bumped.insert(t.getKind());
+  for (TokenState &t : state.reachingTokens)
+    if (bumped.contains(t.getKind()))
+      ++t;
+  return merge(state.reachingTokens, produced) ? ChangeResult::Change
+                                               : ChangeResult::NoChange;
+}
+
+ChangeResult WaitAnalysisGfx1250::transferWait(
+    const WaitState &before, ValueRange deps, WaitCnt counts, WaitState &after,
+    llvm::function_ref<TokenState(Value)> getState) const {
+  // Snapshot the prior waitOpInfo for precise (content, not size) change
+  // detection; the reaching set is the other, independent change dimension.
+  std::optional<WaitOpInfo> oldInfo = after.waitOpInfo;
+  if (after.waitOpInfo.has_value()) {
+    after.waitOpInfo->counts = counts;
+    after.waitOpInfo->waitedTokens.clear();
+    after.waitOpInfo->impliedTokens.clear();
+  } else {
+    after.waitOpInfo = WaitOpInfo(counts);
+  }
+  WaitCntGfx1250 &c = std::get<WaitCntGfx1250>(after.waitOpInfo->counts);
+
+  SmallVector<TokenState> waited =
+      findWaitedTokens(before.reachingTokens, deps, getState);
+  bool waitsKm = llvm::any_of(waited, [&](const TokenState &t) {
+    return drainBehavior(t.getKind()) == DrainBehavior::OutOfOrder;
+  });
+  bool outOfOrderReaching =
+      llvm::any_of(before.reachingTokens, [&](const TokenState &t) {
+        return drainBehavior(t.getKind()) == DrainBehavior::OutOfOrder;
+      });
+  // An out-of-order kind (scalar_read) cannot be partially waited; drain its
+  // counter fully.
+  if (waitsKm && outOfOrderReaching)
+    c.updateCount(WaitCounterKind::ScalarRead, 0);
+  for (const TokenState &t : waited)
+    c.updateCount(t.getKind(), t.getPosition());
+
+  auto countOf = [&](const TokenState &t) { return c.getCount(t.getKind()); };
+  SmallVector<TokenState> next = resolveReaching(
+      before.reachingTokens, countOf, waited, after.waitOpInfo->impliedTokens);
+  after.waitOpInfo->waitedTokens = std::move(waited);
+
+  bool changed = !(oldInfo == after.waitOpInfo);
+  if (after.reachingTokens != next) {
+    changed = true;
+    after.reachingTokens = std::move(next);
+  }
+  return changed ? ChangeResult::Change : ChangeResult::NoChange;
+}
+
+WaitAnalysisBase &mlir::aster::amdgcn::loadWaitAnalysis(
+    DataFlowSolver &solver, DominanceInfo &domInfo, WaitCounterModel model) {
+  switch (model) {
+  // CDNA3/4 have the same two-counter model.
+  case WaitCounterModel::CDNA3:
+  case WaitCounterModel::CDNA4:
+    return *solver.load<WaitAnalysisCdna>(domInfo);
+  case WaitCounterModel::GFX12_50:
+    return *solver.load<WaitAnalysisGfx1250>(domInfo);
+  }
+  llvm_unreachable("unhandled wait counter model");
+}
 
 #define DUMP_STATE_HELPER(name, obj, extra)                                    \
   LDBG_OS([&](raw_ostream &os) {                                               \
@@ -513,29 +483,24 @@ static bool handleEscapedTokens(SmallVectorImpl<TokenState> &results,
     os << "  Handling escaped tokens: "
        << llvm::interleaved_array(escapedTokens);
   });
-  // One escaped position per counter kind, indexed by WaitCounterKind.
-  std::array<int32_t, WaitCnt::kNumKinds> cnt;
-  cnt.fill(static_cast<int32_t>(TokenState::kMaxPosition));
-  auto getEscCnt = [&](WaitCounterKind kind) -> int32_t & {
-    int32_t i = static_cast<int32_t>(kind);
-    assert(i >= 0 && i < static_cast<int32_t>(WaitCnt::kNumKinds) &&
-           "invalid wait counter kind");
-    return cnt[i];
-  };
+  // Keep the dominant (min) position per escaped token kind. Tokens may carry
+  // any model's kinds (CDNA: vm/ds/km; gfx1250: load/store/ds/km/tensor), so
+  // key by kind directly rather than a fixed slot range.
+  DenseMap<WaitCounterKind, int32_t> minPos;
   for (TokenState &tok : escapedTokens) {
     // mapControlFlowOperands nulls out matched tokens with TokenState().
     // Skip these sentinels (id == -1 is not a valid token ID).
     if (tok.getID() == -1)
       continue;
-    getEscCnt(tok.getKind()) =
-        std::min(getEscCnt(tok.getKind()), tok.getPosition());
+    auto [it, inserted] = minPos.try_emplace(tok.getKind(), tok.getPosition());
+    if (!inserted)
+      it->second =
+          std::min(it->second, static_cast<int32_t>(tok.getPosition()));
   }
   escapedTokens.clear();
-  for (size_t i = 0; i < WaitCnt::kNumKinds; ++i) {
-    auto kind = static_cast<WaitCounterKind>(i);
-    if (getEscCnt(kind) != TokenState::kMaxPosition)
-      escapedTokens.push_back(TokenState::unknown(kind, getEscCnt(kind)));
-  }
+  for (auto [kind, pos] : minPos)
+    escapedTokens.push_back(TokenState::unknown(kind, pos));
+  // Sort restores a deterministic order (DenseMap iteration is unordered).
   llvm::sort(escapedTokens);
   return merge(results, escapedTokens);
 }
@@ -565,13 +530,13 @@ static bool addTokensByDominance(SmallVectorImpl<TokenState> &results,
   return merge(results, scratch);
 }
 
-TokenState WaitAnalysis::getState(Value token, TokenState::ID position) {
-  std::optional<WaitCounterKind> kind = getCounterKind(token);
+TokenState WaitAnalysisBase::getState(Value token, TokenState::ID position) {
+  std::optional<WaitCounterKind> kind = this->getCounterKind(token);
   assert(kind && "expected a dependency token");
   return TokenState(token, getID(token), *kind, position);
 }
 
-bool WaitAnalysis::mapControlFlowOperands(
+bool WaitAnalysisBase::mapControlFlowOperands(
     SmallVectorImpl<TokenState> &results, SmallVectorImpl<TokenState> &scratch,
     SmallVectorImpl<TokenState> &escapedTokens,
     ArrayRef<TokenState> predecessorTokens, ValueRange successorOperands,
@@ -598,10 +563,14 @@ bool WaitAnalysis::mapControlFlowOperands(
       continue;
 
     // Remove from escaped tokens those tokens that flow through control-flow.
-    if (auto lb = llvm::lower_bound(escapedTokens, *it);
-        lb != escapedTokens.end() && *lb == *it) {
-      LDBG() << "  Removing escaped token: " << *lb;
-      *lb = TokenState();
+    // Linear scan, not lower_bound: entries are nulled in place below, so the
+    // set is not kept ordered, and correctness must not depend on the
+    // counter-kind enum ordering.
+    auto esc = llvm::find_if(escapedTokens,
+                             [&](const TokenState &s) { return s == *it; });
+    if (esc != escapedTokens.end()) {
+      LDBG() << "  Removing escaped token: " << *esc;
+      *esc = TokenState();
     }
 
     scratch.push_back(
@@ -611,18 +580,18 @@ bool WaitAnalysis::mapControlFlowOperands(
   return merge(results, scratch);
 }
 
-LogicalResult WaitAnalysis::visitOperation(Operation *op,
-                                           const WaitState &before,
-                                           WaitState *after) {
+LogicalResult WaitAnalysisBase::visitOperation(Operation *op,
+                                               const WaitState &before,
+                                               WaitState *after) {
   DUMP_STATE_HELPER("op", OpWithFlags(op, OpPrintingFlags().skipRegions()), {});
 
-  // Handle a wait op (amdgcn.wait or amdgcn.wait_gfx1250) uniformly via the
-  // interface. Both ops' only operands are their token dependencies.
+  // A wait op (amdgcn.wait or amdgcn.wait_gfx1250) is handled by the model's
+  // transferWait. Both ops' only operands are their token dependencies.
   if (auto waitOp = dyn_cast<WaitCntOpInterface>(op)) {
-    auto getState = [&](Value token) { return this->getState(token, 0); };
-    propagateIfChanged(after, after->joinWait(op->getOperands(), before,
-                                              WaitCnt::fromOp(waitOp, model),
-                                              getState, model));
+    auto getSt = [&](Value token) { return this->getState(token, 0); };
+    propagateIfChanged(after,
+                       transferWait(before, op->getOperands(),
+                                    countsFromWaitOp(waitOp), *after, getSt));
     return success();
   }
 
@@ -632,7 +601,7 @@ LogicalResult WaitAnalysis::visitOperation(Operation *op,
 
   // Collect produced tokens.
   for (OpResult result : op->getResults()) {
-    if (!getCounterKind(result))
+    if (!this->getCounterKind(result))
       continue;
     producedTokens.push_back(getState(result, 0));
   }
@@ -641,16 +610,16 @@ LogicalResult WaitAnalysis::visitOperation(Operation *op,
   if (!producedTokens.empty()) {
     llvm::sort(producedTokens);
     producedTokens.erase(llvm::unique(producedTokens), producedTokens.end());
-    changed = after->addTokens(producedTokens, model) | changed;
+    changed = advanceAndAdd(*after, producedTokens) | changed;
   }
   propagateIfChanged(after, changed);
   return success();
 }
 
-void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
-                                      Block *predecessor,
-                                      const WaitState &before,
-                                      WaitState *after) {
+void WaitAnalysisBase::visitBlockTransfer(Block *block, ProgramPoint *point,
+                                          Block *predecessor,
+                                          const WaitState &before,
+                                          WaitState *after) {
   DUMP_STATE_HELPER("block", block, {});
   auto terminator = cast<BranchOpInterface>(predecessor->getTerminator());
   bool changed = false;
@@ -683,7 +652,7 @@ void WaitAnalysis::visitBlockTransfer(Block *block, ProgramPoint *point,
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
 }
 
-void WaitAnalysis::visitRegionBranchControlFlowTransfer(
+void WaitAnalysisBase::visitRegionBranchControlFlowTransfer(
     RegionBranchOpInterface branch, std::optional<unsigned> regionFrom,
     std::optional<unsigned> regionTo, const WaitState &before,
     WaitState *after) {
@@ -737,7 +706,7 @@ void WaitAnalysis::visitRegionBranchControlFlowTransfer(
                      changed ? ChangeResult::Change : ChangeResult::NoChange);
 }
 
-void WaitAnalysis::visitCallControlFlowTransfer(
+void WaitAnalysisBase::visitCallControlFlowTransfer(
     CallOpInterface call, dataflow::CallControlFlowAction action,
     const WaitState &before, WaitState *after) {
   DUMP_STATE_HELPER("call op",
@@ -745,7 +714,7 @@ void WaitAnalysis::visitCallControlFlowTransfer(
   assert(false && "we don't support inter-procedural analysis");
 }
 
-void WaitAnalysis::setToEntryState(WaitState *lattice) {
+void WaitAnalysisBase::setToEntryState(WaitState *lattice) {
   auto fingerprint = getStateFingerprint(*lattice);
   lattice->reachingTokens.clear();
   lattice->waitOpInfo.reset();

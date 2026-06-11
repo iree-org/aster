@@ -54,7 +54,7 @@ public:
     auto runOn = [&](Operation *root, WaitCounterModel model) -> LogicalResult {
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       dataflow::loadBaselineAnalyses(solver);
-      solver.load<WaitAnalysis>(domInfo, model);
+      loadWaitAnalysis(solver, domInfo, model);
       if (failed(solver.initializeAndRun(root))) {
         root->emitError() << "failed to run wait analysis";
         return failure();
@@ -86,6 +86,7 @@ public:
         operation->setAttr("wait_analysis.before", beforeAttr);
         operation->setAttr("wait_analysis.after", afterAttr);
       });
+
       return success();
     };
 
@@ -93,11 +94,17 @@ public:
       if (failed(runOn(op, getWaitCounterModelForOp(op))))
         return signalPassFailure();
     } else {
+      bool foundNested = false;
       op->walk([&](amdgcn::ModuleOp amdMod) {
+        foundNested = true;
         if (failed(runOn(amdMod, getWaitCounterModelForOp(amdMod))))
           signalPassFailure();
       });
-      if (failed(runOn(op, getWaitCounterModelForOp(op))))
+      // Only analyze the top-level op directly when there is no typed
+      // amdgcn.module (the bare-func tests). With nested modules the runs above
+      // already cover them, and re-running here would apply the CDNA3 fallback
+      // model to a module of a different ISA.
+      if (!foundNested && failed(runOn(op, getWaitCounterModelForOp(op))))
         return signalPassFailure();
     }
   }

@@ -52,7 +52,8 @@ public:
 static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
                                const WaitCnt &counts) {
   Location loc = waitOpOp->getLoc();
-  auto get = [&](WaitCounterKind s) { return counts.getCount(s); };
+  const WaitCntGfx1250 &c = std::get<WaitCntGfx1250>(counts);
+  auto get = [&](WaitCounterKind s) { return c.getCount(s); };
   auto present = [](int32_t c) { return c < TokenState::kMaxPosition; };
   int32_t load = get(WaitCounterKind::Load);
   int32_t store = get(WaitCounterKind::Store);
@@ -71,8 +72,9 @@ static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
     SWaitStorecnt::create(rewriter, loc).setCount(store);
   if (present(ds) && !dsDone)
     SWaitDscnt::create(rewriter, loc).setCount(ds);
-  if (present(get(WaitCounterKind::Km)))
-    SWaitKmcnt::create(rewriter, loc).setCount(get(WaitCounterKind::Km));
+  if (present(get(WaitCounterKind::ScalarRead)))
+    SWaitKmcnt::create(rewriter, loc)
+        .setCount(get(WaitCounterKind::ScalarRead));
   if (present(get(WaitCounterKind::Tensor)))
     SWaitTensorcnt::create(rewriter, loc)
         .setCount(get(WaitCounterKind::Tensor));
@@ -82,11 +84,10 @@ static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
 /// Rewrite a CDNA wait op to a single s_waitcnt with merged vm/lgkm counts.
 static void rewriteCdnaWait(IRRewriter &rewriter, Operation *waitOpOp,
                             const WaitCnt &counts) {
-  auto get = [&](WaitCounterKind s) { return counts.getCount(s); };
   auto present = [](int32_t c) { return c < TokenState::kMaxPosition; };
-  int32_t vm =
-      std::min(get(WaitCounterKind::Load), get(WaitCounterKind::Store));
-  int32_t lgkm = std::min(get(WaitCounterKind::Ds), get(WaitCounterKind::Km));
+  const WaitCntCdna3 &c = std::get<WaitCntCdna3>(counts);
+  int32_t vm = c.vmcnt;
+  int32_t lgkm = c.lgkmcnt;
   bool hasVm = present(vm), hasLgkm = present(lgkm);
   if (!hasVm && !hasLgkm) {
     rewriter.eraseOp(waitOpOp);
@@ -107,7 +108,7 @@ static LogicalResult convertWaitsOn(Operation *root, WaitCounterModel model,
                                     DominanceInfo &domInfo) {
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   dataflow::loadBaselineAnalyses(solver);
-  solver.load<WaitAnalysis>(domInfo, model);
+  loadWaitAnalysis(solver, domInfo, model);
   if (failed(solver.initializeAndRun(root))) {
     root->emitError() << "failed to run wait analysis";
     return failure();
