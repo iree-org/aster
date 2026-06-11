@@ -415,7 +415,7 @@ LogicalResult initValueSchedulerAnalyses(SchedAnalysis &analysis) {
   WaitCounterModel model = getWaitCounterModelForOp(analysis.getRootOp());
 
   // Load the wait analysis so the graph builder can query wait states.
-  analysis.getSolver().load<WaitAnalysis>(analysis.getDomInfo(), model);
+  loadWaitAnalysis(analysis.getSolver(), analysis.getDomInfo(), model);
   analysis.setRunDataflowAnalyses();
   return success();
 }

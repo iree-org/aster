@@ -61,4 +61,45 @@ func.func @test_global_load_wait(%addr: !amdgcn.vgpr<[? + 2]>, %dst: !amdgcn.vgp
   return
 }
 
+// CHECK-LABEL: test_km_wait_does_not_drain_ds
+// CHECK:       Op: %[[DS_TOK:.*]] = amdgcn.ds_load_b128
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[DS_TOK]], {{[0-9]*}}, 0, ds}]
+// CHECK:       Op: %{{.*}}, %[[KM_TOK:.*]] = amdgcn.s_load_dword
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[KM_TOK]], {{[0-9]*}}, 0, scalar_read}, {%[[DS_TOK]], {{[0-9]*}}, 0, ds}]
+// CHECK:       Op: amdgcn.wait_gfx1250 deps %[[KM_TOK]] : !amdgcn.read_token<constant>
+// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[KM_TOK]], {{[0-9]*}}, 0, scalar_read}, {%[[DS_TOK]], {{[0-9]*}}, 0, ds}]
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[DS_TOK]], {{[0-9]*}}, 0, ds}], wait information = {counts: {load_cnt: nowait, store_cnt: nowait, ds_cnt: nowait, km_cnt: 0, tensor_cnt: nowait}, waited_tokens: [], implied_tokens: [{%[[KM_TOK]], {{[0-9]*}}, 0, scalar_read}]}
+func.func @test_km_wait_does_not_drain_ds(%ds_addr: !amdgcn.vgpr, %km_addr: !amdgcn.sgpr<[? + 2]>) {
+  %ds_dst = lsir.alloca : !amdgcn.vgpr<[0 : 4]>
+  %km_dst = amdgcn.alloca : !amdgcn.sgpr
+  %c0_i32_mig29 = arith.constant 0 : i32
+  %ds_tok = amdgcn.ds_load_b128 dest %ds_dst addr %ds_addr offset c(%c0_i32_mig29) : outs(!amdgcn.vgpr<[0 : 4]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
+  %km_r, %km_tok = amdgcn.s_load_dword dest %km_dst addr %km_addr offset c(%c0_i32_mig29) : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<constant>
+  // On gfx1250 km and ds are independent counters: a km wait must not drain ds.
+  amdgcn.wait_gfx1250 deps %km_tok : !amdgcn.read_token<constant>
+  return
+}
+
+// CHECK-LABEL: test_tensor_wait_does_not_drain_ds
+// CHECK:       Op: %[[DS_TOK:.*]] = amdgcn.ds_load_b128
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[DS_TOK]], {{[0-9]*}}, 0, ds}]
+// CHECK:       Op: %[[TEN_TOK:.*]] = amdgcn.tensor_load_to_lds
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[DS_TOK]], {{[0-9]*}}, 0, ds}, {%[[TEN_TOK]], {{[0-9]*}}, 0, tensor}]
+// CHECK:       Op: amdgcn.wait_gfx1250 deps %[[TEN_TOK]] : !amdgcn.read_token<tensor>
+// CHECK:       	WAIT STATE BEFORE: unhandled tokens = [{%[[DS_TOK]], {{[0-9]*}}, 0, ds}, {%[[TEN_TOK]], {{[0-9]*}}, 0, tensor}]
+// CHECK:       	WAIT STATE AFTER: unhandled tokens = [{%[[DS_TOK]], {{[0-9]*}}, 0, ds}], wait information = {counts: {load_cnt: nowait, store_cnt: nowait, ds_cnt: nowait, km_cnt: nowait, tensor_cnt: 0}, waited_tokens: [], implied_tokens: [{%[[TEN_TOK]], {{[0-9]*}}, 0, tensor}]}
+func.func @test_tensor_wait_does_not_drain_ds(%ds_addr: !amdgcn.vgpr) {
+  %ds_dst = lsir.alloca : !amdgcn.vgpr<[0 : 4]>
+  %d0 = lsir.alloca : !amdgcn.sgpr<[0 : 4]>
+  %d1 = lsir.alloca : !amdgcn.sgpr<[8 : 16]>
+  %d2 = lsir.alloca : !amdgcn.sgpr<[16 : 20]>
+  %d3 = lsir.alloca : !amdgcn.sgpr<[20 : 24]>
+  %c0_i32_mig30 = arith.constant 0 : i32
+  %ds_tok = amdgcn.ds_load_b128 dest %ds_dst addr %ds_addr offset c(%c0_i32_mig30) : outs(!amdgcn.vgpr<[0 : 4]>) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
+  %tensor_tok = amdgcn.tensor_load_to_lds desc0 %d0 desc1 %d1 desc2 %d2 desc3 %d3 : ins(!amdgcn.sgpr<[0 : 4]>, !amdgcn.sgpr<[8 : 16]>, !amdgcn.sgpr<[16 : 20]>, !amdgcn.sgpr<[20 : 24]>) -> !amdgcn.read_token<tensor>
+  // On gfx1250 tensor and ds are independent counters: a tensor wait must not drain ds.
+  amdgcn.wait_gfx1250 deps %tensor_tok : !amdgcn.read_token<tensor>
+  return
+}
+
 }
