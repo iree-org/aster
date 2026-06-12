@@ -245,9 +245,11 @@ PHASE_LOWER_TO_AMDGCN = (
     "canonicalize", "cse", "canonicalize",
     "amdgcn-optimize",
     "aster-to-amdgcn",
-    amdgcn_module(amdgcn_kernel("aster-hoist-ops")),
+    amdgcn_module(
+        amdgcn_kernel("aster-hoist-ops"),
+        "aster-apply-sched{silent-mode=true}",
+    ),
     "canonicalize", "cse",
-    "aster-apply-sched{silent-mode=true}",
     "canonicalize",
 )
 

@@ -54,7 +54,7 @@ TEST_LOWER_MINIMAL_PASS_PIPELINE = builtin_module(
 # For no-hardware asm/HSACO tests of concrete kernels that carry waits.
 TEST_LOWER_WAITS_MINIMAL_PASS_PIPELINE = builtin_module(
     PHASE_LOWER_TO_AMDGCN,
-    "amdgcn-convert-waits",
+    amdgcn_module("amdgcn-convert-waits"),
     phase_nop_insertion(delays=0),
 )
 

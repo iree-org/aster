@@ -1,4 +1,6 @@
-// RUN: aster-opt %s --amdgcn-wait-insertion | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline="builtin.module(amdgcn.module(amdgcn-wait-insertion))" | FileCheck %s
+
+amdgcn.module @test_wait_insertion target = #amdgcn.target<gfx942> {
 
 // CHECK-LABEL:   func.func @simple_load_store() {
 // CHECK:           %[[ALLOCA_0:.*]] = memref.alloca() : memref<!amdgcn.read_token<flat>>
@@ -458,4 +460,6 @@ func.func @remove_waits() {
   amdgcn.s_waitcnt vmcnt = 0 expcnt = 0 lgkmcnt = 0
   amdgcn.s_waitcnt vmcnt = 2 expcnt = 2 lgkmcnt = 2 immutable
   return
+}
+
 }

@@ -81,8 +81,9 @@ struct WaitInsertion : public amdgcn::impl::WaitInsertionBase<WaitInsertion> {
 // WaitTransformImpl
 //===----------------------------------------------------------------------===//
 struct WaitTransformImpl {
-  WaitTransformImpl(MLIRContext *ctx, DataFlowSolver &solver)
-      : rewriter(ctx), solver(solver) {}
+  WaitTransformImpl(MLIRContext *ctx, DataFlowSolver &solver,
+                    ISAVersion isaVersion)
+      : rewriter(ctx), solver(solver), isaVersion(isaVersion) {}
 
   /// Run the wait insertion transform.
   void run(FunctionOpInterface funcOp);
@@ -97,8 +98,8 @@ struct WaitTransformImpl {
   DataFlowSolver &solver;
   /// The entry block of the function.
   Block *entryBlock = nullptr;
-  /// The hardware wait-counter model for the current function.
-  WaitCounterModel model = WaitCounterModel::CDNA3;
+  /// ISA for the enclosing module.
+  ISAVersion isaVersion = ISAVersion::CDNA3;
   /// A map from load operations to their corresponding alloca operations.
   DenseMap<FutureOpInterface, memref::AllocaOp> loadToAlloca;
   /// A set of load operations that are consumed by the current instruction.
@@ -175,7 +176,7 @@ void WaitTransformImpl::handleDefinitions(InstOpInterface instOp) {
                                          allocaOp.getResult(), ValueRange());
     // Emit the target-appropriate wait op; counts are computed later by
     // WaitAnalysis + ConvertWaits.
-    if (model == WaitCounterModel::GFX12_50)
+    if (isaVersion == ISAVersion::GFX12_50)
       WaitGfx1250Op::create(rewriter, instOp.getLoc(), token);
     else
       WaitOp::create(rewriter, instOp.getLoc(), token);
@@ -188,7 +189,6 @@ void WaitTransformImpl::run(FunctionOpInterface funcOp) {
     return;
   entryBlock = &body.front();
 
-  model = getWaitCounterModelForOp(funcOp);
   funcOp.walk([this](InstOpInterface instOp) {
     // Erase s_waitcnt operations that are not immutable.
     if (auto wOp = dyn_cast<SWaitcnt>(instOp.getOperation());
@@ -206,7 +206,8 @@ void WaitTransformImpl::run(FunctionOpInterface funcOp) {
 }
 
 void WaitInsertion::runOnOperation() {
-  Operation *op = getOperation();
+  amdgcn::ModuleOp module = getOperation();
+  ISAVersion isaVersion = getIsaForOp(module);
 
   // Create, configure, and run the data flow solver.
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
@@ -238,13 +239,13 @@ void WaitInsertion::runOnOperation() {
   };
 
   solver.load<ReachingDefinitionsAnalysis>(loadFilter, killCallback);
-  if (failed(solver.initializeAndRun(op))) {
-    op->emitError() << "Failed to run reaching definitions analysis";
+  if (failed(solver.initializeAndRun(module))) {
+    module->emitError() << "Failed to run reaching definitions analysis";
     return signalPassFailure();
   }
 
   // Run the wait insertion transform for each function.
-  op->walk([&](FunctionOpInterface funcOp) {
-    WaitTransformImpl(op->getContext(), solver).run(funcOp);
+  module.walk([&](FunctionOpInterface funcOp) {
+    WaitTransformImpl(module->getContext(), solver, isaVersion).run(funcOp);
   });
 }

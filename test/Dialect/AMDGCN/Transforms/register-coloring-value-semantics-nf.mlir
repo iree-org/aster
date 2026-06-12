@@ -6,14 +6,16 @@
 // value-semantics alloca). The allocator detects A's value semantics during the
 // pre-check in RegisterColoring::run and emits the expected diagnostic.
 
-// expected-error @below {{failed to run register allocator}}
-amdgcn.kernel @coalescing_value_semantics_neighbor {
-  %b = amdgcn.alloca : !amdgcn.vgpr<?>
-  %c = amdgcn.alloca : !amdgcn.vgpr<?>
-  // expected-error @below {{found unexpected value register}}
-  %a = amdgcn.alloca : !amdgcn.vgpr
-  amdgcn.test_inst outs %b : (!amdgcn.vgpr<?>) -> ()
-  lsir.copy %c, %b : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
-  amdgcn.test_inst ins %a, %c : (!amdgcn.vgpr, !amdgcn.vgpr<?>) -> ()
-  amdgcn.end_kernel
+amdgcn.module @coalescing_value_semantics_neighbor_mod target = <gfx942> {
+  // expected-error @below {{failed to run register allocator}}
+  amdgcn.kernel @coalescing_value_semantics_neighbor {
+    %b = amdgcn.alloca : !amdgcn.vgpr<?>
+    %c = amdgcn.alloca : !amdgcn.vgpr<?>
+    // expected-error @below {{found unexpected value register}}
+    %a = amdgcn.alloca : !amdgcn.vgpr
+    amdgcn.test_inst outs %b : (!amdgcn.vgpr<?>) -> ()
+    lsir.copy %c, %b : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
+    amdgcn.test_inst ins %a, %c : (!amdgcn.vgpr, !amdgcn.vgpr<?>) -> ()
+    amdgcn.end_kernel
+  }
 }

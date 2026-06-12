@@ -752,12 +752,7 @@ struct LowLevelSchedulerAttrImpl
     if (schedGraph.getOps().empty())
       return success();
 
-    // Look up the magic-number table for this scheduling run. ISA defaults to
-    // CDNA3 if no parent ModuleOp is found (matches the AMDGCNHazards pattern).
-    ISAVersion isaVersion = ISAVersion::CDNA3;
-    if (Operation *parent = schedGraph.getBlock()->getParentOp())
-      if (auto moduleOp = parent->getParentOfType<amdgcn::ModuleOp>())
-        isaVersion = getIsaForTarget(moduleOp.getTarget());
+    ISAVersion isaVersion = schedGraph.getIsaVersion();
     int preset = cast<LowLevelSchedulerAttr>(attr).getPreset();
     const CDNA3Latencies &L = latencies(isaVersion, preset);
 

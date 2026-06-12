@@ -412,10 +412,9 @@ void GraphBuilder::addI1SerializationEdges(SchedGraph &graph) {
 namespace mlir::aster::amdgcn {
 
 LogicalResult initValueSchedulerAnalyses(SchedAnalysis &analysis) {
-  WaitCounterModel model = getWaitCounterModelForOp(analysis.getRootOp());
-
   // Load the wait analysis so the graph builder can query wait states.
-  loadWaitAnalysis(analysis.getSolver(), analysis.getDomInfo(), model);
+  loadWaitAnalysis(analysis.getSolver(), analysis.getDomInfo(),
+                   analysis.getIsaVersion());
   analysis.setRunDataflowAnalyses();
   return success();
 }
@@ -423,6 +422,7 @@ LogicalResult initValueSchedulerAnalyses(SchedAnalysis &analysis) {
 FailureOr<SchedGraph> buildValueSchedulerGraph(Block *block,
                                                const SchedAnalysis &analysis) {
   SchedGraph graph(block);
+  graph.setIsaVersion(analysis.getIsaVersion());
   GraphBuilder builder(block, analysis.getSolver());
   if (failed(builder.run(graph)))
     return failure();

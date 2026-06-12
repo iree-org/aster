@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --aster-apply-sched=scheds=sched --allow-unregistered-dialect | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline='builtin.module(amdgcn.module(aster-apply-sched{scheds=sched}))' --allow-unregistered-dialect | FileCheck %s
 
 #sched = #aster_utils.generic_scheduler<#amdgcn.value_scheduler, #aster_utils.sched_stage_labeler, #aster_utils.stage_topo_sort_sched>
 
@@ -10,6 +10,7 @@
 // CHECK:           amdgcn.wait deps %[[STORE_0]], %[[LOAD_0]] {sched.stage = 5 : i32} : !amdgcn.write_token<flat>, !amdgcn.read_token<flat>
 // CHECK:           return
 // CHECK:         }
+amdgcn.module @default_sched_name target = <gfx942> {
 func.func @amdgcn_load_wait_store(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: !amdgcn.vgpr) attributes {sched = #sched} {
   %c0_i32_mig1 = arith.constant 0 : i32
   %dest_res, %token = amdgcn.global_load_dword dest %arg1 addr %arg0 offset c(%c0_i32_mig1) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
@@ -332,4 +333,5 @@ func.func @ssa_chain() attributes {sched = #sched} {
   %5 = amdgcn.v_add_u32 outs(%3) ins(%1, %0) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   %6 = amdgcn.v_add_u32 outs(%2) ins(%4, %5) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   return
+}
 }

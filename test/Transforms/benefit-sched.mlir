@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --aster-apply-sched=scheds=sched -allow-unregistered-dialect | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline='builtin.module(amdgcn.module(aster-apply-sched{scheds=sched}))' -allow-unregistered-dialect | FileCheck %s
 
 #sched = #aster_utils.generic_scheduler<#aster_utils.ssa_scheduler, #aster_utils.sched_stage_labeler, #aster_utils.benefit_sched>
 
@@ -15,6 +15,7 @@
 // CHECK:           %[[MULI_0:.*]] = arith.muli %[[CONSTANT_0]], %[[ADDI_0]] {sched.stage = 4 : i32} : i32
 // CHECK:           return %[[MULI_0]] : i32
 // CHECK:         }
+amdgcn.module @default_sched_name target = <gfx942> {
 func.func @benefit_flat_block() -> i32 attributes {sched = #sched} {
   %c1 = arith.constant {sched.stage = 2 : i32} 1 : i32
   %c2 = arith.constant {sched.stage = 0 : i32} 2 : i32
@@ -92,4 +93,5 @@ func.func @benefit_highest_first() -> i32 attributes {sched = #sched} {
   %d = arith.addi %c, %c {sched.stage = 3 : i32} : i32
   %sum = arith.addi %b, %d {sched.stage = 4 : i32} : i32
   return %sum : i32
+}
 }

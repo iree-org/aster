@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --aster-to-amdgcn --amdgcn-convert-waits | aster-translate --mlir-to-asm | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline='builtin.module(aster-to-amdgcn,amdgcn.module(amdgcn-convert-waits))' | aster-translate --mlir-to-asm | FileCheck %s
 
 // CHECK-LABEL: Module: gfx1250_loads_mod
 // CHECK:    .amdgcn_target "amdgcn-amd-amdhsa--gfx1250"

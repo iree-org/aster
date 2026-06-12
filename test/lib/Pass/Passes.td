@@ -96,7 +96,7 @@ def TestReachingDefinitions : Pass<"test-reaching-definitions"> {
   ];
 }
 
-def TestWaitAnalysis : Pass<"test-wait-analysis"> {
+def TestWaitAnalysis : Pass<"test-wait-analysis", "mlir::ModuleOp"> {
   let summary = "Test pass for wait analysis";
   let description = [{
     This pass runs wait analysis and prints the wait state
@@ -129,7 +129,14 @@ def TestAMDGCNSchedGraph : Pass<"test-amdgcn-sched-graph"> {
     stderr. Used to verify the dependence edges added by GraphBuilder
     (SSA, wait/barrier, sync-fence, architectural register RAW/WAR, i1
     serialization).
+
+    When the pass root is not an amdgcn.module (e.g. func.func tests), set
+    isa explicitly instead of relying on target lookup.
   }];
+  let options = [
+    Option<"isa", "isa", "std::string", "\"cdna3\"",
+           "ISA version: cdna3, cdna4, or gfx1250">,
+  ];
 }
 
 def TestLDSMultibufferPrep : Pass<"test-lds-multibuffer-prep"> {

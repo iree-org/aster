@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --aster-apply-sched=scheds=sched -allow-unregistered-dialect | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline='builtin.module(amdgcn.module(aster-apply-sched{scheds=sched}))' -allow-unregistered-dialect | FileCheck %s
 
 // Scheduler definitions used across tests.
 //   sched1 - schedLimit=1 (default): at most one op selected per invocation.
@@ -22,6 +22,7 @@
 // CHECK:           "test.inst"() {sched.stage = 2 : i32} : () -> i32
 // CHECK:           "test.inst"() {sched.stage = 1 : i32} : () -> i32
 // CHECK:           return %[[N0]] : i32
+amdgcn.module @default_sched_name target = <gfx942> {
 func.func @phase1_zero_label_immediate() -> i32 attributes {sched = #sched1} {
   %0 = "test.inst"() {sched.stage = 3 : i32} : () -> i32
   %1 = "test.inst"() {sched.stage = 2 : i32} : () -> i32
@@ -134,4 +135,5 @@ func.func @respects_ssa_deps() -> i32 attributes {sched = #sched2} {
   %1 = "test.inst"() {sched.stage = 3 : i32} : () -> i32
   %2 = "test.inst"(%0, %1) {sched.stage = 2 : i32} : (i32, i32) -> i32
   return %2 : i32
+}
 }

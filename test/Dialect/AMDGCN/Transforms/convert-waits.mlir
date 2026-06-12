@@ -1,9 +1,10 @@
-// RUN: aster-opt --canonicalize --amdgcn-convert-waits %s | FileCheck %s
-// RUN: aster-opt --canonicalize --amdgcn-convert-waits=remove-cf-args=false %s | FileCheck %s --check-prefix=CHECK-KEEP-ARGS
+// RUN: aster-opt %s --pass-pipeline='builtin.module(canonicalize,amdgcn.module(amdgcn-convert-waits))' | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline='builtin.module(canonicalize,amdgcn.module(amdgcn-convert-waits{remove-cf-args=false}))' | FileCheck %s --check-prefix=CHECK-KEEP-ARGS
 
 // CHECK-LABEL:   func.func @test_duplicated_waits() {
 // CHECK:           amdgcn.s_waitcnt vmcnt = 0
 // CHECK:           amdgcn.s_waitcnt vmcnt = 0
+amdgcn.module @convert_waits_mod target = <gfx942> {
 func.func @test_duplicated_waits() {
   %0 = amdgcn.alloca : !amdgcn.vgpr
   %1 = amdgcn.alloca : !amdgcn.vgpr
@@ -379,4 +380,5 @@ func.func @test_wait_canonicalization(%addr: !amdgcn.vgpr) {
   amdgcn.test_inst : () -> ()
   amdgcn.wait deps %token_3 : !amdgcn.read_token<shared>
   return
+}
 }

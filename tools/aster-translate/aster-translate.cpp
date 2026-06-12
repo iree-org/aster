@@ -30,17 +30,16 @@ using namespace mlir::aster::amdgcn;
 static void registerToASMTranslation() {
   TranslateFromMLIRRegistration registration(
       "mlir-to-asm", "Translate MLIR to AMDGCN ASM",
-      [](Operation *op, raw_ostream &os) -> LogicalResult {
-        // Translate each AMDGCN module found.
-        if (auto amdModule = dyn_cast<amdgcn::ModuleOp>(op))
-          return target::translateModule(amdModule, os);
-        if (auto topMod = dyn_cast<mlir::ModuleOp>(op)) {
-          for (auto mod : topMod.getOps<amdgcn::ModuleOp>()) {
-            if (failed(target::translateModule(mod, os)))
-              return failure();
-          }
-        }
-        return llvm::success();
+      [](mlir::ModuleOp topMod, raw_ostream &os) -> LogicalResult {
+        if (topMod
+                .walk([&](amdgcn::ModuleOp mod) {
+                  return failed(target::translateModule(mod, os))
+                             ? WalkResult::interrupt()
+                             : WalkResult::advance();
+                })
+                .wasInterrupted())
+          return failure();
+        return success();
       },
       [](DialectRegistry &registry) {
         initDialects(registry);

@@ -4,20 +4,22 @@
 // failure. When no scheds are specified, "aster.sched" is used as default.
 
 // RUN: aster-opt %s -split-input-file \
-// RUN:   --aster-apply-sched="scheds=missing silent-mode=true" \
+// RUN:   --pass-pipeline='builtin.module(amdgcn.module(aster-apply-sched{scheds=missing silent-mode=true}))' \
 // RUN:   -allow-unregistered-dialect | FileCheck %s --check-prefix=SILENT
 
 // RUN: aster-opt %s -split-input-file \
-// RUN:   --aster-apply-sched -allow-unregistered-dialect \
-// RUN:   | FileCheck %s --check-prefix=DEFAULT
+// RUN:   --pass-pipeline='builtin.module(amdgcn.module(aster-apply-sched))' \
+// RUN:   -allow-unregistered-dialect | FileCheck %s --check-prefix=DEFAULT
 
 // Verify that when silent-mode=true and the requested schedule is absent, the
 // pass succeeds and the function is passed through unchanged.
 
 // SILENT-LABEL: func.func @silent_missing_sched
 // SILENT-NEXT:    return
-func.func @silent_missing_sched() {
+amdgcn.module @default_sched_name target = <gfx942> {
+  func.func @silent_missing_sched() {
   return
+  }
 }
 
 // -----
@@ -32,9 +34,11 @@ func.func @silent_missing_sched() {
 // DEFAULT-NEXT:    %[[C1:.*]] = arith.constant {sched.stage = 1 : i32} 1 : i32
 // DEFAULT-NEXT:    return %[[C0]], %[[C1]]
 // SILENT-LABEL: func.func @default_sched_name
-func.func @default_sched_name() -> (i32, i32)
+amdgcn.module @default_sched_name target = <gfx942> {
+  func.func @default_sched_name() -> (i32, i32)
     attributes {"aster.sched" = #sched} {
   %c1 = arith.constant {sched.stage = 1 : i32} 1 : i32
   %c0 = arith.constant {sched.stage = 0 : i32} 0 : i32
   return %c0, %c1 : i32, i32
+  }
 }

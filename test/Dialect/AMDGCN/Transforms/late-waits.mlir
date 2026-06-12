@@ -1,5 +1,6 @@
 // RUN: aster-opt %s --amdgcn-late-waits --split-input-file | FileCheck %s
 
+amdgcn.module @late_waits_0 target = #amdgcn.target<gfx942> {
 // CHECK-LABEL: func.func @vmem_load_store
 // CHECK:         %[[DEST:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:         %[[A:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
@@ -20,9 +21,11 @@ func.func @vmem_load_store() {
   %4 = amdgcn.global_store_dword data %0 addr %3 offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<[? : ? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
   return
 }
+}
 
 // -----
 
+amdgcn.module @late_waits_1 target = #amdgcn.target<gfx942> {
 // CHECK-LABEL: func.func @shared_load_store
 // CHECK:         %[[DEST:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:         %[[ADDR:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
@@ -39,9 +42,11 @@ func.func @shared_load_store() {
   %2 = amdgcn.ds_write_b32 data %0 addr %1 offset c(%c0_i32_mig1) : ins(!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) mods(i32) -> !amdgcn.write_token<shared>
   return
 }
+}
 
 // -----
 
+amdgcn.module @late_waits_2 target = #amdgcn.target<gfx942> {
 // CHECK-LABEL: func.func @vmem_load_branch
 // CHECK:         %[[DEST:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:         amdgcn.global_load_dword dest %[[DEST]]
@@ -70,4 +75,5 @@ func.func @vmem_load_branch(%cond: i1) {
   cf.br ^bb3
 ^bb3:
   return
+}
 }

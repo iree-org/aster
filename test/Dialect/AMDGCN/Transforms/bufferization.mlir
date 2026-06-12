@@ -3,8 +3,7 @@
 // Simple diamond CFG: two allocas merge at block argument.
 // The pass should insert copies before each branch.
 
-func.func private @rand() -> i1
-// CHECK-LABEL:   amdgcn.kernel @bufferization_phi_copies_1 {
+// CHECK-LABEL:   kernel @bufferization_phi_copies_1 {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:           %[[CALL_0:.*]] = func.call @rand() : () -> i1
@@ -27,24 +26,26 @@ func.func private @rand() -> i1
 // CHECK:           end_kernel
 // CHECK:         }
 // CHECK:         func.func private @rand() -> i1
-amdgcn.kernel @bufferization_phi_copies_1 {
-  %0 = func.call @rand() : () -> i1
-  %1 = alloca : !amdgcn.vgpr
-  %2 = alloca : !amdgcn.vgpr
-  cf.cond_br %0, ^bb1, ^bb2
-^bb1:  // pred: ^bb0
-  cf.br ^bb3(%1 : !amdgcn.vgpr)
-^bb2:  // pred: ^bb0
-  cf.br ^bb3(%2 : !amdgcn.vgpr)
-^bb3(%3: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
-  %4 = test_inst outs %3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-  end_kernel
+amdgcn.module @bufferization_phi_copies_1_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @bufferization_phi_copies_1 {
+    %0 = func.call @rand() : () -> i1
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.vgpr
+    cf.cond_br %0, ^bb1, ^bb2
+  ^bb1:  // pred: ^bb0
+    cf.br ^bb3(%1 : !amdgcn.vgpr)
+  ^bb2:  // pred: ^bb0
+    cf.br ^bb3(%2 : !amdgcn.vgpr)
+  ^bb3(%3: !amdgcn.vgpr):  // 2 preds: ^bb1, ^bb2
+    %4 = test_inst outs %3 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    end_kernel
+  }
 }
 
 // -----
 
-func.func private @rand() -> i1
-// CHECK-LABEL:   amdgcn.kernel @bufferization_same_phi_value {
+// CHECK-LABEL:   kernel @bufferization_same_phi_value {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:           %[[CALL_0:.*]] = func.call @rand() : () -> i1
@@ -66,25 +67,27 @@ func.func private @rand() -> i1
 // CHECK:           end_kernel
 // CHECK:         }
 // CHECK:         func.func private @rand() -> i1
-amdgcn.kernel @bufferization_same_phi_value {
-  %0 = func.call @rand() : () -> i1
-  %1 = alloca : !amdgcn.vgpr
-  cf.cond_br %0, ^bb1, ^bb2
-^bb1:
-  cf.br ^bb3(%1 : !amdgcn.vgpr)
-^bb2:
-  cf.br ^bb3(%1 : !amdgcn.vgpr)
-^bb3(%3: !amdgcn.vgpr):
-  test_inst ins %3 : (!amdgcn.vgpr) -> ()
-  end_kernel
+amdgcn.module @bufferization_same_phi_value_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @bufferization_same_phi_value {
+    %0 = func.call @rand() : () -> i1
+    %1 = alloca : !amdgcn.vgpr
+    cf.cond_br %0, ^bb1, ^bb2
+  ^bb1:
+    cf.br ^bb3(%1 : !amdgcn.vgpr)
+  ^bb2:
+    cf.br ^bb3(%1 : !amdgcn.vgpr)
+  ^bb3(%3: !amdgcn.vgpr):
+    test_inst ins %3 : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
 }
 
 // -----
 
 // Test SGPR type: should insert copies.
 
-func.func private @rand() -> i1
-// CHECK-LABEL:   amdgcn.kernel @bufferization_sgpr_copies {
+// CHECK-LABEL:   kernel @bufferization_sgpr_copies {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.sgpr<?>
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.sgpr
 // CHECK:           %[[CALL_0:.*]] = func.call @rand() : () -> i1
@@ -107,25 +110,27 @@ func.func private @rand() -> i1
 // CHECK:           end_kernel
 // CHECK:         }
 // CHECK:         func.func private @rand() -> i1
-amdgcn.kernel @bufferization_sgpr_copies {
-  %0 = func.call @rand() : () -> i1
-  %1 = alloca : !amdgcn.sgpr
-  %2 = alloca : !amdgcn.sgpr
-  cf.cond_br %0, ^bb1, ^bb2
-^bb1:
-  cf.br ^bb3(%1 : !amdgcn.sgpr)
-^bb2:
-  cf.br ^bb3(%2 : !amdgcn.sgpr)
-^bb3(%3: !amdgcn.sgpr):
-  test_inst ins %3 : (!amdgcn.sgpr) -> ()
-  end_kernel
+amdgcn.module @bufferization_sgpr_copies_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @bufferization_sgpr_copies {
+    %0 = func.call @rand() : () -> i1
+    %1 = alloca : !amdgcn.sgpr
+    %2 = alloca : !amdgcn.sgpr
+    cf.cond_br %0, ^bb1, ^bb2
+  ^bb1:
+    cf.br ^bb3(%1 : !amdgcn.sgpr)
+  ^bb2:
+    cf.br ^bb3(%2 : !amdgcn.sgpr)
+  ^bb3(%3: !amdgcn.sgpr):
+    test_inst ins %3 : (!amdgcn.sgpr) -> ()
+    end_kernel
+  }
 }
 
 // -----
 
 // Values derived from allocas (not raw allocas) - should still insert copies.
-func.func private @rand() -> i1
-// CHECK-LABEL:   amdgcn.kernel @bufferization_derived_values {
+// CHECK-LABEL:   kernel @bufferization_derived_values {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:           %[[CALL_0:.*]] = func.call @rand() : () -> i1
@@ -151,29 +156,31 @@ func.func private @rand() -> i1
 // CHECK:           end_kernel
 // CHECK:         }
 // CHECK:         func.func private @rand() -> i1
-amdgcn.kernel @bufferization_derived_values {
-  %0 = func.call @rand() : () -> i1
-  %1 = alloca : !amdgcn.vgpr
-  %2 = alloca : !amdgcn.vgpr
-  %3 = alloca : !amdgcn.sgpr
-  %v1 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  %v2 = test_inst outs %2 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  cf.cond_br %0, ^bb1, ^bb2
-^bb1:
-  cf.br ^bb3(%v1 : !amdgcn.vgpr)
-^bb2:
-  cf.br ^bb3(%v2 : !amdgcn.vgpr)
-^bb3(%val: !amdgcn.vgpr):
-  test_inst ins %val : (!amdgcn.vgpr) -> ()
-  end_kernel
+amdgcn.module @bufferization_derived_values_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @bufferization_derived_values {
+    %0 = func.call @rand() : () -> i1
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.vgpr
+    %3 = alloca : !amdgcn.sgpr
+    %v1 = test_inst outs %1 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v2 = test_inst outs %2 ins %3 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    cf.cond_br %0, ^bb1, ^bb2
+  ^bb1:
+    cf.br ^bb3(%v1 : !amdgcn.vgpr)
+  ^bb2:
+    cf.br ^bb3(%v2 : !amdgcn.vgpr)
+  ^bb3(%val: !amdgcn.vgpr):
+    test_inst ins %val : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
 }
 
 // -----
 
 // Same alloca written twice in ^bb0; the first value (%v1) is used in a
 // successor block. The clobber copy must replace that cross-block use.
-func.func private @rand() -> i1
-// CHECK-LABEL:   amdgcn.kernel @cross_block_clobber {
+// CHECK-LABEL:   kernel @cross_block_clobber {
 // CHECK:           %[[CALL_0:.*]] = func.call @rand() : () -> i1
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.sgpr
@@ -190,26 +197,29 @@ func.func private @rand() -> i1
 // CHECK:         ^bb3:
 // CHECK:           end_kernel
 // CHECK:         }
-amdgcn.kernel @cross_block_clobber {
-  %cond = func.call @rand() : () -> i1
-  %0 = alloca : !amdgcn.vgpr
-  %1 = alloca : !amdgcn.sgpr
-  %v1 = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  %v2 = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  cf.cond_br %cond, ^bb1, ^bb2
-^bb1:
-  test_inst ins %v1 : (!amdgcn.vgpr) -> ()
-  cf.br ^bb3
-^bb2:
-  test_inst ins %v2 : (!amdgcn.vgpr) -> ()
-  cf.br ^bb3
-^bb3:
-  end_kernel
+amdgcn.module @cross_block_clobber_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @cross_block_clobber {
+    %cond = func.call @rand() : () -> i1
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.sgpr
+    %v1 = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %v2 = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    cf.cond_br %cond, ^bb1, ^bb2
+  ^bb1:
+    test_inst ins %v1 : (!amdgcn.vgpr) -> ()
+    cf.br ^bb3
+  ^bb2:
+    test_inst ins %v2 : (!amdgcn.vgpr) -> ()
+    cf.br ^bb3
+  ^bb3:
+    end_kernel
+  }
 }
 
 // -----
 
-// CHECK-LABEL:   amdgcn.kernel @too_few_allocas {
+// CHECK-LABEL:   kernel @too_few_allocas {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.vgpr
 // CHECK:           %[[VAL_1:.*]] = test_inst outs %[[VAL_0]] : (!amdgcn.vgpr) -> !amdgcn.vgpr
 // CHECK:           %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
@@ -220,19 +230,21 @@ amdgcn.kernel @cross_block_clobber {
 // CHECK:           end_kernel
 // CHECK:         }
 // CHECK:         func.func private @rand() -> i1
-amdgcn.kernel @too_few_allocas {
-  %0 = alloca : !amdgcn.vgpr
-  %1 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-  %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-  %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
-  test_inst ins %1, %2, %3 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
-  end_kernel
+amdgcn.module @too_few_allocas_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @too_few_allocas {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %2 = test_inst outs %0 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    %3 = test_inst outs %1 : (!amdgcn.vgpr) -> !amdgcn.vgpr
+    test_inst ins %1, %2, %3 : (!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
 }
 
 // -----
 
-func.func private @rand() -> i1
-// CHECK-LABEL:   amdgcn.kernel @bufferization_loop_backedge {
+// CHECK-LABEL:   kernel @bufferization_loop_backedge {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:           %[[VAL_2:.*]] = alloca : !amdgcn.vgpr
@@ -256,27 +268,29 @@ func.func private @rand() -> i1
 // CHECK:           end_kernel
 // CHECK:         }
 // CHECK:         func.func private @rand() -> i1
-amdgcn.kernel @bufferization_loop_backedge {
-  %0 = alloca : !amdgcn.vgpr
-  %1 = alloca : !amdgcn.sgpr
-  %init = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  cf.br ^header(%init : !amdgcn.vgpr)
-^header(%acc: !amdgcn.vgpr):
-  %cond = func.call @rand() : () -> i1
-  %2 = alloca : !amdgcn.vgpr
-  %next = test_inst outs %2 ins %acc : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
-  cf.cond_br %cond, ^header(%next : !amdgcn.vgpr), ^exit
-^exit:
-  test_inst ins %acc : (!amdgcn.vgpr) -> ()
-  end_kernel
+amdgcn.module @bufferization_loop_backedge_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @bufferization_loop_backedge {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.sgpr
+    %init = test_inst outs %0 ins %1 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    cf.br ^header(%init : !amdgcn.vgpr)
+  ^header(%acc: !amdgcn.vgpr):
+    %cond = func.call @rand() : () -> i1
+    %2 = alloca : !amdgcn.vgpr
+    %next = test_inst outs %2 ins %acc : (!amdgcn.vgpr, !amdgcn.vgpr) -> !amdgcn.vgpr
+    cf.cond_br %cond, ^header(%next : !amdgcn.vgpr), ^exit
+  ^exit:
+    test_inst ins %acc : (!amdgcn.vgpr) -> ()
+    end_kernel
+  }
 }
 
 // -----
 
 // Note: BBArgs processed in order; later BBArg allocas inserted at entry start,
 // so %y's allocas appear before %x's in the output.
-func.func private @rand() -> i1
-// CHECK-LABEL:   amdgcn.kernel @bufferization_swap {
+// CHECK-LABEL:   kernel @bufferization_swap {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:           %[[VAL_2:.*]] = alloca : !amdgcn.vgpr<?>
@@ -305,27 +319,29 @@ func.func private @rand() -> i1
 // CHECK:           end_kernel
 // CHECK:         }
 // CHECK:         func.func private @rand() -> i1
-amdgcn.kernel @bufferization_swap {
-  %0 = alloca : !amdgcn.vgpr
-  %1 = alloca : !amdgcn.vgpr
-  %2 = alloca : !amdgcn.sgpr
-  %a = test_inst outs %0 ins %2 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  %b = test_inst outs %1 ins %2 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  cf.br ^loop(%a, %b : !amdgcn.vgpr, !amdgcn.vgpr)
-^loop(%x: !amdgcn.vgpr, %y: !amdgcn.vgpr):
-  %cond = func.call @rand() : () -> i1
-  cf.cond_br %cond, ^loop(%y, %x : !amdgcn.vgpr, !amdgcn.vgpr), ^exit
-^exit:
-  test_inst ins %x, %y : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
-  end_kernel
+amdgcn.module @bufferization_swap_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @bufferization_swap {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.sgpr
+    %a = test_inst outs %0 ins %2 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %b = test_inst outs %1 ins %2 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    cf.br ^loop(%a, %b : !amdgcn.vgpr, !amdgcn.vgpr)
+  ^loop(%x: !amdgcn.vgpr, %y: !amdgcn.vgpr):
+    %cond = func.call @rand() : () -> i1
+    cf.cond_br %cond, ^loop(%y, %x : !amdgcn.vgpr, !amdgcn.vgpr), ^exit
+  ^exit:
+    test_inst ins %x, %y : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
 }
 
 // -----
 
 // Note: BBArgs processed in order; later BBArg allocas inserted at entry start,
 // so %y's allocas appear before %x's in the output.
-func.func private @rand() -> i1
-// CHECK-LABEL:   amdgcn.kernel @bufferization_multi_bbarg {
+// CHECK-LABEL:   kernel @bufferization_multi_bbarg {
 // CHECK:           %[[VAL_0:.*]] = alloca : !amdgcn.vgpr<?>
 // CHECK:           %[[VAL_1:.*]] = alloca : !amdgcn.vgpr
 // CHECK:           %[[VAL_2:.*]] = alloca : !amdgcn.vgpr<?>
@@ -359,25 +375,28 @@ func.func private @rand() -> i1
 // CHECK:           test_inst ins %[[COPY_0]], %[[COPY_1]] : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
 // CHECK:           end_kernel
 // CHECK:         }
-amdgcn.kernel @bufferization_multi_bbarg {
-  %0 = alloca : !amdgcn.vgpr
-  %1 = alloca : !amdgcn.vgpr
-  %2 = alloca : !amdgcn.vgpr
-  %3 = alloca : !amdgcn.vgpr
-  %4 = alloca : !amdgcn.sgpr
-  %a = test_inst outs %0 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  %b = test_inst outs %1 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  %c = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  %d = test_inst outs %3 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
-  %cond = func.call @rand() : () -> i1
-  cf.cond_br %cond, ^left, ^right
-^left:
-  cf.br ^merge(%a, %b : !amdgcn.vgpr, !amdgcn.vgpr)
-^right:
-  cf.br ^merge(%c, %d : !amdgcn.vgpr, !amdgcn.vgpr)
-^merge(%x: !amdgcn.vgpr, %y: !amdgcn.vgpr):
-  test_inst ins %x, %y : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
-  end_kernel
+amdgcn.module @bufferization_multi_bbarg_mod target = <gfx942> {
+  func.func private @rand() -> i1
+  amdgcn.kernel @bufferization_multi_bbarg {
+    %0 = alloca : !amdgcn.vgpr
+    %1 = alloca : !amdgcn.vgpr
+    %2 = alloca : !amdgcn.vgpr
+    %3 = alloca : !amdgcn.vgpr
+    %4 = alloca : !amdgcn.sgpr
+    %a = test_inst outs %0 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %b = test_inst outs %1 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %c = test_inst outs %2 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %d = test_inst outs %3 ins %4 : (!amdgcn.vgpr, !amdgcn.sgpr) -> !amdgcn.vgpr
+    %cond = func.call @rand() : () -> i1
+    cf.cond_br %cond, ^left, ^right
+  ^left:
+    cf.br ^merge(%a, %b : !amdgcn.vgpr, !amdgcn.vgpr)
+  ^right:
+    cf.br ^merge(%c, %d : !amdgcn.vgpr, !amdgcn.vgpr)
+  ^merge(%x: !amdgcn.vgpr, %y: !amdgcn.vgpr):
+    test_inst ins %x, %y : (!amdgcn.vgpr, !amdgcn.vgpr) -> ()
+    end_kernel
+  }
 }
 
 // -----

@@ -49,6 +49,8 @@
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
+#include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/StringRef.h"
 #include <variant>
 
 namespace mlir::aster::amdgcn {
@@ -78,14 +80,10 @@ enum class DrainBehavior : uint8_t {
   OutOfOrder,
 };
 
-/// Map an ISAVersion to the corresponding WaitCounterModel.
-/// Only CDNA3, CDNA4, and GFX12_50 are supported.
-WaitCounterModel getWaitCounterModel(ISAVersion isa);
-
-/// Resolve the WaitCounterModel for an arbitrary op by looking for an enclosing
-/// amdgcn.module (or the op itself if it is one). Falls back to CDNA3 when no
-/// module is found. Use this everywhere a model is needed from an op context.
-WaitCounterModel getWaitCounterModelForOp(Operation *op);
+/// Resolve the ISA from an `amdgcn.module` target attribute.
+/// Falls back to CDNA3 when the module has no target.
+class ModuleOp;
+ISAVersion getIsaForOp(mlir::aster::amdgcn::ModuleOp);
 
 //===----------------------------------------------------------------------===//
 // TokenState
@@ -326,11 +324,11 @@ struct WaitState : dataflow::AbstractDenseLattice {
   ChangeResult join(const AbstractDenseLattice &lattice) final {
     return join(static_cast<const WaitState &>(lattice));
   }
-  /// Print with model-specific counter/kind names.
-  void print(raw_ostream &os, WaitCounterModel model) const;
+  /// Print with ISA-specific counter/kind names.
+  void print(raw_ostream &os, ISAVersion isaVersion) const;
   /// Print with GFX12_50 names (base-class override).
   void print(raw_ostream &os) const override {
-    print(os, WaitCounterModel::GFX12_50);
+    print(os, ISAVersion::GFX12_50);
   }
 
   /// Reaching tokens at this program point.
@@ -536,11 +534,10 @@ public:
   }
 };
 
-/// Load the wait analysis for `model` into `solver` and return it.
-/// Single entry-point to select the implementation by WaitCounterModel.
+/// Load the wait analysis for `isa` into `solver` and return it.
 WaitAnalysisBase &loadWaitAnalysis(DataFlowSolver &solver,
                                    DominanceInfo &domInfo,
-                                   WaitCounterModel model);
+                                   ISAVersion isaVersion);
 
 } // end namespace mlir::aster::amdgcn
 

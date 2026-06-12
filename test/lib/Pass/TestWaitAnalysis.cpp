@@ -14,14 +14,12 @@
 
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
-#include "aster/Dialect/AMDGCN/IR/Utils.h"
 
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
-#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Dominance.h"
 #include "mlir/IR/Operation.h"
-#include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/raw_ostream.h"
@@ -42,7 +40,7 @@ public:
   using TestWaitAnalysisBase::TestWaitAnalysisBase;
 
   void runOnOperation() override {
-    Operation *op = getOperation();
+    mlir::ModuleOp moduleOp = getOperation();
     auto &domInfo = getAnalysis<DominanceInfo>();
 
     Builder b(&getContext());
@@ -51,10 +49,11 @@ public:
 
     llvm::outs() << "=== Wait Analysis Results ===\n";
 
-    auto runOn = [&](Operation *root, WaitCounterModel model) -> LogicalResult {
+    auto runOn = [&](amdgcn::ModuleOp root) -> LogicalResult {
+      ISAVersion isaVersion = getIsaForOp(root);
       DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
       dataflow::loadBaselineAnalyses(solver);
-      loadWaitAnalysis(solver, domInfo, model);
+      loadWaitAnalysis(solver, domInfo, isaVersion);
       if (failed(solver.initializeAndRun(root))) {
         root->emitError() << "failed to run wait analysis";
         return failure();
@@ -64,7 +63,7 @@ public:
         if (!state)
           return b.getStringAttr("<NULL>");
         str.clear();
-        state->print(stream, model);
+        state->print(stream, isaVersion);
         return b.getStringAttr(str.str());
       };
 
@@ -90,23 +89,13 @@ public:
       return success();
     };
 
-    if (auto amdMod = dyn_cast<amdgcn::ModuleOp>(op)) {
-      if (failed(runOn(op, getWaitCounterModelForOp(op))))
-        return signalPassFailure();
-    } else {
-      bool foundNested = false;
-      op->walk([&](amdgcn::ModuleOp amdMod) {
-        foundNested = true;
-        if (failed(runOn(amdMod, getWaitCounterModelForOp(amdMod))))
-          signalPassFailure();
-      });
-      // Only analyze the top-level op directly when there is no typed
-      // amdgcn.module (the bare-func tests). With nested modules the runs above
-      // already cover them, and re-running here would apply the CDNA3 fallback
-      // model to a module of a different ISA.
-      if (!foundNested && failed(runOn(op, getWaitCounterModelForOp(op))))
-        return signalPassFailure();
-    }
+    if (moduleOp
+            ->walk([&](amdgcn::ModuleOp amdMod) {
+              return succeeded(runOn(amdMod)) ? WalkResult::advance()
+                                              : WalkResult::interrupt();
+            })
+            .wasInterrupted())
+      return signalPassFailure();
   }
 };
 } // namespace
