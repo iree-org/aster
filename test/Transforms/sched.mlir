@@ -1,4 +1,4 @@
-// RUN: aster-opt %s --aster-apply-sched=scheds=sched -allow-unregistered-dialect | FileCheck %s
+// RUN: aster-opt %s --pass-pipeline='builtin.module(amdgcn.module(aster-apply-sched{scheds=sched}))' -allow-unregistered-dialect | FileCheck %s
 
 #sched = #aster_utils.generic_scheduler<#aster_utils.ssa_scheduler, #aster_utils.sched_stage_labeler, #aster_utils.stage_topo_sort_sched>
 
@@ -14,6 +14,7 @@
 // CHECK:           %[[VAL_8:.*]] = "test.inst"(%[[VAL_7]], %[[VAL_6]]) {sched.stage = 5 : i32} : (i32, i32) -> i32
 // CHECK:           return %[[VAL_8]] : i32
 // CHECK:         }
+amdgcn.module @default_sched_name target = <gfx942> {
 func.func @test_ssa_scheduler() -> i32 attributes {sched = #sched} {
   %0 = "test.inst"() {sched.stage = 0 : i32} : () -> i32
   %1 = "test.inst"() {sched.stage = 1 : i32} : () -> i32
@@ -161,4 +162,5 @@ func.func @multiple_independent_loops(%arg0: i32, %arg1: i32) -> i32 attributes 
   } {sched = #sched, sched.stage = 3 : i32}
   %sum = arith.addi %first, %second {sched.stage = 5 : i32} : i32
   return %sum : i32
+}
 }

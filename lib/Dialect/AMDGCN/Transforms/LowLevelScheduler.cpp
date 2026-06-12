@@ -14,6 +14,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsAttrs.h"
@@ -59,8 +60,10 @@ struct LowLevelSchedulerPass
     SmallVector<SchedInfo> schedInfos(
         {SchedInfo{kernel, schedName, compositeAttr, 0}});
 
+    ISAVersion isaVersion =
+        getIsaForOp(cast<amdgcn::ModuleOp>(kernel->getParentOp()));
     AnalysisManager analysisManager = getAnalysisManager();
-    if (failed(applyScheds(kernel, schedInfos, analysisManager)))
+    if (failed(applyScheds(kernel, schedInfos, analysisManager, isaVersion)))
       return signalPassFailure();
   }
 };

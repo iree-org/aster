@@ -15,6 +15,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "Passes.h"
+
+#include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/SchedInterfaces.h"
@@ -44,9 +47,22 @@ struct TestAMDGCNSchedGraph
     Operation *root = getOperation();
     auto &domInfo = getAnalysis<DominanceInfo>();
 
+    std::optional<ISAVersion> isaVersion =
+        llvm::StringSwitch<std::optional<ISAVersion>>(isa.getValue())
+            .Case("cdna3", ISAVersion::CDNA3)
+            .Case("cdna4", ISAVersion::CDNA4)
+            .Case("gfx1250", ISAVersion::GFX12_50)
+            .Default(std::nullopt);
+    if (!isaVersion) {
+      root->emitError() << "invalid isa '" << isa
+                        << "'; expected cdna3, cdna4, or gfx1250";
+      return signalPassFailure();
+    }
+
     DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
     dataflow::loadBaselineAnalyses(solver);
-    SchedAnalysis analysis(root, solver, domInfo, getAnalysisManager());
+    SchedAnalysis analysis(root, solver, domInfo, getAnalysisManager(),
+                           *isaVersion);
 
     // The interface methods are external models; dispatch through the
     // interface.

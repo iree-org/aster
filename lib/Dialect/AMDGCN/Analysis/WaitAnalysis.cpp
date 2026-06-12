@@ -17,8 +17,10 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/DebugLog.h"
 #include "llvm/Support/InterleavedRange.h"
+#include <optional>
 
 #define DEBUG_TYPE "wait-analysis"
 
@@ -124,7 +126,7 @@ TokenState &TokenState::operator++() {
 // WaitCounterModel
 //===----------------------------------------------------------------------===//
 
-WaitCounterModel mlir::aster::amdgcn::getWaitCounterModel(ISAVersion isa) {
+static WaitCounterModel getWaitCounterModel(ISAVersion isa) {
   switch (isa) {
   case ISAVersion::CDNA3:
     return WaitCounterModel::CDNA3;
@@ -137,14 +139,11 @@ WaitCounterModel mlir::aster::amdgcn::getWaitCounterModel(ISAVersion isa) {
   }
 }
 
-WaitCounterModel mlir::aster::amdgcn::getWaitCounterModelForOp(Operation *op) {
-  auto moduleOp = dyn_cast<amdgcn::ModuleOp>(op);
-  if (!moduleOp)
-    moduleOp = op->getParentOfType<amdgcn::ModuleOp>();
-  return moduleOp ? getWaitCounterModel(getIsaForTarget(moduleOp.getTarget()))
-                  : WaitCounterModel::CDNA3;
+ISAVersion mlir::aster::amdgcn::getIsaForOp(amdgcn::ModuleOp op) {
+  if (!op || !op.getTargetAttr())
+    return ISAVersion::CDNA3;
+  return getIsaForTarget(op.getTarget());
 }
-
 //===----------------------------------------------------------------------===//
 // WaitCnt
 //===----------------------------------------------------------------------===//
@@ -235,11 +234,6 @@ resolveReaching(ArrayRef<TokenState> reaching,
 //===----------------------------------------------------------------------===//
 
 void WaitOpInfo::print(llvm::raw_ostream &os) const {
-  // Token-kind names follow the active model, derived from the WaitCnt variant
-  // (CDNA3/CDNA4 share kind names, so any non-GFX12_50 value selects them).
-  WaitCounterModel model = std::holds_alternative<WaitCntGfx1250>(counts)
-                               ? WaitCounterModel::GFX12_50
-                               : WaitCounterModel::CDNA3;
   os << "{counts: ";
   std::visit([&](const auto &c) { c.print(os); }, counts);
   os << ", waited_tokens: [";
@@ -251,7 +245,8 @@ void WaitOpInfo::print(llvm::raw_ostream &os) const {
   os << "]}";
 }
 
-void WaitState::print(raw_ostream &os, WaitCounterModel model) const {
+void WaitState::print(raw_ostream &os, ISAVersion isaVersion) const {
+  (void)isaVersion;
   if (isEmpty()) {
     os << "<Empty>";
     return;
@@ -448,9 +443,10 @@ ChangeResult WaitAnalysisGfx1250::transferWait(
   return changed ? ChangeResult::Change : ChangeResult::NoChange;
 }
 
-WaitAnalysisBase &mlir::aster::amdgcn::loadWaitAnalysis(
-    DataFlowSolver &solver, DominanceInfo &domInfo, WaitCounterModel model) {
-  switch (model) {
+WaitAnalysisBase &mlir::aster::amdgcn::loadWaitAnalysis(DataFlowSolver &solver,
+                                                        DominanceInfo &domInfo,
+                                                        ISAVersion isaVersion) {
+  switch (getWaitCounterModel(isaVersion)) {
   // CDNA3/4 have the same two-counter model.
   case WaitCounterModel::CDNA3:
   case WaitCounterModel::CDNA4:

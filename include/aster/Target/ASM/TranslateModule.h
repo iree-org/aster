@@ -20,10 +20,19 @@
 #include <string>
 #include <vector>
 
+namespace mlir {
+class Operation;
+} // namespace mlir
+
 namespace mlir::aster {
+class TargetAttrInterface;
 namespace amdgcn {
+class AsmPrinter;
 class ModuleOp;
 namespace target {
+
+LogicalResult printISAInstruction(amdgcn::AsmPrinter &printer,
+                                  TargetAttrInterface tgt, Operation *op);
 
 // Structure to hold kernel argument metadata
 struct KernelArg {

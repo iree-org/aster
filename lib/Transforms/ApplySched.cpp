@@ -8,6 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "aster/Transforms/Passes.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
@@ -155,11 +157,12 @@ static LogicalResult applySched(SchedInfo sched, SchedAnalysis &analysis,
 
 LogicalResult mlir::aster::applyScheds(Operation *rootOp,
                                        ArrayRef<SchedInfo> schedsToApply,
-                                       AnalysisManager &analysisManager) {
+                                       AnalysisManager &analysisManager,
+                                       amdgcn::ISAVersion isaVersion) {
   DataFlowSolver solver;
   dataflow::loadBaselineAnalyses(solver);
   DominanceInfo &domInfo = analysisManager.getAnalysis<DominanceInfo>();
-  SchedAnalysis analysis(rootOp, solver, domInfo, analysisManager);
+  SchedAnalysis analysis(rootOp, solver, domInfo, analysisManager, isaVersion);
 
   SmallVector<SchedInfo> schedInfos(schedsToApply.begin(), schedsToApply.end());
 
@@ -194,7 +197,8 @@ LogicalResult mlir::aster::applyScheds(Operation *rootOp,
 //===----------------------------------------------------------------------===//
 
 void ApplySchedPass::runOnOperation() {
-  Operation *root = getOperation();
+  auto moduleOp = getOperation();
+  Operation *root = moduleOp.getOperation();
 
   // Use "aster.sched" as the default schedule name if no schedules are
   // requested.
@@ -245,7 +249,8 @@ void ApplySchedPass::runOnOperation() {
         "\n");
   });
 
+  amdgcn::ISAVersion isaVersion = getIsaForOp(moduleOp);
   AnalysisManager analysisManager = getAnalysisManager();
-  if (failed(applyScheds(root, schedInfos, analysisManager)))
+  if (failed(applyScheds(root, schedInfos, analysisManager, isaVersion)))
     return signalPassFailure();
 }

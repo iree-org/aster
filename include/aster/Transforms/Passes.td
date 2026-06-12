@@ -253,7 +253,8 @@ def AffineOptimizePtrAdd : Pass<"aster-affine-optimize-ptr-add"> {
 // ApplySched
 //===----------------------------------------------------------------------===//
 
-def ApplySched : Pass<"aster-apply-sched"> {
+def ApplySched : Pass<"aster-apply-sched",
+                      "::mlir::aster::amdgcn::ModuleOp"> {
   let summary = "Apply scheduling attributes to blocks";
   let description = [{
     This pass collects SchedAttrInterface attributes from the discardable

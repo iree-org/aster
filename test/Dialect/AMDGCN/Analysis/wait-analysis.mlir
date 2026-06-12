@@ -1,5 +1,6 @@
 // RUN: aster-opt %s --test-wait-analysis | FileCheck %s
 
+amdgcn.module @test_wait_analysis target = #amdgcn.target<gfx942> {
 // CHECK-LABEL: test_duplicated_waits
 // CHECK:       Op: func.func @test_duplicated_waits() {...}
 // CHECK:       	WAIT STATE BEFORE: <Empty>
@@ -493,4 +494,6 @@ func.func @test_cdna_store_only_dep(%arg0: !amdgcn.vgpr<[? + 2]>, %arg1: !amdgcn
   %st_tok = amdgcn.global_store_dword data %arg1 addr %arg0 offset c(%c0_i32_mig31) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.write_token<flat>
   amdgcn.wait deps %st_tok : !amdgcn.write_token<flat>
   return
+}
+
 }

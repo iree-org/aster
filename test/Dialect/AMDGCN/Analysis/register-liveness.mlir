@@ -28,6 +28,7 @@
 // CHECK:    LIVE BEFORE: [3 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @no_interference_mixed_mod target = <gfx942> {
 amdgcn.kernel @no_interference_mixed {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -36,6 +37,7 @@ amdgcn.kernel @no_interference_mixed {
   test_inst outs %0 ins %2 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
   test_inst outs %1 ins %3 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -77,6 +79,7 @@ amdgcn.kernel @no_interference_mixed {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @interference_mixed_all_live_mod target = <gfx942> {
 amdgcn.kernel @interference_mixed_all_live {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -88,6 +91,7 @@ amdgcn.kernel @interference_mixed_all_live {
   test_inst outs %1 ins %3, %1 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>, !amdgcn.vgpr<?>) -> ()
   test_inst ins %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -129,6 +133,7 @@ amdgcn.kernel @interference_mixed_all_live {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @interference_mixed_with_reuse_mod target = <gfx942> {
 amdgcn.kernel @interference_mixed_with_reuse {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -140,6 +145,7 @@ amdgcn.kernel @interference_mixed_with_reuse {
   test_inst outs %1 ins %3, %1 : (!amdgcn.vgpr<?>, !amdgcn.sgpr<?>, !amdgcn.vgpr<?>) -> ()
   test_inst ins %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -198,6 +204,7 @@ amdgcn.kernel @interference_mixed_with_reuse {
 // CHECK:    LIVE BEFORE: [5 = `%{{.*}}`, 6 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @interference_cf_mod target = <gfx942> {
 func.func private @rand() -> i1
 amdgcn.kernel @interference_cf {
   %0 = func.call @rand() : () -> i1
@@ -219,6 +226,7 @@ amdgcn.kernel @interference_cf {
 ^bb3:  // CHECK: 2 preds: ^bb1, ^bb2
   test_inst ins %5, %6 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -260,6 +268,7 @@ amdgcn.kernel @interference_cf {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @test_make_range_liveness_mod target = <gfx942> {
 amdgcn.kernel @test_make_range_liveness {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -272,6 +281,7 @@ amdgcn.kernel @test_make_range_liveness {
   %8 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   test_inst ins %8, %4 : (!amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -313,6 +323,7 @@ amdgcn.kernel @test_make_range_liveness {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @test_make_range_liveness_1_mod target = <gfx942> {
 amdgcn.kernel @test_make_range_liveness_1 {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -325,6 +336,7 @@ amdgcn.kernel @test_make_range_liveness_1 {
   %8 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   test_inst ins %8, %4 : (!amdgcn.vgpr<[? : ? + 2]>, !amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -368,6 +380,7 @@ amdgcn.kernel @test_make_range_liveness_1 {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @test_make_range_liveness_2_mod target = <gfx942> {
 amdgcn.kernel @test_make_range_liveness_2 {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -381,6 +394,7 @@ amdgcn.kernel @test_make_range_liveness_2 {
   %8 = make_register_range %0, %1 : !amdgcn.vgpr<?>, !amdgcn.vgpr<?>
   test_inst ins %8 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -424,6 +438,7 @@ amdgcn.kernel @test_make_range_liveness_2 {
 // CHECK:    LIVE BEFORE: [2 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @test_make_range_liveness_3_mod target = <gfx942> {
 amdgcn.kernel @test_make_range_liveness_3 {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -437,6 +452,7 @@ amdgcn.kernel @test_make_range_liveness_3 {
   test_inst ins %8 : (!amdgcn.vgpr<[? : ? + 2]>) -> ()
   test_inst ins %4 : (!amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -492,6 +508,7 @@ amdgcn.kernel @test_make_range_liveness_3 {
 // CHECK:    LIVE BEFORE: []
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @reg_interference_mod target = <gfx942> {
 amdgcn.kernel @reg_interference {
   %0 = alloca : !amdgcn.sgpr<?>
   %1 = alloca : !amdgcn.sgpr<?>
@@ -508,6 +525,7 @@ amdgcn.kernel @reg_interference {
   test_inst ins %6, %7 : (!amdgcn.sgpr<?>, !amdgcn.sgpr<?>) -> ()
   reg_interference %4, %1, %3, %7 : !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>, !amdgcn.sgpr<?>
   end_kernel
+}
 }
 
 // -----
@@ -591,6 +609,7 @@ amdgcn.kernel @reg_interference {
 // CHECK:    LIVE BEFORE: [9 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @phi_coalescing_2_mod target = <gfx942> {
 amdgcn.kernel @phi_coalescing_2 {
   %c0_i32 = arith.constant 0 : i32
   %0 = alloca : !amdgcn.vgpr<?>
@@ -620,6 +639,7 @@ amdgcn.kernel @phi_coalescing_2 {
 ^bb3:  // CHECK: 2 preds: ^bb1, ^bb2
   test_inst ins %9 : (!amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -679,6 +699,7 @@ amdgcn.kernel @phi_coalescing_2 {
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`, 2 = `%{{.*}}`, 7 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @phi_coalescing_3_mod target = <gfx942> {
 amdgcn.kernel @phi_coalescing_3 {
   %c0_i32 = arith.constant 0 : i32
   %0 = alloca : !amdgcn.vgpr<?>
@@ -700,6 +721,7 @@ amdgcn.kernel @phi_coalescing_3 {
 ^bb3:  // CHECK: 2 preds: ^bb1, ^bb2
   test_inst ins %7, %0, %1 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----
@@ -775,17 +797,29 @@ func.func @test_mixed(%0: !amdgcn.vgpr, %1: !amdgcn.vgpr) {
 
 // -----
 // Test: Empty kernel - no register operations, only end_kernel.
-// CHECK-LABEL: Symbol: test_empty_kernel
+// CHECK-LABEL:  SSA map:
+// CHECK:  Op: module {...}
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Symbol: test_empty_kernel
+// CHECK:  Op: amdgcn.kernel @test_empty_kernel {...}
+// CHECK:    LIVE BEFORE: []
 // CHECK:  Op: amdgcn.end_kernel
 // CHECK:    LIVE BEFORE: []
+amdgcn.module @test_empty_kernel_mod target = <gfx942> {
 amdgcn.kernel @test_empty_kernel {
   end_kernel
+}
 }
 
 // -----
 // Test: Non-register values (i32, i1) are filtered from liveness - only
 // RegisterType values appear in the live set.
-// CHECK-LABEL: Symbol: test_non_register_filtered
+// CHECK-LABEL:  SSA map:
+// CHECK:  Op: module {...}
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Symbol: test_non_register_filtered
+// CHECK:  Op: amdgcn.kernel @test_non_register_filtered {...}
+// CHECK:    LIVE BEFORE: []
 // CHECK:  Op: %{{.*}} = arith.constant 0 : i32
 // CHECK:    LIVE BEFORE: []
 // CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.sgpr<?>
@@ -796,6 +830,7 @@ amdgcn.kernel @test_empty_kernel {
 // CHECK:    LIVE BEFORE: [1 = `%{{.*}}`]
 // CHECK:  Op: lsir.cond_br %{{.*}} : !amdgcn.scc, ^bb1, ^bb2
 // CHECK:    LIVE BEFORE: [3 = `%{{.*}}`]
+amdgcn.module @test_non_register_filtered_mod target = <gfx942> {
 amdgcn.kernel @test_non_register_filtered {
   %c0 = arith.constant 0 : i32
   %0 = alloca : !amdgcn.sgpr<?>
@@ -807,11 +842,17 @@ amdgcn.kernel @test_non_register_filtered {
 ^bb2:
   end_kernel
 }
+}
 
 // -----
 // Test: Long def-use chain - verify backward liveness propagates correctly
 // through many operations.
-// CHECK-LABEL: Symbol: test_long_chain
+// CHECK-LABEL:  SSA map:
+// CHECK:  Op: module {...}
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Symbol: test_long_chain
+// CHECK:  Op: amdgcn.kernel @test_long_chain {...}
+// CHECK:    LIVE BEFORE: []
 // CHECK:  Op: %{{.*}} = amdgcn.alloca : !amdgcn.vgpr<?>
 // CHECK:    LIVE BEFORE: []
 // CHECK:  Op: amdgcn.test_inst outs %{{.*}} ins %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
@@ -822,6 +863,7 @@ amdgcn.kernel @test_non_register_filtered {
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
 // CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} :
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`, 3 = `%{{.*}}`]
+amdgcn.module @test_long_chain_mod target = <gfx942> {
 amdgcn.kernel @test_long_chain {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -833,14 +875,24 @@ amdgcn.kernel @test_long_chain {
   test_inst ins %0, %1, %2, %3 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   end_kernel
 }
+}
 
 // -----
 // Test: Triple branch merge - three predecessors merging into one block.
 // Verifies that liveness correctly unions live values from all predecessors.
-func.func private @rand() -> i1
-// CHECK-LABEL: Symbol: test_triple_merge
+// CHECK-LABEL:  SSA map:
+// CHECK:  Op: module {...}
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Symbol: rand
+// CHECK:  Op: func.func private @rand() -> i1
+// CHECK:    LIVE BEFORE: []
+// CHECK:  Symbol: test_triple_merge
+// CHECK:  Op: amdgcn.kernel @test_triple_merge {...}
+// CHECK:    LIVE BEFORE: []
 // CHECK:  Op: amdgcn.test_inst ins %{{.*}}, %{{.*}}, %{{.*}} : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
 // CHECK:    LIVE BEFORE: [0 = `%{{.*}}`, 1 = `%{{.*}}`, 2 = `%{{.*}}`]
+amdgcn.module @test_triple_merge_mod target = <gfx942> {
+func.func private @rand() -> i1
 amdgcn.kernel @test_triple_merge {
   %0 = alloca : !amdgcn.vgpr<?>
   %1 = alloca : !amdgcn.vgpr<?>
@@ -862,6 +914,7 @@ amdgcn.kernel @test_triple_merge {
 ^bb3:
   test_inst ins %0, %1, %2 : (!amdgcn.vgpr<?>, !amdgcn.vgpr<?>, !amdgcn.vgpr<?>) -> ()
   end_kernel
+}
 }
 
 // -----

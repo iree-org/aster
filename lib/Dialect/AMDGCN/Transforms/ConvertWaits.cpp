@@ -104,11 +104,11 @@ static void rewriteCdnaWait(IRRewriter &rewriter, Operation *waitOpOp,
 
 /// Run the wait analysis on `root` with `model`, then rewrite every wait op
 /// inside it to its hardware form.
-static LogicalResult convertWaitsOn(Operation *root, WaitCounterModel model,
+static LogicalResult convertWaitsOn(Operation *root, ISAVersion isaVersion,
                                     DominanceInfo &domInfo) {
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
   dataflow::loadBaselineAnalyses(solver);
-  loadWaitAnalysis(solver, domInfo, model);
+  loadWaitAnalysis(solver, domInfo, isaVersion);
   if (failed(solver.initializeAndRun(root))) {
     root->emitError() << "failed to run wait analysis";
     return failure();
@@ -130,52 +130,32 @@ static LogicalResult convertWaitsOn(Operation *root, WaitCounterModel model,
   return success();
 }
 
-/// Run `callback(root, model)` on `op` itself if it is an amdgcn.module, then
-/// on every nested amdgcn.module, then on `op` again for bare funcs.
-static LogicalResult forEachModuleOrTop(
-    Operation *op,
-    function_ref<LogicalResult(Operation *, WaitCounterModel)> callback) {
-  if (isa<amdgcn::ModuleOp>(op))
-    return callback(op, getWaitCounterModelForOp(op));
-  bool hadFailure = false;
-  op->walk([&](amdgcn::ModuleOp amdMod) {
-    if (failed(callback(amdMod, getWaitCounterModelForOp(amdMod))))
-      hadFailure = true;
-  });
-  if (hadFailure)
-    return failure();
-  return callback(op, getWaitCounterModelForOp(op));
-}
-
 void AMDGCNConvertWaits::runOnOperation() {
-  Operation *op = getOperation();
+  amdgcn::ModuleOp module = getOperation();
 
   // Apply canonicalization patterns to clean up wait operations.
-  RewritePatternSet patterns(op->getContext());
-  WaitOp::getCanonicalizationPatterns(patterns, op->getContext());
-  WaitGfx1250Op::getCanonicalizationPatterns(patterns, op->getContext());
+  RewritePatternSet patterns(module.getContext());
+  WaitOp::getCanonicalizationPatterns(patterns, module.getContext());
+  WaitGfx1250Op::getCanonicalizationPatterns(patterns, module.getContext());
   if (failed(applyPatternsGreedily(
-          op, std::move(patterns),
+          module, std::move(patterns),
           GreedyRewriteConfig()
               .enableFolding(true)
               .enableConstantCSE(true)
               .setUseTopDownTraversal(true)
               .setRegionSimplificationLevel(
                   GreedySimplifyRegionLevel::Disabled)))) {
-    op->emitError() << "Failed to apply wait op canonicalization patterns";
+    module.emitError() << "Failed to apply wait op canonicalization patterns";
     return signalPassFailure();
   }
 
   auto &domInfo = getAnalysis<DominanceInfo>();
-  if (failed(
-          forEachModuleOrTop(op, [&](Operation *root, WaitCounterModel model) {
-            return convertWaitsOn(root, model, domInfo);
-          })))
+  if (failed(convertWaitsOn(module, getIsaForOp(module), domInfo)))
     return signalPassFailure();
 
   if (!removeTokenArgs)
     return;
-  op->walk([&](FunctionOpInterface funcOp) {
+  module.walk([&](FunctionOpInterface funcOp) {
     if (failed(removeTokenArguments(funcOp))) {
       signalPassFailure();
       return WalkResult::interrupt();

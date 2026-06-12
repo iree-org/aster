@@ -17,7 +17,8 @@
 
 include "mlir/Pass/PassBase.td"
 
-def AMDGCNConvertWaits : InterfacePass<"amdgcn-convert-waits", "mlir::aster::ModuleOpInterface"> {
+def AMDGCNConvertWaits : Pass<"amdgcn-convert-waits",
+                              "::mlir::aster::amdgcn::ModuleOp"> {
   let summary = "Convert wait operations to hardware wait instructions";
   let description = [{
     This pass converts high-level amdgcn.wait operations into the appropriate
@@ -284,7 +285,7 @@ def RegisterDCE : Pass<"amdgcn-register-dce"> {
   }];
 }
 
-def WaitInsertion : Pass<"amdgcn-wait-insertion"> {
+def WaitInsertion : Pass<"amdgcn-wait-insertion", "::mlir::aster::amdgcn::ModuleOp"> {
   let summary = "Insert wait operations for reaching loads";
   let description = [{
     This pass inserts wait operations for loads consumed by instructions.

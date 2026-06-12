@@ -32,13 +32,18 @@ class DataFlowSolver;
 class DominanceInfo;
 
 namespace aster {
+namespace amdgcn {
+enum class ISAVersion : uint32_t;
+}
+
 /// Helper class to collect the analysis required for scheduling.
 class SchedAnalysis {
 public:
   SchedAnalysis(Operation *rootOp, DataFlowSolver &solver,
-                DominanceInfo &domInfo, AnalysisManager analysisManager)
+                DominanceInfo &domInfo, AnalysisManager analysisManager,
+                amdgcn::ISAVersion isaVersion)
       : rootOp(rootOp), solver(solver), domInfo(domInfo),
-        analysisManager(analysisManager) {
+        analysisManager(analysisManager), isaVersion(isaVersion) {
     assert(rootOp && "expected a valid operation");
   }
 
@@ -62,11 +67,15 @@ public:
   /// Check if dataflow analyses should be run.
   bool shouldRunDataflowAnalyses() const { return runDataflowAnalyses; }
 
+  /// ISA resolved for this scheduling run.
+  amdgcn::ISAVersion getIsaVersion() const { return isaVersion; }
+
 private:
   Operation *rootOp;
   DataFlowSolver &solver;
   DominanceInfo &domInfo;
   AnalysisManager analysisManager;
+  amdgcn::ISAVersion isaVersion;
   bool runDataflowAnalyses = false;
 };
 
@@ -82,6 +91,10 @@ public:
 
   /// Get the owner block.
   Block *getBlock() const { return block; }
+
+  /// ISA resolved when the graph was built.
+  amdgcn::ISAVersion getIsaVersion() const { return isaVersion; }
+  void setIsaVersion(amdgcn::ISAVersion isa) { isaVersion = isa; }
 
   /// Get the operations in the block in order. The index of an operation in
   /// this array corresponds to its node ID.
@@ -149,6 +162,7 @@ private:
   llvm::DenseMap<Operation *, int64_t> opToId;
   llvm::SmallVector<int32_t> labels;
   Block *block = nullptr;
+  amdgcn::ISAVersion isaVersion;
 };
 } // namespace aster
 } // namespace mlir
@@ -168,7 +182,8 @@ struct SchedInfo {
 
 /// Apply a list of schedules to a root operation.
 LogicalResult applyScheds(Operation *rootOp, ArrayRef<SchedInfo> schedsToApply,
-                          AnalysisManager &analysisManager);
+                          AnalysisManager &analysisManager,
+                          amdgcn::ISAVersion isaVersion);
 
 } // namespace aster
 } // namespace mlir

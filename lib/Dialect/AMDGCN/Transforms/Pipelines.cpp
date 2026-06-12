@@ -114,9 +114,9 @@ static void registerRegAllocPassPipeline() {
 //===----------------------------------------------------------------------===//
 
 static void buildLateWaitsPassPipeline(OpPassManager &pm) {
-  pm.addPass(createWaitInsertion());
+  pm.nest<amdgcn::ModuleOp>().addPass(createWaitInsertion());
   pm.addPass(mlir::createMem2Reg());
-  pm.addPass(createAMDGCNConvertWaits({true}));
+  pm.nest<amdgcn::ModuleOp>().addPass(createAMDGCNConvertWaits({true}));
 }
 
 static void registerLateWaitsPassPipeline() {

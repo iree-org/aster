@@ -478,7 +478,7 @@ static bool generateInstAsmPrinters(const llvm::RecordKeeper &records,
 
   // Generate the TypeSwitch-based dispatch function.
   os << R"(
-static ::mlir::LogicalResult printISAInstruction(
+::mlir::LogicalResult mlir::aster::amdgcn::target::printISAInstruction(
     ::mlir::aster::amdgcn::AsmPrinter &printer,
     ::mlir::aster::TargetAttrInterface tgt,
     ::mlir::Operation *op) {

@@ -2,12 +2,14 @@
 // silent-mode=false.
 
 // RUN: aster-opt %s -split-input-file \
-// RUN:   --aster-apply-sched="scheds=missing silent-mode=false" \
+// RUN:   --pass-pipeline='builtin.module(amdgcn.module(aster-apply-sched{scheds=missing silent-mode=false}))' \
 // RUN:   --verify-diagnostics
 
-// expected-error @below {{schedule 'missing' not found}}
 module {
-  func.func @error_missing_sched() {
-    return
+  // expected-error @below {{schedule 'missing' not found}}
+  amdgcn.module @default_sched_name target = <gfx942> {
+    func.func @error_missing_sched() {
+      return
+    }
   }
 }

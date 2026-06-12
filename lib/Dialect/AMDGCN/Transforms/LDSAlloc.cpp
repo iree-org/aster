@@ -254,7 +254,11 @@ LogicalResult LDSAllocator::run(aster::GPUFuncInterface kernOp) {
 
   // Pick the LDS size limit from the enclosing amdgcn.module's target so the
   // allocator rejects only what actually exceeds the hardware capacity.
-  if (auto moduleOp = kernOp->getParentOfType<mlir::aster::amdgcn::ModuleOp>())
+  if (auto kernel = dyn_cast<KernelOp>(kernOp.getOperation()))
+    constraints.maxMemory = getLdsBytesPerCU(
+        cast<mlir::aster::amdgcn::ModuleOp>(kernel->getParentOp()).getTarget());
+  else if (auto moduleOp =
+               kernOp->getParentOfType<mlir::aster::amdgcn::ModuleOp>())
     constraints.maxMemory = getLdsBytesPerCU(moduleOp.getTarget());
 
   // Get the current total size of preallocated buffers to set the starting

@@ -313,7 +313,7 @@ def Dim3DAttr : DefaultValuedAttr<DenseI32ArrayAttr, "ArrayRef<int32_t>()"> {
 def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
     AffineScope, AutomaticAllocationScope, FunctionOpInterface,
     IsolatedFromAbove, NoRegionArguments, GPUFuncInterface,
-    OpAsmOpInterface
+    OpAsmOpInterface, ParentOneOf<["::mlir::aster::amdgcn::ModuleOp"]>
   ]> {
   let summary = "AMDGCN kernel operation";
   let description = [{
@@ -530,11 +530,11 @@ def AMDGCN_SplitRegisterRangeOp : AMDGCN_Op<"split_register_range", [
 def AMDGCN_ModuleOp : AMDGCN_Op<"module", [
     AffineScope, IsolatedFromAbove, NoRegionArguments, SymbolTable, Symbol,
     OpAsmOpInterface, SingleBlock, NoTerminator, HasOnlyGraphRegion,
-    ModuleOpInterface
+    ModuleOpInterface, ParentOneOf<["::mlir::ModuleOp"]>
   ]> {
   let summary = "AMDGCN module operation";
   let description = [{
-    An AMDGCN module.
+    An AMDGCN module. Must be a direct child of `builtin.module`.
   }];
   let arguments = (ins AMDGCNTargetAttr:$target,
       SymbolNameAttr:$sym_name, OptionalAttr<StrAttr>:$sym_visibility,
