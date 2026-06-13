@@ -53,6 +53,44 @@ struct CDNA4Latencies : CDNA3Latencies {
   CDNA4Latencies() {}
 };
 
+/// MFMA interleaving control.
+struct CDNA3PresetMfmaInterleave1 : CDNA3PresetMfmaHiding {
+  CDNA3PresetMfmaInterleave1() { xdlBurstLookback = 4; }
+};
+struct CDNA4PresetMfmaInterleave1 : CDNA4Latencies {
+  CDNA4PresetMfmaInterleave1() { xdlBurstLookback = 4; }
+};
+struct CDNA3PresetMfmaInterleave2 : CDNA3PresetMfmaHiding {
+  CDNA3PresetMfmaInterleave2() { xdlBurstLookback = 4; }
+};
+struct CDNA4PresetMfmaInterleave2 : CDNA4Latencies {
+  CDNA4PresetMfmaInterleave2() { xdlBurstLookback = 4; }
+};
+struct CDNA3PresetMfmaInterleave3 : CDNA3PresetMfmaHiding {
+  CDNA3PresetMfmaInterleave3() { xdlMaxRun = 8; }
+};
+struct CDNA4PresetMfmaInterleave3 : CDNA4Latencies {
+  CDNA4PresetMfmaInterleave3() { xdlMaxRun = 8; }
+};
+struct CDNA3PresetMfmaInterleave4 : CDNA3PresetMfmaHiding {
+  CDNA3PresetMfmaInterleave4() { xdlMaxRun = 4; }
+};
+struct CDNA4PresetMfmaInterleave4 : CDNA4Latencies {
+  CDNA4PresetMfmaInterleave4() { xdlMaxRun = 4; }
+};
+struct CDNA3PresetMfmaInterleave5 : CDNA3PresetMfmaHiding {
+  CDNA3PresetMfmaInterleave5() {
+    xdlBurstLookback = 1;
+    xdlBurstPenalty = 100000;
+  }
+};
+struct CDNA4PresetMfmaInterleave5 : CDNA4Latencies {
+  CDNA4PresetMfmaInterleave5() {
+    xdlBurstLookback = 1;
+    xdlBurstPenalty = 100000;
+  }
+};
+
 /// Per-opcode XDL exec latency from CDNA3 ISA Table 28 (MI300 manual p.42)
 /// and CDNA4 ISA Table 28 (gfx950 manual p.43).
 /// Returns 0 if the opcode is not an XDL instruction we model specifically.
@@ -138,13 +176,40 @@ QueueType classifyOp(Operation *op) {
 ///
 /// `preset` selects a pre-tuned magic-number set:
 ///   1 = mfma-hiding default
-///   2..N = future presets (add a new struct above + a new case here).
+///   2..4 = progressively more MFMA interleaving (wider XDL burst lookback)
+///   5 = maximal MFMA spread, StinkyTofu-style hard gate (<=1 consecutive MFMA
+///       while non-MFMA work is ready)
+///   All of 2..5 are opt-in; GPU-sweep before promoting any to default.
+///   6..N = future presets (add a new struct above + a new case here).
 CDNA3Latencies latencies(ISAVersion isa, int preset) {
-  if (isa == ISAVersion::CDNA4 || isa == ISAVersion::GFX12_50)
-    return CDNA4Latencies(); // GFX12.5: CDNA4 placeholder until profiled.
+  if (isa == ISAVersion::CDNA4 || isa == ISAVersion::GFX12_50) {
+    // GFX12.5: CDNA4 placeholder until profiled.
+    switch (preset) {
+    case 1:
+      return CDNA4PresetMfmaInterleave1();
+    case 2:
+      return CDNA4PresetMfmaInterleave2();
+    case 3:
+      return CDNA4PresetMfmaInterleave3();
+    case 4:
+      return CDNA4PresetMfmaInterleave4();
+    case 5:
+      return CDNA4PresetMfmaInterleave5();
+    default:
+      return CDNA4Latencies();
+    }
+  }
   switch (preset) {
   case 1:
-    return CDNA3PresetMfmaHiding();
+    return CDNA3PresetMfmaInterleave1();
+  case 2:
+    return CDNA3PresetMfmaInterleave2();
+  case 3:
+    return CDNA3PresetMfmaInterleave3();
+  case 4:
+    return CDNA3PresetMfmaInterleave4();
+  case 5:
+    return CDNA3PresetMfmaInterleave5();
   default:
     return CDNA3PresetMfmaHiding();
   }

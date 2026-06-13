@@ -668,6 +668,29 @@ class TestPipelineDirectBLLSched:
         _run_multitile(cfg)
 
 
+class TestLLSched:
+    """LL-scheduler preset axis (ll_sched 0..5) on a register-safe 4w geometry.
+
+    0 = scheduler off; 1 = default mfma-hiding preset; 3/5 engage the
+    deterministic xdlMaxRun interleaving cap (3 = mid, 5 =
+    max-1-contiguous). Geometry mirrors the proven 4w_6x4 ps3 config
+    used in TestPipeline, so all presets allocate cleanly (no deep-
+    pipeline regalloc pressure).
+    """
+
+    @pytest.mark.parametrize("ll_sched", [0, 1, 3, 5], ids=lambda v: f"llsched{v}")
+    def test_correctness(self, ll_sched):
+        cfg = _make_instance(
+            [1, 1, 1],
+            [2, 2, 1],
+            [6, 4, 1],
+            k_mult=4,
+            pipeline_strategy=3,
+            ll_sched=ll_sched,
+        )
+        _run_multitile(cfg)
+
+
 # ---------------------------------------------------------------------------
 # Resource estimation accuracy tests
 # ---------------------------------------------------------------------------
