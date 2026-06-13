@@ -314,7 +314,7 @@ def _format_axes(r: dict) -> str:
         f"twg={r.get('twg_m')}x{r.get('twg_n')}x{r.get('twg_k')} "
         f"w={r.get('waves_m')}x{r.get('waves_n')} "
         f"occ={r.get('occ')} ps={r.get('ps')} um={r.get('unroll_factor_multiplier')} "
-        f"hw={int(bool(r.get('hoist_wait')))} ll={int(bool(r.get('ll_sched')))} "
+        f"hw={int(bool(r.get('hoist_wait')))} ll={int(r.get('ll_sched') or 0)} "
         f"rotc={int(bool(r.get('rotate_compute_stage')))} "
         f"epeel={int(bool(r.get('epilogue_peeling')))}"
     )
