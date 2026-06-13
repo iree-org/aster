@@ -82,7 +82,7 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 occ=[1, 2, 3],
                 ps=[1, 2, 3, 4, 5],
                 unroll_factor_multiplier=[1, 2, 3],
-                ll_sched=[True, False],
+                ll_sched=[0, 1, 2, 3, 4, 5],
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
                 variant=[
@@ -99,12 +99,12 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             random_seed=random_seed,
             constraints=constraints,
             axis_grid=dict(
-                ll_sched=[True, False],
+                ll_sched=[0, 1, 2, 3, 4, 5],
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
             ),
-            anchor_axes=dict(ll_sched=True, rotate_compute_stage=True),
+            anchor_axes=dict(ll_sched=1, rotate_compute_stage=True),
             discriminator=("hoist_wait", "ll_sched", "rotate_compute_stage"),
         ),
         TierSpec(
@@ -113,12 +113,12 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             random_seed=random_seed,
             constraints=constraints,
             axis_grid=dict(
-                ll_sched=[True, False],
+                ll_sched=[0, 1, 2, 3, 4, 5],
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
             ),
-            anchor_axes=dict(ll_sched=True, rotate_compute_stage=True),
+            anchor_axes=dict(ll_sched=1, rotate_compute_stage=True),
             neighbor_radius=dict(
                 wg_m=1,
                 wg_n=1,

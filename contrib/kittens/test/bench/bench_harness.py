@@ -1675,7 +1675,7 @@ def print_config(cfg, resources=None, iterations=None):
     print(f"  unroll:     {lcm}, multiplier={cfg.unroll_factor_multiplier}, {epeel}")
     sched = []
     if cfg.ll_sched:
-        sched.append("ll-sched")
+        sched.append(f"ll-sched={cfg.ll_sched}")
     if cfg.hoist_wait:
         sched.append("hoist-wait")
     if cfg.num_wg_per_cu > 1:
