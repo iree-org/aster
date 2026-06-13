@@ -92,6 +92,10 @@ struct CDNA3Latencies {
   int lgkmBurstPenalty = 200;
   size_t xdlBurstLookback = 2;
   int xdlBurstPenalty = 350;
+  // Hard cap on consecutive MFMA (deterministic spread dial; 0 = disabled).
+  // When the trailing run of XDL ops already reaches xdlMaxRun, the next XDL is
+  // penalized so any ready non-XDL op wins (forcing interleaving).
+  int xdlMaxRun = 0;
 
   // -- Score: VALU/SALU <-> LGKM/VMEM adjacency NOP penalty ------------
   int adjacencyPenalty = 400;

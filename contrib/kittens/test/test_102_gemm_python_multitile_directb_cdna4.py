@@ -518,3 +518,18 @@ class TestCdna4Mfma:
             mcpu="gfx950",
         )
         _run_multitile(cfg)
+
+
+class TestLLSched:
+    @pytest.mark.parametrize("ll_sched", [0, 1, 2, 3, 5], ids=lambda v: f"llsched{v}")
+    def test_correctness(self, ll_sched):
+        cfg = _make_instance(
+            [1, 1, 1],
+            [2, 2, 1],
+            [6, 4, 1],
+            k_mult=4,
+            pipeline_strategy=3,
+            mcpu="gfx950",
+            ll_sched=ll_sched,
+        )
+        _run_multitile(cfg)

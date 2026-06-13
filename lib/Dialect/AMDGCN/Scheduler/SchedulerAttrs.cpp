@@ -469,7 +469,17 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
     score -= perOccPenalty * recentCount;
   }
 
-  // 3a. VALU/SALU <-> LGKM/VMEM adjacency requires an 8-cycle NOP.
+  // 3a. Hard cap on consecutive MFMA (deterministic spread dial).
+  if (qt == QueueType::XDL && L.xdlMaxRun > 0) {
+    int trailingXdl = 0;
+    for (auto it = recent.rbegin();
+         it != recent.rend() && *it == QueueType::XDL; ++it)
+      ++trailingXdl;
+    if (trailingXdl >= L.xdlMaxRun)
+      score -= 100000;
+  }
+
+  // 3b. VALU/SALU <-> LGKM/VMEM adjacency requires an 8-cycle NOP.
   QueueType prevKind = recent.empty() ? QueueType::Unknown : recent.back();
   if ((qt == QueueType::VALU &&
        (prevKind == QueueType::LGKM || prevKind == QueueType::VMEM)) ||
@@ -482,18 +492,18 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
        prevKind == QueueType::SALU))
     score -= L.adjacencyPenalty;
 
-  // 3b. VMEM-load density cap on the L1/L2 read path; stores skip it.
+  // 3c. VMEM-load density cap on the L1/L2 read path; stores skip it.
   if (qt == QueueType::VMEM && !isVmemStore) {
     int vmemInWindow = static_cast<int>(llvm::count(recent, QueueType::VMEM));
     if (vmemInWindow >= L.vmemInWindowLimit)
       score -= L.vmemDensityPenalty;
   }
 
-  // 5. Fire XDL whose LGKM producer is waiting on it to drain.
+  // 4. Fire XDL whose LGKM producer is waiting on it to drain.
   if (qt == QueueType::XDL && consumerInReady)
     score += L.consumerReadyBonus;
 
-  // 6. Wait deferral: stall ~= max(0, latency - opsSince * hideTimePerOp).
+  // 5. Wait deferral: stall ~= max(0, latency - opsSince * hideTimePerOp).
   if (waitKind != 0 && qt == QueueType::Unknown) {
     auto opsSince = [&](QueueType q) -> int {
       for (size_t i = 0; i < recent.size(); ++i) {
@@ -514,19 +524,19 @@ static int computeScore(QueueType qt, int64_t stall, const SchedState &s,
     }
   }
 
-  // 7. VMCNT 4-bit saturation cap.
+  // 6. VMCNT 4-bit saturation cap.
   if (qt == QueueType::VMEM && s.outstandingVmem >= L.vmemSaturationThreshold)
     score -= L.vmemSaturationPenalty;
 
-  // 8. VMEM store bonus (uncapped; saturation penalty above damps it).
+  // 7. VMEM store bonus (uncapped; saturation penalty above damps it).
   if (isVmemStore && qt == QueueType::VMEM)
     score += L.vmemStoreBonus;
 
-  // 9. VMEM store-feeder bonus (any op transitively feeding a store).
+  // 8. VMEM store-feeder bonus (any op transitively feeding a store).
   if (isVmemStoreFeeder)
     score += L.vmemStoreFeederBonus;
 
-  // 10. XDL chain-continuation stall estimate (RAW on accumulator).
+  // 9. XDL chain-continuation stall estimate (RAW on accumulator).
   if (isXdlChainContinuation)
     score -= L.xdlChainStallEstimate;
 
