@@ -10,6 +10,7 @@
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNVerifiers.h"
+#include "aster/Dialect/AMDGCN/IR/OpAsmUtils.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/IR/ParsePrintUtils.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -43,117 +44,6 @@ bool amdgcn::checkIntConst(Value value, ArrayRef<int64_t> values) {
   if (!matchPattern(value, m_ConstantInt(&apInt)))
     return false;
   return llvm::is_contained(values, apInt.getSExtValue());
-}
-
-//===----------------------------------------------------------------------===//
-// Internal functions
-//===----------------------------------------------------------------------===//
-
-/// Helper to get either the type of a Value or return the type itself.
-template <typename T, std::enable_if_t<std::is_base_of_v<Value, T>, int> = 0>
-static auto getTypeOrValue(T value) {
-  using Type = decltype(value.getType());
-  if (value == nullptr)
-    return Type();
-  return value.getType();
-}
-/// Helper to passthrough values that are not MLIR Values.
-template <typename T, std::enable_if_t<!std::is_base_of_v<Value, T>, int> = 0>
-static T &&getTypeOrValue(T &&value) {
-  return std::forward<T>(value);
-}
-
-//===----------------------------------------------------------------------===//
-// DimAttr Parsing/Printing
-//===----------------------------------------------------------------------===//
-
-/// Parse a DimAttr from a keyword (x, y, or z).
-static ParseResult parseDimAttr(OpAsmParser &parser, DimAttr &attr) {
-  StringRef keyword;
-  if (parser.parseKeyword(&keyword))
-    return failure();
-
-  auto dimOpt = symbolizeDim(keyword);
-  if (!dimOpt)
-    return parser.emitError(parser.getCurrentLocation(), "invalid dimension: ")
-           << keyword;
-
-  attr = DimAttr::get(parser.getBuilder().getContext(), *dimOpt);
-  return success();
-}
-
-/// Print a DimAttr as a keyword.
-static void printDimAttr(OpAsmPrinter &printer, Operation *, DimAttr attr) {
-  printer << stringifyDim(attr.getValue());
-}
-
-//===----------------------------------------------------------------------===//
-// Offset Parsing/Printing
-//===----------------------------------------------------------------------===//
-
-//===----------------------------------------------------------------------===//
-// LoadResults Parsing/Printing
-//===----------------------------------------------------------------------===//
-
-/// Parse the trailing results of a load instruction. The dest type has already
-/// been parsed and is passed by reference. The dest_res type is inferred to be
-/// the same as dest iff the register has value semantics. The token type is
-/// parsed from the input.
-static ParseResult parseLoadResults(OpAsmParser &parser, Type destType,
-                                    Type &destResType, Type &tokenType) {
-  auto regTy = dyn_cast<RegisterTypeInterface>(destType);
-  if (regTy && regTy.hasValueSemantics())
-    destResType = destType;
-  if (parser.parseType(tokenType))
-    return failure();
-  return success();
-}
-
-/// Print the trailing results of a load instruction. The dest_res type is
-/// inferred from dest and is not printed; only the token type is printed.
-static void printLoadResults(OpAsmPrinter &printer, Operation *, Type destType,
-                             Type destResType, Type tokenType) {
-  printer.printType(tokenType);
-}
-
-//===----------------------------------------------------------------------===//
-// AllocSize Parsing/Printing
-//===----------------------------------------------------------------------===//
-
-/// Parse a size that can be either static (integer) or dynamic (SSA value).
-/// Format: `<integer>` for static, `%operand` for dynamic.
-static ParseResult
-parseAllocSize(OpAsmParser &parser,
-               std::optional<OpAsmParser::UnresolvedOperand> &dynamicSize,
-               IntegerAttr &staticSize) {
-  // Try to parse an integer first (static size).
-  int64_t intVal;
-  auto intRes = parser.parseOptionalInteger(intVal);
-  if (intRes.has_value()) {
-    if (failed(*intRes))
-      return failure();
-    staticSize = parser.getBuilder().getI64IntegerAttr(intVal);
-    dynamicSize = std::nullopt;
-    return success();
-  }
-
-  // Otherwise, parse an operand (dynamic size).
-  OpAsmParser::UnresolvedOperand operand;
-  if (parser.parseOperand(operand))
-    return failure();
-  dynamicSize = operand;
-  staticSize = parser.getBuilder().getI64IntegerAttr(ShapedType::kDynamic);
-  return success();
-}
-
-/// Print a size that can be either static or dynamic.
-static void printAllocSize(OpAsmPrinter &printer, Operation *op,
-                           Value dynamicSize, IntegerAttr staticSize) {
-  if (ShapedType::isDynamic(staticSize.getInt())) {
-    printer.printOperand(dynamicSize);
-    return;
-  }
-  printer << staticSize.getInt();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1102,51 +992,3 @@ inferTypesImpl(MLIRContext *ctx, std::optional<Location> &loc,
 
 #define GET_OP_CLASSES
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.cpp.inc"
-
-#define GET_OP_CLASSES
-#include "aster/Dialect/AMDGCN/IR/ControlFlow.cpp.inc"
-
-#define AMDGCN_GEN_INST_METHODS
-#include "aster/Dialect/AMDGCN/IR/ControlFlowInst.cpp.inc"
-
-#define GET_OP_CLASSES
-#include "aster/Dialect/AMDGCN/IR/DS.cpp.inc"
-
-#define AMDGCN_GEN_INST_METHODS
-#include "aster/Dialect/AMDGCN/IR/DSInst.cpp.inc"
-
-#define GET_OP_CLASSES
-#include "aster/Dialect/AMDGCN/IR/MMA.cpp.inc"
-
-#define AMDGCN_GEN_INST_METHODS
-#include "aster/Dialect/AMDGCN/IR/MMAInst.cpp.inc"
-
-#define GET_OP_CLASSES
-#include "aster/Dialect/AMDGCN/IR/WMMA.cpp.inc"
-
-#define AMDGCN_GEN_INST_METHODS
-#include "aster/Dialect/AMDGCN/IR/WMMAInst.cpp.inc"
-
-#define GET_OP_CLASSES
-#include "aster/Dialect/AMDGCN/IR/SMem.cpp.inc"
-
-#define AMDGCN_GEN_INST_METHODS
-#include "aster/Dialect/AMDGCN/IR/SMemInst.cpp.inc"
-
-#define GET_OP_CLASSES
-#include "aster/Dialect/AMDGCN/IR/SOP.cpp.inc"
-
-#define AMDGCN_GEN_INST_METHODS
-#include "aster/Dialect/AMDGCN/IR/SOPInst.cpp.inc"
-
-#define GET_OP_CLASSES
-#include "aster/Dialect/AMDGCN/IR/VMem.cpp.inc"
-
-#define AMDGCN_GEN_INST_METHODS
-#include "aster/Dialect/AMDGCN/IR/VMemInst.cpp.inc"
-
-#define GET_OP_CLASSES
-#include "aster/Dialect/AMDGCN/IR/VOP.cpp.inc"
-
-#define AMDGCN_GEN_INST_METHODS
-#include "aster/Dialect/AMDGCN/IR/VOPInst.cpp.inc"

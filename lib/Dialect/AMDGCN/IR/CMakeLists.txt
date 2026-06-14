@@ -3,8 +3,17 @@ add_mlir_dialect_library(AMDGCNDialect
   AMDGCNAttrs.cpp
   AMDGCNTypes.cpp
   AMDGCNVerifiers.cpp
+  ControlFlowOps.cpp
+  DSOps.cpp
   Hazards.cpp
+  MMAOps.cpp
+  OpAsmUtils.cpp
+  SMemOps.cpp
+  SOPOps.cpp
   Utils.cpp
+  VMemOps.cpp
+  VOPOps.cpp
+  WMMAOps.cpp
 
   DEPENDS
   KernelArgInterfaceIncGen
