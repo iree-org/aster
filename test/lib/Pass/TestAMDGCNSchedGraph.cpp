@@ -78,30 +78,49 @@ struct TestAMDGCNSchedGraph
     }
 
     root->walk([&](amdgcn::KernelOp kernel) {
-      Block &block = kernel.getBodyRegion().front();
-      auto graph = schedGraphAttr.createGraph(&block, analysis);
-      if (failed(graph)) {
-        kernel.emitError() << "failed to build SchedGraph";
-        signalPassFailure();
-        return;
+      // Graph every block, not just the entry: loop bodies (where multi-buffer
+      // DS ops live) are non-entry blocks, so the memdep edges only appear in
+      // a later block's graph. Blocks are labeled by their index in the region.
+      int32_t blockIdx = 0;
+      for (Block &block : kernel.getBodyRegion()) {
+        auto graph = schedGraphAttr.createGraph(&block, analysis);
+        if (failed(graph)) {
+          kernel.emitError()
+              << "failed to build SchedGraph for block " << blockIdx;
+          signalPassFailure();
+          return;
+        }
+
+        const SchedGraph &g = *graph;
+        // Append the first test.* attr (if any) to disambiguate same-opname
+        // nodes/edges -- e.g. multiple ds_write_b32 to different LDS buffers.
+        auto testAttrSuffix = [](Operation *op) -> std::string {
+          for (NamedAttribute attr : op->getAttrs())
+            if (attr.getName().getValue().starts_with("test."))
+              return "/" + attr.getName().getValue().str();
+          return "";
+        };
+        auto nodePrinter = [&g, &testAttrSuffix](raw_ostream &os,
+                                                 const int32_t &nodeId) {
+          Operation *op = g.getOp(nodeId);
+          os << "label = \"" << nodeId << ": " << op->getName().stripDialect()
+             << testAttrSuffix(op) << "\"";
+        };
+        auto edgePrinter = [&g, &testAttrSuffix](raw_ostream &os,
+                                                 const Graph::Edge &edge) {
+          Operation *src = g.getOp(edge.first);
+          Operation *tgt = g.getOp(edge.second);
+          os << "label = \"" << src->getName().stripDialect()
+             << testAttrSuffix(src) << " -> " << tgt->getName().stripDialect()
+             << testAttrSuffix(tgt) << "\"";
+        };
+
+        llvm::errs() << "Kernel: @" << kernel.getSymName()
+                     << " Block: " << blockIdx << "\n";
+        g.print(llvm::errs(), "SchedGraph", nodePrinter, edgePrinter);
+        llvm::errs() << "\n\n";
+        ++blockIdx;
       }
-
-      const SchedGraph &g = *graph;
-      auto nodePrinter = [&g](raw_ostream &os, const int32_t &nodeId) {
-        Operation *op = g.getOp(nodeId);
-        os << "label = \"" << nodeId << ": " << op->getName().stripDialect()
-           << "\"";
-      };
-      auto edgePrinter = [&g](raw_ostream &os, const Graph::Edge &edge) {
-        Operation *src = g.getOp(edge.first);
-        Operation *tgt = g.getOp(edge.second);
-        os << "label = \"" << src->getName().stripDialect() << " -> "
-           << tgt->getName().stripDialect() << "\"";
-      };
-
-      llvm::errs() << "Kernel: @" << kernel.getSymName() << "\n";
-      g.print(llvm::errs(), "SchedGraph", nodePrinter, edgePrinter);
-      llvm::errs() << "\n\n";
     });
   }
 };
