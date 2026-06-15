@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
-# tools/setup.sh - One-stop build script for ASTER
+# tools/setup.sh - Setup script for ASTER
 #
-# Automates the full setup: prerequisites, shared LLVM, venv, cmake, build.
+# Configures prerequisites: shared LLVM, venv, ROCm, and cmake. By DEFAULT it
+# does NOT build ASTER -- it prints the activate / build / run commands. Pass
+# --build to also run the ASTER build (ninja install) in one step.
 # Safe to re-run (idempotent). Works on macOS and Linux.
 
 # ---------------------------------------------------------------------------
@@ -20,17 +22,23 @@ print_help() {
     echo "  --llvm-only        Only set up shared LLVM (skip ASTER build)"
     echo "  --skip-llvm        Skip LLVM verification (assume shared LLVM is correct)"
     echo "  --skip-requirements  Skip Python requirements installation"
+    echo "  --install-prerequisites  Install missing tools locally (no sudo) via uv"
     echo "  --with-hip         Install ROCm SDK and build with HIP support (default on Linux)"
     echo "  --without-hip      Skip ROCm SDK, cross-compile mode only (default on macOS)"
-    echo "  --rocm-target=T    Select ROCm target non-interactively (e.g. gfx94X)"
+    echo "  --rocm-target=T    Select pip ROCm target (gfx94X, gfx950, gfx120X-all)"
+    echo "                     gfx1250 has no pip ROCm SDK -- use --rocm-path instead"
+    echo "  --rocm-path=DIR    Use a preinstalled ROCm at DIR (bypass uv pip install;"
+    echo "                     expects DIR/lib/libamdhip64.so and DIR/lib/cmake/hip)"
     echo "  --test-rocm        Test ROCm SDK after initialization (default: skip test)"
     echo "  --clang=PATH       Specify clang compiler    [default: clang]"
     echo "  --clang++=PATH     Specify clang++ compiler  [default: clang++]"
+    echo "  --ccache=PATH      Specify ccache binary     [default: ccache on PATH]"
     echo "  --lld=PATH         Specify lld linker        [default: lld]"
     echo "  --python=PATH      Python interpreter to use when creating the environment"
     echo "  --venv=PATH        Use or create a specific Python environment"
     echo "  --venv-prompt=NAME Override the shell prompt shown inside the environment"
-    echo "  --no-install       Only build (skip ninja install)"
+    echo "  --no-install       With --build, run ninja without install"
+    echo "  --build            Build ASTER (ninja install) too; default only configures + prints build/run cmds"
     echo "  --help             Show this help"
     echo ""
     echo "Environment variables (override defaults):"
@@ -67,6 +75,16 @@ ask()   {
         *) return 1 ;;
     esac
 }
+
+ensure_path_entry() {
+    local dir="$1"
+    case ":${PATH}:" in
+        *:"$dir":*) ;;
+        *) export PATH="$dir:$PATH" ;;
+    esac
+}
+
+USER_LOCAL_BIN="${USER_LOCAL_BIN:-$HOME/.local/bin}"
 
 add_missing() {
     local item="$1"
@@ -108,6 +126,7 @@ LLVM_PROJECT="${LLVM_PROJECT:-$HOME/llvm-project}"
 # Option variables (may be overridden by command-line arguments)
 SKIP_LLVM=false
 SKIP_REQUIREMENTS=false
+INSTALL_PREREQS=false
 LLVM_ONLY=false
 HIP_EXPLICIT=""
 # ASTER_ENABLE_CPU is an env var, not a CLI flag. Normalise to true/false.
@@ -117,19 +136,29 @@ case "${ASTER_ENABLE_CPU:-0}" in
 esac
 ROCM_TARGET_EXPLICIT=""
 SKIP_ROCM_TEST=true
+PRIMARY_GPU_MCPU=""
+DETECTED_GPU_MCUS=()
 CLANG_CMD="clang"
 CLANGXX_CMD="clang++"
+CCACHE_CMD=""
 LLD_CMD="lld"
 VENV_EXPLICIT=""
 VENV_PROMPT_EXPLICIT=""
 PYTHON_EXPLICIT=""
 NO_INSTALL=false
+ROCM_PATH_EXPLICIT=""
+EXTERNAL_ROCM=false
+EXTERNAL_ROCM_DIR=""
+EXTERNAL_ROCM_LIB=""
+BUILD_ASTER=false
+LINKER_CHOICE=""
 
 parse_arguments() {
     for arg in "$@"; do
         case "$arg" in
             --skip-llvm)         SKIP_LLVM=true ;;
             --skip-requirements) SKIP_REQUIREMENTS=true ;;
+            --install-prerequisites) INSTALL_PREREQS=true ;;
             --llvm-only)       LLVM_ONLY=true ;;
             --with-hip)        HIP_EXPLICIT=true ;;
             --without-hip)     HIP_EXPLICIT=false ;;
@@ -137,11 +166,14 @@ parse_arguments() {
             --test-rocm)       SKIP_ROCM_TEST=false ;;
             --clang=*)         CLANG_CMD="${arg#*=}" ;;
             --clang++=*)       CLANGXX_CMD="${arg#*=}" ;;
+            --ccache=*)        CCACHE_CMD="${arg#*=}" ;;
             --lld=*)           LLD_CMD="${arg#*=}" ;;
             --python=*)        PYTHON_EXPLICIT="${arg#*=}" ;;
             --venv=*)          VENV_EXPLICIT="${arg#*=}" ;;
             --venv-prompt=*)   VENV_PROMPT_EXPLICIT="${arg#*=}" ;;
             --no-install)      NO_INSTALL=true ;;
+            --rocm-path=*)     ROCM_PATH_EXPLICIT="${arg#*=}" ;;
+            --build)           BUILD_ASTER=true ;;
             --help|-h)
                 print_help
                 exit 0
@@ -179,15 +211,82 @@ resolve_virtual_env() {
 }
 
 resolve_with_hip() {
-    if [ "$HIP_EXPLICIT" = "true" ]; then
-        WITH_HIP=true
-    elif [ "$HIP_EXPLICIT" = "false" ]; then
+    # Explicit opt-out always wins.
+    if [ "$HIP_EXPLICIT" = "false" ]; then
         WITH_HIP=false
-    elif [ "$(uname)" = "Linux" ]; then
-        WITH_HIP=true
-    else
-        WITH_HIP=false
+        return
     fi
+    # --rocm-path / --with-hip / --rocm-target all mean "set up the ROCm runtime".
+    if [ -n "$ROCM_PATH_EXPLICIT" ] || [ "$HIP_EXPLICIT" = "true" ] || [ -n "$ROCM_TARGET_EXPLICIT" ]; then
+        WITH_HIP=true
+        return
+    fi
+    # No AMD GPU stack on macOS.
+    if [ "$(uname)" = "Darwin" ]; then
+        WITH_HIP=false
+        return
+    fi
+    # Linux default: set up ROCm (HIP is dlopen'd at run time).
+    WITH_HIP=true
+}
+
+phase1_map_mcpu_to_rocm_target() {
+    case "$1" in
+        gfx1250|gfx1251) echo "" ;;
+        gfx940|gfx942)     echo "gfx94X" ;;
+        gfx950)            echo "gfx950" ;;
+        gfx1200|gfx1201)   echo "gfx120X-all" ;;
+        *)                 echo "" ;;
+    esac
+}
+
+phase1_detect_gpu_mcus() {
+    PRIMARY_GPU_MCPU=""
+    DETECTED_GPU_MCUS=()
+    if ! command -v rocminfo >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local arch arches=() pref existing found
+    while IFS= read -r arch; do
+        [ -z "$arch" ] && continue
+        arch=${arch%%:*}
+        found=false
+        for existing in "${arches[@]}"; do
+            [ "$existing" = "$arch" ] && { found=true; break; }
+        done
+        [ "$found" = false ] && arches+=("$arch")
+    done <<EOF
+$(rocminfo 2>/dev/null | grep -oE 'gfx[0-9]{3,4}[a-z0-9]*' || true)
+EOF
+
+    if [ ${#arches[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    DETECTED_GPU_MCUS=("${arches[@]}")
+    for pref in gfx1250 gfx1251 gfx950 gfx942 gfx940 gfx1201 gfx1200; do
+        for arch in "${DETECTED_GPU_MCUS[@]}"; do
+            if [ "$arch" = "$pref" ]; then
+                PRIMARY_GPU_MCPU="$arch"
+                ok "detected GPU arch: ${DETECTED_GPU_MCUS[*]} (primary: $PRIMARY_GPU_MCPU)"
+                return 0
+            fi
+        done
+    done
+
+    PRIMARY_GPU_MCPU="${DETECTED_GPU_MCUS[0]}"
+    ok "detected GPU arch: ${DETECTED_GPU_MCUS[*]} (primary: $PRIMARY_GPU_MCPU)"
+}
+
+phase1_rocm_target_label() {
+    case "$1" in
+        gfx1250)     echo "gfx1250/gfx1251 (MI450 / GFX12.5, wave32)" ;;
+        gfx94X)      echo "gfx94X (MI300 / CDNA3)" ;;
+        gfx950)      echo "gfx950 (MI350 / CDNA4)" ;;
+        gfx120X-all) echo "gfx120X-all (RDNA4 consumer)" ;;
+        *)           echo "$1" ;;
+    esac
 }
 
 phase1_detect_platform() {
@@ -202,6 +301,178 @@ phase1_detect_platform() {
     fi
 }
 
+phase1_prepare_path() {
+    ensure_path_entry "$USER_LOCAL_BIN"
+    if [ -d "$HOME/.cargo/bin" ]; then
+        ensure_path_entry "$HOME/.cargo/bin"
+    fi
+}
+
+phase1_bootstrap_uv() {
+    if command -v uv >/dev/null 2>&1; then
+        return
+    fi
+    info "Installing uv to $USER_LOCAL_BIN (no sudo)..."
+    if ! curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$USER_LOCAL_BIN" sh; then
+        err "Failed to install uv"
+        return 1
+    fi
+    phase1_prepare_path
+    if command -v uv >/dev/null 2>&1; then
+        ok "uv installed ($(command -v uv))"
+        return 0
+    fi
+    err "uv install script finished but uv is not on PATH"
+    return 1
+}
+
+phase1_install_uv_tool() {
+    local package="$1"
+    if ! command -v uv >/dev/null 2>&1; then
+        err "uv is required to install $package locally"
+        return 1
+    fi
+    echo "  Installing $package via uv tool install..."
+    if UV_TOOL_BIN_DIR="$USER_LOCAL_BIN" uv tool install "$package"; then
+        phase1_prepare_path
+        ok "$package installed via uv"
+        return 0
+    fi
+    err "Failed to install $package via uv"
+    return 1
+}
+
+phase1_install_python_via_uv() {
+    if ! command -v uv >/dev/null 2>&1; then
+        err "uv is required to install Python locally"
+        return 1
+    fi
+    echo "  Installing Python 3.12 via uv python install..."
+    if uv python install 3.12; then
+        phase1_prepare_path
+        ok "Python 3.12 installed via uv"
+        return 0
+    fi
+    err "Failed to install Python 3.12 via uv"
+    return 1
+}
+
+phase1_resolve_ccache() {
+    if [ -n "$CCACHE_CMD" ]; then
+        if [ ! -x "$CCACHE_CMD" ]; then
+            err "specified ccache not found or not executable: $CCACHE_CMD"
+            CCACHE_CMD=""
+            return
+        fi
+        ok "ccache ($CCACHE_CMD) [--ccache]"
+    elif command -v ccache >/dev/null 2>&1; then
+        CCACHE_CMD="$(command -v ccache)"
+        ok "ccache ($CCACHE_CMD)"
+    else
+        warn "ccache not found (optional); builds will run without compiler cache"
+        warn "  Pass --ccache=PATH if ccache is installed outside PATH"
+        return
+    fi
+
+    export CCACHE="$CCACHE_CMD"
+    export PATH="$(dirname "$CCACHE_CMD"):$PATH"
+}
+
+phase1_install_mold() {
+    local ver="2.34.1"
+    local url="https://github.com/rui314/mold/releases/download/v${ver}/mold-${ver}-x86_64-linux.tar.gz"
+    info "Installing mold ${ver} to $HOME/.local (no sudo)..."
+    if curl -LsSf "$url" | tar -xz -C "$HOME/.local" --strip-components=1 2>/dev/null; then
+        phase1_prepare_path
+        if command -v mold >/dev/null 2>&1; then
+            ok "mold installed ($(command -v mold))"
+            return 0
+        fi
+    fi
+    err "mold install failed (install mold or lld manually for fast linking)"
+    return 1
+}
+
+# Pick a fast parallel linker on Linux (mold preferred, then lld) and cache it in
+# LINKER_CHOICE, used for both the shared-LLVM and ASTER links. Linking with the
+# default bfd ld is very slow; mold/lld are dramatically faster. macOS keeps its
+# native linker (lld/mold flags can break the Mach-O link).
+resolve_parallel_linker() {
+    LINKER_CHOICE=""
+    [ "$(uname)" != "Linux" ] && return
+
+    # Explicit --lld=PATH wins when it resolves.
+    if [ "$LLD_CMD" != "lld" ] && command -v "$LLD_CMD" >/dev/null 2>&1; then
+        LINKER_CHOICE="$LLD_CMD"
+        ok "parallel linker: $LINKER_CHOICE (--lld)"
+        return
+    fi
+
+    # mold is the fastest; lld ships with clang (often as ld.lld).
+    if command -v mold >/dev/null 2>&1 || command -v ld.mold >/dev/null 2>&1; then
+        LINKER_CHOICE="mold"
+    elif command -v ld.lld >/dev/null 2>&1 || command -v lld >/dev/null 2>&1; then
+        LINKER_CHOICE="lld"
+    fi
+
+    if [ -z "$LINKER_CHOICE" ]; then
+        warn "No parallel linker (mold/lld) on PATH -- Linux linking will be SLOW (default ld)"
+        if [ "$INSTALL_PREREQS" = true ] || ask "Install mold (fast parallel linker, no sudo) now?"; then
+            phase1_install_mold && command -v mold >/dev/null 2>&1 && LINKER_CHOICE="mold"
+        fi
+    fi
+
+    if [ -n "$LINKER_CHOICE" ]; then
+        ok "parallel linker: $LINKER_CHOICE"
+    else
+        warn "continuing without a parallel linker; install mold or lld to speed up linking"
+    fi
+}
+
+phase1_install_missing_no_sudo() {
+    local item installed_any=false needs_uv=false
+
+    for item in "${MISSING[@]}"; do
+        [ "$item" = "uv" ] && needs_uv=true
+    done
+    if [ "$needs_uv" = true ] || ! command -v uv >/dev/null 2>&1; then
+        phase1_bootstrap_uv && installed_any=true
+    fi
+    phase1_prepare_path
+
+    for item in "${MISSING[@]}"; do
+        case "$item" in
+            uv)
+                ;;
+            python3*)
+                phase1_install_python_via_uv && installed_any=true
+                ;;
+            cmake)
+                phase1_install_uv_tool cmake && installed_any=true
+                ;;
+            ninja|ninja-build)
+                phase1_install_uv_tool ninja && installed_any=true
+                ;;
+            git)
+                warn "git must be installed separately (no sudo auto-install)"
+                ;;
+            *)
+                mapped=$(phase1_map_package "$item")
+                if [ -n "$mapped" ] && [ "$mapped" != "$item" ]; then
+                    case "$mapped" in
+                        cmake) phase1_install_uv_tool cmake && installed_any=true ;;
+                        ninja-build|ninja) phase1_install_uv_tool ninja && installed_any=true ;;
+                        *) warn "No local installer for $item (package: $mapped)" ;;
+                    esac
+                else
+                    warn "No local installer for $item"
+                fi
+                ;;
+        esac
+    done
+    [ "$installed_any" = true ]
+}
+
 phase1_check_commands() {
     check_required_cmd git
     check_required_cmd cmake
@@ -210,7 +481,7 @@ phase1_check_commands() {
     check_required_cmd "$CLANGXX_CMD"
     check_optional_cmd "$LLD_CMD"
     check_required_cmd uv
-    check_required_cmd ccache
+    phase1_resolve_ccache
 }
 
 phase1_resolve_python() {
@@ -292,7 +563,22 @@ phase1_print_install_hint() {
     done
 
     echo ""
-    echo "  To install the missing prerequisites, run:"
+    echo "  Install missing prerequisites without sudo:"
+    echo "    tools/setup.sh --install-prerequisites"
+    echo "  Or install manually:"
+    [ "$needs_uv" = true ] && \
+        echo "    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=\$HOME/.local/bin sh"
+    [ "$needs_python" = true ] && \
+        echo "    uv python install 3.12"
+    for item in "${MISSING[@]}"; do
+        case "$item" in
+            cmake) echo "    uv tool install cmake" ;;
+            ninja|ninja-build) echo "    uv tool install ninja" ;;
+        esac
+    done
+    echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo ""
+    echo "  If you have sudo, package-manager installs also work:"
     case "$PLATFORM" in
         debian)
             if [ ${#pkgs[@]} -gt 0 ]; then
@@ -313,8 +599,6 @@ phase1_print_install_hint() {
             echo "    (unknown platform: install ${MISSING[*]} via your package manager)"
             ;;
     esac
-    [ "$needs_uv" = true ] && \
-        echo "    curl -LsSf https://astral.sh/uv/install.sh | sh"
     echo ""
 }
 
@@ -322,8 +606,18 @@ phase1_prerequisites() {
     info "Phase 1: Checking prerequisites"
     MISSING=()
     phase1_detect_platform
+    phase1_prepare_path
     phase1_check_commands
     phase1_resolve_python
+
+    if [ ${#MISSING[@]} -gt 0 ]; then
+        if [ "$INSTALL_PREREQS" = true ] || ask "Install missing prerequisites locally (no sudo)?"; then
+            phase1_install_missing_no_sudo
+            MISSING=()
+            phase1_check_commands
+            phase1_resolve_python
+        fi
+    fi
 
     if [ ${#MISSING[@]} -gt 0 ]; then
         err "Missing prerequisites: ${MISSING[*]}"
@@ -376,6 +670,17 @@ phase2_check_installed_llvm() {
             ok "ASTER_ENABLE_CPU=1: shared LLVM llvm-mc has x86 target"
         fi
     fi
+
+    if [ "$LLVM_OK" = true ] && [ -x "$LLVM_INSTALL/bin/llvm-mc" ]; then
+        if echo 's_endpgm' | "$LLVM_INSTALL/bin/llvm-mc" \
+                -triple=amdgcn-amd-amdhsa -mcpu=gfx1250 \
+                -mattr=+wavefrontsize32 -filetype=obj -o /dev/null 2>/dev/null; then
+            ok "shared LLVM llvm-mc supports gfx1250 assembly"
+        else
+            warn "shared LLVM llvm-mc cannot assemble gfx1250; rebuild shared LLVM"
+            LLVM_OK=false
+        fi
+    fi
 }
 
 phase2_ensure_source_checkout() {
@@ -418,14 +723,9 @@ phase2_build_shared_llvm_if_needed() {
     fi
 
     LLVM_LINKER_FLAGS=""
-    if [ "$(uname)" = "Linux" ]; then
-        if command -v "$LLD_CMD" >/dev/null 2>&1; then
-            LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=${LLD_CMD}"
-            ok "${LLD_CMD} found, using for faster link times"
-        elif command -v ld.mold >/dev/null 2>&1; then
-            LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=mold"
-            ok "mold found, using for faster link times"
-        fi
+    if [ -n "$LINKER_CHOICE" ]; then
+        LLVM_LINKER_FLAGS="-DLLVM_USE_LINKER=${LINKER_CHOICE}"
+        ok "LLVM link uses ${LINKER_CHOICE} (parallel linker)"
     fi
 
     export CC="$CLANG_CMD"
@@ -439,7 +739,20 @@ phase2_build_shared_llvm_if_needed() {
         export LLVM_TARGETS_TO_BUILD="AMDGPU;X86"
         ok "ASTER_ENABLE_CPU=1: building LLVM with targets AMDGPU;X86"
     fi
-    bash "$ASTER_DIR/tools/build-llvm.sh"
+    if [ -n "$CCACHE_CMD" ]; then
+        export CCACHE="$CCACHE_CMD"
+        export PATH="$(dirname "$CCACHE_CMD"):$PATH"
+        export LLVM_CCACHE_BUILD=ON
+    else
+        export LLVM_CCACHE_BUILD=OFF
+        warn "ccache disabled for LLVM build"
+    fi
+    if ! bash "$ASTER_DIR/tools/build-llvm.sh"; then
+        err "Shared LLVM build failed"
+        echo "  If cmake configure failed partway, retry with:"
+        echo "    LLVM_CLEAN_BUILD=ON tools/setup.sh --llvm-only"
+        exit 1
+    fi
     ok "Shared LLVM built and installed at $LLVM_INSTALL"
 }
 
@@ -514,10 +827,22 @@ phase3_select_rocm_target() {
         exit 1
     fi
 
+    if [ -z "$ROCM_TARGET_EXPLICIT" ] && [ -n "$PRIMARY_GPU_MCPU" ]; then
+        ROCM_TARGET_EXPLICIT=$(phase1_map_mcpu_to_rocm_target "$PRIMARY_GPU_MCPU")
+        [ -z "$ROCM_TARGET_EXPLICIT" ] && ROCM_TARGET_EXPLICIT=""
+        if [ -n "$ROCM_TARGET_EXPLICIT" ] && \
+           [ ! -f "$ASTER_DIR/requirements-amd-$ROCM_TARGET_EXPLICIT.txt" ]; then
+            ROCM_TARGET_EXPLICIT=""
+        elif [ -n "$ROCM_TARGET_EXPLICIT" ]; then
+            ok "mapped detected GPU $PRIMARY_GPU_MCPU -> ROCm target $ROCM_TARGET_EXPLICIT"
+        fi
+    fi
+
     if [ -n "$ROCM_TARGET_EXPLICIT" ]; then
         ROCM_REQ="$ASTER_DIR/requirements-amd-$ROCM_TARGET_EXPLICIT.txt"
         if [ ! -f "$ROCM_REQ" ]; then
             err "Unknown ROCm target: $ROCM_TARGET_EXPLICIT"
+            echo "  Available: gfx94X gfx950 gfx120X-all gfx1250"
             exit 1
         fi
         ROCM_TARGET="$ROCM_TARGET_EXPLICIT"
@@ -534,6 +859,7 @@ phase3_select_rocm_target() {
 
     if [ ! -t 0 ]; then
         err "Cannot prompt for ROCm target in non-interactive mode"
+        echo "  Pass --rocm-target=gfx1250 (or gfx94X, gfx950, gfx120X-all)"
         exit 1
     fi
 
@@ -542,7 +868,7 @@ phase3_select_rocm_target() {
     for i in "${!ROCM_REQ_FILES[@]}"; do
         BASENAME=$(basename "${ROCM_REQ_FILES[$i]}" .txt)
         TARGET=${BASENAME#requirements-amd-}
-        echo "    $((i+1))) $TARGET"
+        echo "    $((i+1))) $(phase1_rocm_target_label "$TARGET")"
     done
     echo ""
     echo -n "  Which target? [1-${#ROCM_REQ_FILES[@]}] "
@@ -620,6 +946,52 @@ phase3_init_and_test_rocm() {
     ok "rocm-sdk cmake prefix: $ROCM_CMAKE_PREFIX"
 }
 
+phase3_verify_hip_runtime() {
+    # ASTER dlopens libamdhip64.so at run time (no build-time HIP link). "Finding
+    # HIP" therefore means the runtime lib is present in the configured ROCm. Fail
+    # hard if HIP was requested but it is missing, rather than silently skipping.
+    local cand hip_lib=""
+    for cand in "$ROCM_PATH/lib/libamdhip64.so" "$ROCM_PATH/lib64/libamdhip64.so"; do
+        if [ -e "$cand" ]; then hip_lib="$cand"; break; fi
+    done
+    if [ -z "$hip_lib" ]; then
+        err "HIP requested but libamdhip64.so not found under $ROCM_PATH/{lib,lib64}"
+        echo "  GPU execution needs the HIP runtime (ASTER dlopens libamdhip64.so)."
+        echo "  For gfx1250 pass --rocm-path=DIR; otherwise check the ROCm SDK install."
+        exit 1
+    fi
+    ok "HIP runtime found: $hip_lib"
+}
+
+phase3_use_external_rocm() {
+    info "Using preinstalled ROCm at $ROCM_PATH_EXPLICIT (--rocm-path; skipping uv pip install)"
+    if [ ! -d "$ROCM_PATH_EXPLICIT" ]; then
+        err "--rocm-path directory not found: $ROCM_PATH_EXPLICIT"
+        exit 1
+    fi
+    EXTERNAL_ROCM_DIR="$(cd "$ROCM_PATH_EXPLICIT" && pwd)"
+
+    # Locate libamdhip64.so under lib (or lib64).
+    if [ -e "$EXTERNAL_ROCM_DIR/lib/libamdhip64.so" ]; then
+        EXTERNAL_ROCM_LIB="$EXTERNAL_ROCM_DIR/lib"
+    elif [ -e "$EXTERNAL_ROCM_DIR/lib64/libamdhip64.so" ]; then
+        EXTERNAL_ROCM_LIB="$EXTERNAL_ROCM_DIR/lib64"
+    else
+        err "no libamdhip64.so under $EXTERNAL_ROCM_DIR/{lib,lib64}"
+        echo "  --rocm-path must point at a ROCm install containing lib/libamdhip64.so"
+        exit 1
+    fi
+    ok "found HIP runtime: $EXTERNAL_ROCM_LIB/libamdhip64.so"
+
+    export ROCM_PATH="$EXTERNAL_ROCM_DIR"
+    export HIP_PATH="$EXTERNAL_ROCM_DIR"
+    CLEAN_PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '^/opt/rocm' | tr '\n' ':' | sed 's/:$//')
+    export PATH="$EXTERNAL_ROCM_DIR/bin:$CLEAN_PATH"
+    export LD_LIBRARY_PATH="$EXTERNAL_ROCM_LIB:${LD_LIBRARY_PATH:-}"
+    EXTERNAL_ROCM=true
+    ok "external ROCm configured (ROCM_PATH=$EXTERNAL_ROCM_DIR)"
+}
+
 phase3_maybe_setup_rocm() {
     if [ "$WITH_HIP" != true ]; then
         return
@@ -630,19 +1002,41 @@ phase3_maybe_setup_rocm() {
         exit 1
     fi
 
+    if [ -n "$ROCM_PATH_EXPLICIT" ]; then
+        phase3_use_external_rocm
+        phase3_verify_hip_runtime
+        echo ""
+        return
+    fi
+
+    # gfx1250/gfx1251 (MI450) has NO valid pip ROCm: the GFX12 nightlies index is
+    # RDNA4 (gfx120X), not MI450. It requires a preinstalled ROCm via --rocm-path.
+    if [ "$ROCM_TARGET_EXPLICIT" = "gfx1250" ] || [ "$PRIMARY_GPU_MCPU" = "gfx1250" ] || [ "$PRIMARY_GPU_MCPU" = "gfx1251" ]; then
+        err "gfx1250/gfx1251 has no pip ROCm SDK (the GFX12 nightlies are RDNA4 gfx120X, not MI450)"
+        echo "  Pass --rocm-path=DIR pointing at a preinstalled ROCm (with lib/libamdhip64.so),"
+        echo "  or --without-hip to build cross-compile only (no GPU execution)."
+        exit 1
+    fi
+
     phase3_select_rocm_target
     phase3_install_rocm_sdk
     phase3_configure_rocm_env
     phase3_init_and_test_rocm
+    phase3_verify_hip_runtime
     echo ""
 }
 
 phase3_update_activate_script() {
     ACTIVATE="$VIRTUAL_ENV/bin/activate"
-    # Regenerate if the block is missing or doesn't include python_packages.
+    # Regenerate if the block is missing, doesn't include python_packages, or the
+    # ROCm mode changed (external --rocm-path vs pip ROCm SDK).
     if grep -q "python_packages" "$ACTIVATE" 2>/dev/null; then
-        ok "activate script already configured"
-        return
+        if [ "$EXTERNAL_ROCM" = true ] && ! grep -q "ASTER_ROCM_PATH" "$ACTIVATE" 2>/dev/null; then
+            : # external ROCm requested but the block is pip-style; regenerate
+        else
+            ok "activate script already configured"
+            return
+        fi
     fi
 
     # Strip any previous ASTER block before rewriting.
@@ -661,14 +1055,31 @@ phase3_update_activate_script() {
 ACTIVATE_EOF
     printf 'export LLVM_INSTALL=%s\n' "$LLVM_INSTALL" >> "$ACTIVATE"
     printf 'export ASTER_SRC_DIR=%s\n' "$ASTER_DIR" >> "$ACTIVATE"
+    printf 'export USER_LOCAL_BIN=%s\n' "$USER_LOCAL_BIN" >> "$ACTIVATE"
     cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
 export VENV_PURELIB=$(python -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
-export PATH=${LLVM_INSTALL}/bin:${VIRTUAL_ENV}/bin:${VENV_PURELIB}/_rocm_sdk_devel/bin:${PATH}
 export PYTHONPATH=${VIRTUAL_ENV}/python_packages:${VENV_PURELIB}:${PYTHONPATH}
-export LD_LIBRARY_PATH=${VENV_PURELIB}/_rocm_sdk_devel/lib:${LD_LIBRARY_PATH}
 export CMAKE_PREFIX_PATH=${LLVM_INSTALL}:${CMAKE_PREFIX_PATH}
+ACTIVATE_EOF
+    if [ "$EXTERNAL_ROCM" = true ]; then
+        # Preinstalled ROCm on disk (--rocm-path): point at DIR/lib + DIR/bin
+        # instead of the pip ROCm SDK under _rocm_sdk_devel.
+        printf 'export ASTER_ROCM_PATH=%s\n' "$EXTERNAL_ROCM_DIR" >> "$ACTIVATE"
+        printf 'export ASTER_ROCM_LIB=%s\n' "$EXTERNAL_ROCM_LIB" >> "$ACTIVATE"
+        cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
+export ROCM_PATH=${ASTER_ROCM_PATH}
+export HIP_PATH=${ASTER_ROCM_PATH}
+export PATH=${USER_LOCAL_BIN}:${LLVM_INSTALL}/bin:${VIRTUAL_ENV}/bin:${ASTER_ROCM_PATH}/bin:${PATH}
+export LD_LIBRARY_PATH=${ASTER_ROCM_LIB}:${LD_LIBRARY_PATH}
 # --- end ASTER setup ---
 ACTIVATE_EOF
+    else
+        cat >> "$ACTIVATE" << 'ACTIVATE_EOF'
+export PATH=${USER_LOCAL_BIN}:${LLVM_INSTALL}/bin:${VIRTUAL_ENV}/bin:${VENV_PURELIB}/_rocm_sdk_devel/bin:${PATH}
+export LD_LIBRARY_PATH=${VENV_PURELIB}/_rocm_sdk_devel/lib:${LD_LIBRARY_PATH}
+# --- end ASTER setup ---
+ACTIVATE_EOF
+    fi
 
     ok "activate script updated"
 }
@@ -753,31 +1164,17 @@ phase3_python_venv() {
 }
 
 phase4_detect_hip_support() {
+    # ASTER has NO build-time HIP/ROCm dependency: the HIP runtime is dlopen'd
+    # (libamdhip64.so) at run time and verified during ROCm setup (phase3). The
+    # build needs nothing from ROCm at cmake time, so we do NOT find_package(hip)
+    # or pass HIP_PLATFORM (nothing consumes it; it only litters the cmake cache
+    # as HIP_PLATFORM:UNINITIALIZED).
     CMAKE_EXTRA_FLAGS=""
     CMAKE_PREFIX_CHAIN="$LLVM_INSTALL"
-
     if [ "$WITH_HIP" = true ]; then
-        HIP_PREFIX="$ROCM_CMAKE_PREFIX/hip"
-        if [ -d "$HIP_PREFIX" ]; then
-            CMAKE_PREFIX_CHAIN="$CMAKE_PREFIX_CHAIN:$HIP_PREFIX"
-            CMAKE_EXTRA_FLAGS="-DHIP_PLATFORM=amd"
-            ok "HIP support enabled (from venv ROCm SDK)"
-        else
-            err "ROCm SDK installed but HIP cmake dir not found at $HIP_PREFIX"
-            exit 1
-        fi
-        return
-    fi
-
-    if "$VIRTUAL_ENV/bin/rocm-sdk" path --cmake >/dev/null 2>&1; then
-        HIP_PREFIX=$("$VIRTUAL_ENV/bin/rocm-sdk" path --cmake 2>/dev/null)/hip
-        if [ -d "$HIP_PREFIX" ]; then
-            CMAKE_PREFIX_CHAIN="$CMAKE_PREFIX_CHAIN:$HIP_PREFIX"
-            CMAKE_EXTRA_FLAGS="-DHIP_PLATFORM=amd"
-            ok "ROCm SDK detected in venv, enabling HIP support"
-        fi
+        ok "ROCm runtime configured (HIP dlopen'd at run time; no build-time HIP dep)"
     else
-        ok "No ROCm SDK (cross-compile mode, no GPU execution)"
+        ok "No ROCm runtime (cross-compile mode, no GPU execution)"
     fi
 }
 
@@ -785,22 +1182,14 @@ phase4_needs_reconfigure() {
     NEED_RECONFIGURE=false
     if [ ! -f "$ASTER_BUILD_DIR/CMakeCache.txt" ] || [ ! -f "$ASTER_BUILD_DIR/build.ninja" ]; then
         NEED_RECONFIGURE=true
-    elif [ "$WITH_HIP" = true ] && ! grep -q "HIP_PLATFORM" "$ASTER_BUILD_DIR/CMakeCache.txt" 2>/dev/null; then
-        warn "Existing build lacks HIP support, reconfiguring for --with-hip"
-        NEED_RECONFIGURE=true
     fi
 }
 
 phase4_select_linker() {
     ASTER_LINKER_FLAGS=""
-    if [ "$(uname)" = "Linux" ]; then
-        if command -v "$LLD_CMD" >/dev/null 2>&1; then
-            ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=${LLD_CMD} -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=${LLD_CMD} -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=${LLD_CMD}"
-            ok "Using ${LLD_CMD} for ASTER link"
-        elif command -v ld.mold >/dev/null 2>&1; then
-            ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold"
-            ok "Using mold for ASTER link"
-        fi
+    if [ -n "$LINKER_CHOICE" ]; then
+        ASTER_LINKER_FLAGS="-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=${LINKER_CHOICE} -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=${LINKER_CHOICE} -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=${LINKER_CHOICE}"
+        ok "ASTER link uses ${LINKER_CHOICE} (parallel linker)"
     fi
 }
 
@@ -877,20 +1266,41 @@ print_summary() {
     echo ""
     echo "  LLVM:    $LLVM_INSTALL"
     echo "  venv:    $VIRTUAL_ENV"
-    echo "  build:   $ASTER_BUILD_DIR"
+    echo "  build:   $ASTER_BUILD_DIR (cmake configured)"
+    [ -n "$LINKER_CHOICE" ] && echo "  linker:  $LINKER_CHOICE (parallel)"
     echo ""
-    echo "  Activate the venv:  source $VIRTUAL_ENV/bin/activate"
-    echo "  Run lit tests:      $VIRTUAL_ENV/bin/lit $ASTER_BUILD_DIR/test -v"
-    echo "  Run pytests:        cd $ASTER_DIR && $VIRTUAL_ENV/bin/pytest -n 16 ./test ./mlir_kernels ./contrib ./python"
-    echo "  Rebuild:            ninja -C $ASTER_BUILD_DIR install"
+    if [ "$BUILD_ASTER" = true ]; then
+        ok "ASTER built (--build)."
+        echo ""
+        echo "  Activate, then run:"
+        echo "    source $VIRTUAL_ENV/bin/activate"
+        echo "    lit $ASTER_BUILD_DIR/test -v"
+        echo "    cd $ASTER_DIR && pytest -n 16 ./test ./mlir_kernels ./contrib ./python"
+        echo "    Rebuild: ninja -C $ASTER_BUILD_DIR install"
+    else
+        echo "  Prerequisites configured; ASTER was NOT built (configure-only default)."
+        echo "  Activate, build, and run:"
+        echo ""
+        echo "    1) Activate the venv:"
+        echo "         source $VIRTUAL_ENV/bin/activate"
+        echo "    2) Build ASTER:"
+        echo "         ninja -C $ASTER_BUILD_DIR install"
+        echo "    3) Run tests:"
+        echo "         lit $ASTER_BUILD_DIR/test -v"
+        echo "         cd $ASTER_DIR && pytest -n 16 ./test ./mlir_kernels ./contrib ./python"
+        echo ""
+        echo "  (Re-run tools/setup.sh --build to configure AND build in one step.)"
+    fi
 }
 
 main() {
     parse_arguments "$@"
     resolve_virtual_env
+    phase1_detect_gpu_mcus
     resolve_with_hip
 
     phase1_prerequisites
+    resolve_parallel_linker
     phase2_shared_llvm
 
     if [ "$LLVM_ONLY" = true ]; then
@@ -900,7 +1310,9 @@ main() {
 
     phase3_python_venv
     phase4_cmake_configure
-    phase5_build
+    if [ "$BUILD_ASTER" = true ]; then
+        phase5_build
+    fi
     print_summary
 }
 
