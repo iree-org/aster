@@ -135,6 +135,12 @@ def Imm16Attr : DefaultValuedAttr<I16Attr, "0">, ASMArgFormat {
   let asmPrinter = "$_printer.printIntModifierAlways($_self);";
 }
 
+// Signed i16 immediate for GFX12.5 barrier object ids (-1 = workgroup barrier).
+def SignedImm16Attr : DefaultValuedAttr<I16Attr, "0">, ASMArgFormat {
+  let summary = "Signed 16-bit immediate value";
+  let asmPrinter = "$_printer.printImm16AsSigned($_self);";
+}
+
 // EXPCNT attribute
 def ExpcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<8>]>, "expcnt", 8> {
   let summary = "EXPCNT wait count modifier";

@@ -581,19 +581,69 @@ def SSubbU32 : SOP2Out2In3Inst<"s_subb_u32"> {
 #define SBARRIER_DEF
 def SBarrier : AMDISAInstruction<"s_barrier"> {
   let props = [IsSALU, IsSOPP];
-  let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
+  let archs = [CDNA3Isa, CDNA4Isa];
   let description = [{
     Synchronize waves within a threadgroup.
   }];
-  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], 0b0001010>];
+  let encodings = [InstEnc<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], 0b0001010>];
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4, ENC_SOPP_GFX12_50], "${mnemonic}">
+    ASMString<[ENC_SOPP_CDNA3, ENC_SOPP_CDNA4], "${mnemonic}">
   ];
 }
 #endif // SBARRIER_DEF
+
+#ifndef SBARRIERSIGNAL_DEF
+#define SBARRIERSIGNAL_DEF
+def SBarrierSignal : AMDISAInstruction<"s_barrier_signal"> {
+  let props = [IsSALU, IsSOP1];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Signal arrival on a workgroup barrier object (GFX12.5 split barrier).
+  }];
+  // LLVM opcode: SOP1 0x04e.
+  let encodings = [InstEnc<[ENC_SOP1_GFX12_50], 0b1001110>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    SignedImm16Attr:$id
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $id attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOP1_GFX12_50], "${mnemonic} $id">
+  ];
+}
+#endif // SBARRIERSIGNAL_DEF
+
+#ifndef SBARRIERWAIT_DEF
+#define SBARRIERWAIT_DEF
+def SBarrierWait : AMDISAInstruction<"s_barrier_wait"> {
+  let props = [IsSALU, IsSOPP];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Wait on a workgroup barrier object (GFX12.5 split barrier).
+  }];
+  // LLVM opcode: SOPP 0x014.
+  let encodings = [InstEnc<[ENC_SOPP_GFX12_50], 0b0010100>];
+  let outputs = (ins);
+  let inputs = (ins);
+  let trailingArgs = (ins
+    SignedImm16Attr:$id
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    $id attr-dict
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_SOPP_GFX12_50], "${mnemonic} $id">
+  ];
+}
+#endif // SBARRIERWAIT_DEF
 
 #ifndef SOP2OUT1IN2INST_DEF
 #define SOP2OUT1IN2INST_DEF
