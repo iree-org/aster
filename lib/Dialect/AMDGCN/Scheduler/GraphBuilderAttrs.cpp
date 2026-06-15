@@ -8,8 +8,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "aster/Analysis/MemoryDependenceAnalysis.h"
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
@@ -44,6 +46,12 @@ private:
   /// Build the non-SSA dependencies for the graph.
   void buildNonSSADeps(SchedGraph &graph);
 
+  /// Add hard ordering edges from the memory-dependence analysis, scoped to
+  /// LDS. Same-buffer LDS RAW/WAR/WAW is a correctness constraint the
+  /// post-schedule wait insertion cannot repair (DS ops issue in order, no hw
+  /// interlock). Global ordering is left to the existing token/wait machinery.
+  void buildMemDepEdges(SchedGraph &graph);
+
   /// Handle a wait operation.
   void handleWaitOp(SchedGraph &graph, int64_t pos, WaitCntOpInterface wait);
 
@@ -63,8 +71,34 @@ private:
 LogicalResult GraphBuilder::run(SchedGraph &graph) {
   buildSSADeps(graph);
   buildNonSSADeps(graph);
+  buildMemDepEdges(graph);
   addI1SerializationEdges(graph);
   return success();
+}
+
+void GraphBuilder::buildMemDepEdges(SchedGraph &graph) {
+  // The scheduler enforces ordering only WITHIN this block. Build the
+  // cross-block analysis (which verifies the flat-CFG normal form), then add
+  // only the LDS dependences whose producer is earlier in THIS block.
+  // Cross-block producers are structural (CFG edges + waits) and a loop-carried
+  // back edge (producer not before the consumer in program order) would be a
+  // cycle in this block's graph. Scope to LDS: same-buffer DS RAW/WAR/WAW is a
+  // correctness constraint the scheduler must respect; distinct buffers carry
+  // no edge; global ordering stays with the token/wait machinery.
+  auto mdaOr = MemoryDependenceAnalysis::create(
+      block->getParentOp(),
+      {GlobalMemoryResource::get(), LDSMemoryResource::get()});
+  if (failed(mdaOr)) {
+    LDBG() << "memdep analysis unavailable (non-flat CFG); skipping LDS edges";
+    return;
+  }
+  MemoryDependenceAnalysis &mda = *mdaOr;
+  for (Operation *op : graph.getOps())
+    for (const MemDepEdge &edge : mda.getDependences(op))
+      if (edge.resource == LDSMemoryResource::get() &&
+          edge.producer->getBlock() == block &&
+          edge.producer->isBeforeInBlock(op))
+        graph.addEdge(edge.producer, op);
 }
 
 void GraphBuilder::buildSSADeps(SchedGraph &graph) {

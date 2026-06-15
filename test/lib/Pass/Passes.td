@@ -112,6 +112,14 @@ def TestHazardAnalysis : Pass<"test-hazard-analysis"> {
   }];
 }
 
+def TestMemoryDependenceAnalysis : Pass<"test-memory-dependence-analysis"> {
+  let summary = "Test pass for memory dependence analysis";
+  let description = [{
+    This pass runs the memory dependence analysis and prints the RAW/WAR/WAW
+    dependence edges ending at each operation in kernel functions.
+  }];
+}
+
 def TestLDSInterferenceGraph
     : InterfacePass<"test-lds-interference-graph", "::mlir::FunctionOpInterface"> {
   let summary = "Test pass that prints the LDS interference graph";
