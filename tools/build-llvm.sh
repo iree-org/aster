@@ -62,6 +62,18 @@ if [[ ! -d "${LLVM_SRC_DIR}" ]]; then
   exit 1
 fi
 
+if [[ "${LLVM_CCACHE_BUILD}" == "ON" ]]; then
+  CCACHE_CMD="${CCACHE:-ccache}"
+  if command -v "${CCACHE_CMD}" &>/dev/null; then
+    :
+  elif [[ -x "${CCACHE_CMD}" ]]; then
+    export PATH="$(cd "$(dirname "${CCACHE_CMD}")" && pwd):${PATH}"
+  else
+    echo "warning: ccache not found; disabling LLVM_CCACHE_BUILD" >&2
+    LLVM_CCACHE_BUILD=OFF
+  fi
+fi
+
 # ===----------------------------------------------------------------------=== #
 # Configure LLVM
 # ===----------------------------------------------------------------------=== #
