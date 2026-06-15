@@ -89,6 +89,8 @@ from aster._mlir_libs._amdgcn import (
 from aster.dialects import _amdgcn_ops_gen as _ops_gen
 from aster.dialects._amdgcn_ops_gen import (
     s_barrier,
+    s_barrier_signal,
+    s_barrier_wait,
     s_mov_b32,
     s_nop,
     v_accvgpr_write,
@@ -102,6 +104,10 @@ from aster.dialects.amdgcn import (
     get_kernel_arguments,
 )
 from aster.dialects import ptr as ptrd
+
+
+def _i16(value: int, ctx: ir.Context) -> ir.IntegerAttr:
+    return ir.IntegerAttr.get(ir.IntegerType.get_signless(16, ctx), value)
 
 
 def _i8(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -1962,8 +1968,16 @@ class KernelBuilder:
     # ---------------------------------------------------------------------------
 
     def s_barrier(self):
-        """Insert s_barrier for workgroup synchronization."""
+        """Insert s_barrier for workgroup synchronization (CDNA only)."""
         s_barrier(loc=self._loc, ip=self._kip)
+
+    def s_barrier_signal(self, barrier_id: int = -1):
+        """Signal arrival on a GFX12.5 workgroup barrier object."""
+        s_barrier_signal(id=_i16(barrier_id, self._ctx), loc=self._loc, ip=self._kip)
+
+    def s_barrier_wait(self, barrier_id: int = -1):
+        """Wait on a GFX12.5 workgroup barrier object."""
+        s_barrier_wait(id=_i16(barrier_id, self._ctx), loc=self._loc, ip=self._kip)
 
     # ---------------------------------------------------------------------------
     # Build

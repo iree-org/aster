@@ -72,6 +72,12 @@ func.func @test_s_wait_alu() {
   return
 }
 
+func.func @test_s_barrier_gfx1250() {
+  amdgcn.s_barrier_signal -1
+  amdgcn.s_barrier_wait -1
+  return
+}
+
 //===----------------------------------------------------------------------===//
 // gfx1250 split wait op (amdgcn.wait_gfx1250; disjoint from the CDNA amdgcn.wait)
 //===----------------------------------------------------------------------===//

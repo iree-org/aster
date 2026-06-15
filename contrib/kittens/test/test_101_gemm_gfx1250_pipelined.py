@@ -119,6 +119,8 @@ def _build_gemm_pipelined_gfx1250(M, N, K):
 
         with b.stage(STAGE_READ):
             b.wait_deps_gfx1250(dsw_a_res, b_tdm_tok)
+            b.s_barrier_signal()
+            b.s_barrier_wait()
             a_lo, a_tok_lo = b.ds_load_b128(lds_a)
             a_hi, a_tok_hi = b.ds_load_b128(lds_a, b.constant_i32(16))
             bt_lo, b_tok_lo = b.ds_load_b128(lds_b)
