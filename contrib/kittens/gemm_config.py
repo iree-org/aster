@@ -360,18 +360,28 @@ class GemmMappingSpec(PipelineConfigProtocol):
             * self.AGPRS_PER_MFMA_RESULT
         )
 
-    def _operand_vgpr_depth(self, s: dict[str, int], prefix: str) -> int:
-        """Live-range depth for one operand's global load buffers.
+    def _operand_vgprs(self, s: dict[str, int], prefix: str, coop_tiles: int) -> int:
+        """VGPR pressure for one pipelined K-loop operand.
 
-        LDS path: max(LDS_WRITE - GLOBAL_LOAD, COMPUTE - LDS_READ)
-        Direct path: COMPUTE - GLOBAL_LOAD
+        Steady-state live set is (consumer_stage - producer_stage + 1) buffers
+        per tile (iter-arg plus in-body copy). LDS operands split into coop
+        global-load buffers (GLOBAL_LOAD..LDS_WRITE, ``coop_tiles``) and
+        per-wave LDS read fragments (LDS_READ..COMPUTE, ``full_tiles``); direct
+        operands skip LDS and stay live GLOBAL_LOAD..COMPUTE. ``deep`` bumps
+        read-fragment depth when COMPUTE >= 3 to match measured allocations.
         """
+        mt, nt, kt = self.num_tiles_per_wave
+        vpl = self.VGPRS_PER_LOAD
+        full_tiles = mt * kt if prefix == "A" else kt * nt
         load = s[f"{prefix}_LOAD"]
-        if prefix == "B" and self.direct_b or prefix == "A" and self.direct_a:
-            return s["COMPUTE"] - load
-        return max(
-            s[f"{prefix}_LDS_WRITE"] - load, s["COMPUTE"] - s[f"{prefix}_LDS_READ"]
-        )
+        compute = s["COMPUTE"]
+        direct = (prefix == "B" and self.direct_b) or (prefix == "A" and self.direct_a)
+        if direct:
+            return full_tiles * (compute - load + 1) * vpl
+        deep = max(0, compute - 2)
+        load_buffers = coop_tiles * (s[f"{prefix}_LDS_WRITE"] - load + 1) * vpl
+        read_buffers = full_tiles * (compute - s[f"{prefix}_LDS_READ"] + 1 + deep) * vpl
+        return load_buffers + read_buffers
 
     def _coop_tiles_per_wave(self) -> tuple[int, int]:
         """Per-wave cooperative load tile counts for A and B."""
@@ -389,18 +399,15 @@ class GemmMappingSpec(PipelineConfigProtocol):
         return _split(twg[DIM_M], nw, kt), _split(twg[DIM_N], nw, kt)
 
     def estimated_vgprs(self) -> int:
-        mt, nt, kt = self.num_tiles_per_wave
         s = self._pipeline_stage_dict()
-        a_depth = self._operand_vgpr_depth(s, "A")
-        b_depth = self._operand_vgpr_depth(s, "B")
-        vpl = self.VGPRS_PER_LOAD
         coop_a, coop_b = self._coop_tiles_per_wave()
-        a_load = coop_a * max(1, a_depth) * vpl
-        a_lds_read = mt * kt * vpl
-        b_load = (kt * nt if self.direct_b else coop_b) * max(1, b_depth) * vpl
-        b_split = kt * nt * vpl
-        overhead = 30 if self.direct_b else 10
-        return a_load + a_lds_read + b_load + b_split + overhead
+        # Fixed VGPRs for global addresses, thread/wave ids, and loop counters.
+        overhead = 10
+        return (
+            self._operand_vgprs(s, "A", coop_a)
+            + self._operand_vgprs(s, "B", coop_b)
+            + overhead
+        )
 
     def lds_bytes(self, tile_bytes: int = 1024, **overrides) -> int:
         """LDS budget estimate for the pre-compile resource filter.

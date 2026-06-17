@@ -454,6 +454,7 @@ func.func @lds_buffer_ops(%arg0: index, %arg1: index) {
   amdgcn.dealloc_lds %0
   %1 = amdgcn.alloc_lds %arg1
   amdgcn.get_lds_offset %0 : index
+  amdgcn.get_lds_offset %0 : !amdgcn.sgpr
   amdgcn.dealloc_lds %1
   %2 = amdgcn.alloc_lds 32 offset 64
   return

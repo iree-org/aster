@@ -19,6 +19,7 @@
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
+#include "aster/Interfaces/RegisterType.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Ptr/IR/PtrEnums.h"
 #include "mlir/Dialect/Ptr/IR/PtrOps.h"
@@ -68,6 +69,16 @@ struct PtrAddOpPattern : public OpCodeGenPattern<ptr::PtrAddOp> {
   using OpCodeGenPattern::OpCodeGenPattern;
   LogicalResult
   matchAndRewrite(ptr::PtrAddOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+//===----------------------------------------------------------------------===//
+// GetLDSOffsetOpPattern (i32/index result -> sgpr result)
+//===----------------------------------------------------------------------===//
+struct GetLDSOffsetOpPattern : public OpCodeGenPattern<amdgcn::GetLDSOffsetOp> {
+  using OpCodeGenPattern::OpCodeGenPattern;
+  LogicalResult
+  matchAndRewrite(amdgcn::GetLDSOffsetOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 } // namespace
@@ -252,7 +263,7 @@ PtrStoreOpPattern::matchAndRewrite(ptr::StoreOp op, OpAdaptor adaptor,
 // Internal functions
 //===----------------------------------------------------------------------===//
 
-/// Untagle unrealized conversion casts to find the original value.
+/// Untangle unrealized conversion casts to find the original value.
 static Value untangleConvertValue(Value value) {
   if (isa<RegisterTypeInterface>(value.getType()))
     return value;
@@ -396,9 +407,26 @@ void mlir::aster::amdgcn::getDependentCodeGenDialects(
   registry.insert<amdgcn::AMDGCNDialect, lsir::LSIRDialect>();
 }
 
+// Legalize get_lds_offset to register now in place to a register-typed result
+// instead of leaving for the later generic materialization to bridge with an
+// unrealized_conversion_cast.
+LogicalResult GetLDSOffsetOpPattern::matchAndRewrite(
+    amdgcn::GetLDSOffsetOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  MLIRContext *ctx = op.getContext();
+  assert(converter.isThreadUniform(op.getResult()) &&
+         "LDS offset must be workgroup-uniform");
+  Type regTy = Type(amdgcn::SGPRType::get(ctx, Register()));
+  rewriter.replaceOpWithNewOp<amdgcn::GetLDSOffsetOp>(op, regTy,
+                                                      adaptor.getBuffer());
+  return success();
+}
+
 void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
                                                   RewritePatternSet &patterns,
                                                   ConversionTarget &target) {
+  // Configure the conversion target.
+  target.addLegalDialect<amdgcn::AMDGCNDialect>();
 
   // Add the type conversions.
   converter.addConversion(
@@ -406,9 +434,16 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
   converter.addConversion(
       [&converter](Value value) { return convertTypeImpl(value, converter); });
   converter.addConversion([](TokenDependencyTypeInterface tok) { return tok; });
-
-  // Configure the conversion target.
-  target.addLegalDialect<amdgcn::AMDGCNDialect>();
+  // The LDS buffer handle passes through unchanged, LDS allocation will map to
+  // actual buffers and offsets.
+  converter.addConversion([](amdgcn::LDSBufferType buf) { return buf; });
+  // Legalize get_lds_offset to register now in place to a register-typed result
+  // instead of leaving for the later generic materialization to bridge with an
+  // unrealized_conversion_cast.
+  target.addDynamicallyLegalOp<amdgcn::GetLDSOffsetOp>(
+      [](amdgcn::GetLDSOffsetOp op) {
+        return isa<RegisterTypeInterface>(op.getResult().getType());
+      });
 
   target.addIllegalOp<aster_utils::ThreadIdOp, aster_utils::BlockIdOp,
                       aster_utils::BlockDimOp, aster_utils::GridDimOp,
@@ -421,5 +456,6 @@ void mlir::aster::amdgcn::populateCodeGenPatterns(CodeGenConverter &converter,
                IDDimOpPattern<aster_utils::BlockIdOp, amdgcn::BlockIdOp>,
                IDDimOpPattern<aster_utils::BlockDimOp, amdgcn::BlockDimOp>,
                IDDimOpPattern<aster_utils::GridDimOp, amdgcn::GridDimOp>,
-               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern>(converter);
+               PtrLoadOpPattern, PtrStoreOpPattern, PtrAddOpPattern,
+               GetLDSOffsetOpPattern>(converter);
 }

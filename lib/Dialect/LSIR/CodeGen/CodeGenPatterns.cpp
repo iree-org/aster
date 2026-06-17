@@ -16,6 +16,7 @@
 
 #include "aster/CodeGen/CodeGen.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
@@ -24,6 +25,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/IR/Matchers.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
@@ -318,7 +320,7 @@ convertBranchOperands(ValueRange operands, Block *destBlock,
   SmallVector<Value> converted;
   for (auto [operand, blockArg] :
        llvm::zip(operands, destBlock->getArguments())) {
-    // Get the expected converted type for this block argument
+    // Get the expected converted type for this block argument.
     Type expectedType = converter.convertType(blockArg.getType());
     if (!expectedType)
       expectedType = blockArg.getType();

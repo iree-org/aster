@@ -3,16 +3,13 @@
 // CHECK-LABEL:   func.func @allocs_index_offset(
 // CHECK-SAME:      %[[ARG0:.*]]: index,
 // CHECK-SAME:      %[[ARG1:.*]]: index) attributes {gpu.shared_memory_size = 384 : i32} {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant {__lds_allocation_size__ = 128 : index} 0 : i32
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           %[[CONSTANT_1:.*]] = arith.constant 1 : index
-// CHECK:           %[[INDEX_CAST_0:.*]] = arith.index_cast %[[CONSTANT_0]] : i32 to index
 // CHECK:           scf.for %[[VAL_0:.*]] = %[[ARG0]] to %[[ARG1]] step %[[CONSTANT_1]] {
-// CHECK:             %[[CONSTANT_2:.*]] = arith.constant {__lds_allocation_size__ = 256 : index} 128 : i32
-// CHECK:             %[[INDEX_CAST_1:.*]] = arith.index_cast %[[CONSTANT_2]] : i32 to index
+// CHECK:             %[[CONSTANT_2:.*]] = arith.constant 128 : i32
 // CHECK:           }
 // CHECK:           scf.for %[[VAL_1:.*]] = %[[ARG0]] to %[[ARG1]] step %[[CONSTANT_1]] {
-// CHECK:             %[[CONSTANT_3:.*]] = arith.constant {__lds_allocation_size__ = 128 : index} 128 : i32
-// CHECK:             %[[INDEX_CAST_2:.*]] = arith.index_cast %[[CONSTANT_3]] : i32 to index
+// CHECK:             %[[CONSTANT_3:.*]] = arith.constant 128 : i32
 // CHECK:           }
 // CHECK:           return
 // CHECK:         }
@@ -34,7 +31,7 @@ func.func @allocs_index_offset(%arg0: index, %arg1: index) attributes {gpu.share
 }
 
 // CHECK-LABEL:   func.func @allocs_i32_offset() {
-// CHECK:           %[[CONSTANT_0:.*]] = arith.constant {__lds_allocation_size__ = 16 : index} 0 : i32
+// CHECK:           %[[CONSTANT_0:.*]] = arith.constant 0 : i32
 // CHECK:           return
 // CHECK:         }
 func.func @allocs_i32_offset() {

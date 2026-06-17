@@ -179,18 +179,6 @@ PHASE_EXPAND_MD_OPS = amdgcn_module(
     )
 )
 
-# Convert LDS buffer operations (alloc_lds, get_lds_offset) to constants.
-# Must run after SROA has inlined everything and before lowering to AMDGCN.
-# amdgcn-lds-alloc assigns byte offsets to alloc_lds ops; amdgcn-convert-lds-buffers
-# then replaces get_lds_offset with the assigned constants. Both must run together.
-# amdgcn-lds-alloc is idempotent (skips already-allocated nodes), so it is safe
-# to include here even in pipelines that also add it explicitly (e.g. SCF pipelining).
-PHASE_CONVERT_LDS_BUFFERS = (
-    "amdgcn-lds-alloc",
-    "amdgcn-convert-lds-buffers",
-    "canonicalize", "cse",
-)
-
 # Lowering to LSIR and then AMDGCN
 # Note: aster-to-int-arith contains lower-affine without linking in and
 # cargo-culting the whole conversion library.
@@ -334,7 +322,11 @@ def make_default_pass_pipeline(
         "cse",
         PHASE_SROA,
         POST_SROA_CLEANUPS,
-        PHASE_CONVERT_LDS_BUFFERS,
+        # LDS resource allocation is deferred to the backend (after the low-level
+        # scheduler) so the scheduler sees live alloc_lds/get_lds_offset handles
+        # and the memory-dependence analysis can add same-buffer LDS ordering
+        # edges (folded constants destroy per-buffer disambiguation). See the
+        # LDS-alloc block in buildRegAllocPassPipeline (Pipelines.cpp).
         PHASE_LOWER_TO_AMDGCN,
         # WARNING: PHASE_EXPAND_MD_OPS is NOT idempotent -- running it twice
         # clobbers enable_workgroup_id_x to false (see expand-md-ops-idempotent.mlir).
