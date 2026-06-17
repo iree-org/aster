@@ -14,6 +14,7 @@
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Dialect/AsterUtils/Transforms/Passes.h"
 #include "aster/Transforms/Passes.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/PassManager.h"
@@ -52,11 +53,6 @@ struct RegAllocPipelineOptions
       *this, "hoist-iter-arg-waits",
       llvm::cl::desc("Hoist iter_arg-dependent waits to loop head"),
       llvm::cl::init(false)};
-  mlir::detail::PassOptions::Option<int32_t> llSched{
-      *this, "ll-sched",
-      llvm::cl::desc("Low-level scheduler preset (0 = off, 1+ = run with "
-                     "preset N; see SchedAttrs.cpp)"),
-      llvm::cl::init(0)};
 };
 
 /// Build the RegAlloc pass pipeline.
@@ -73,15 +69,9 @@ struct RegAllocPipelineOptions
 ///    physical register.
 static void buildRegAllocPassPipeline(OpPassManager &pm,
                                       const RegAllocPipelineOptions &options) {
-  if (options.hoistIterArgWaits) {
-    pm.addPass(createHoistIterArgWaits());
-    pm.addPass(createCanonicalizerPass());
-  }
-  if (options.llSched > 0) {
-    LowLevelSchedulerOptions llSchedOpts;
-    llSchedOpts.preset = options.llSched;
-    pm.addPass(createLowLevelScheduler(llSchedOpts));
-  }
+  // The low-level scheduler and LDS allocation run upstream of this pipeline
+  // (buildAMDGCNBackendPassPipeline runs the scheduler, then
+  // buildLdsAllocPassPipeline), so register allocation sees folded LDS offsets.
   pm.addPass(createAMDGCNBufferization());
   if (options.hoistIterArgWaits) {
     pm.addPass(createHoistIterArgWaits());
@@ -107,6 +97,38 @@ static void registerRegAllocPassPipeline() {
   PassPipelineRegistration<RegAllocPipelineOptions>(
       "amdgcn-reg-alloc", "Run the AMDGCN register allocation pipeline",
       buildRegAllocPassPipeline);
+}
+
+//===----------------------------------------------------------------------===//
+// LDS Allocation Pipeline
+//===----------------------------------------------------------------------===//
+
+/// Build the LDS allocation pipeline.
+///
+/// Runs after the low-level scheduler (see buildAMDGCNBackendPassPipeline) so
+/// the scheduler sees live amdgcn.alloc_lds / amdgcn.get_lds_offset handles:
+/// the memory-dependence analysis traces LDS accesses to their originating
+/// alloc_lds to order same-buffer LDS accesses, which folded constants make
+/// impossible.
+/// This mirrors register allocation, the scheduler reasons about the resource,
+/// then allocation assigns it.
+///
+/// amdgcn-lds-alloc assigns byte offsets (and the kernel shared_memory_size).
+/// amdgcn-convert-lds-buffers folds get_lds_offset to constants and erases the
+/// handles.
+static void buildLdsAllocPassPipeline(OpPassManager &pm) {
+  pm.addPass(createLDSAlloc());
+  pm.addPass(createConvertLDSBuffers());
+  pm.addPass(createCSEPass());
+  pm.addPass(createCanonicalizerPass());
+}
+
+static void registerLdsAllocationPassPipeline() {
+  PassPipelineRegistration<>(
+      "amdgcn-lds-alloc-pipeline",
+      "Run the AMDGCN LDS allocation pipeline (assign byte offsets, fold "
+      "get_lds_offset to constants, SROA/mem2reg cleanup)",
+      buildLdsAllocPassPipeline);
 }
 
 //===----------------------------------------------------------------------===//
@@ -171,11 +193,25 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
     kernelPm.addPass(createCSEPass());
     kernelPm.addPass(createExpandMetadataOps());
     kernelPm.addPass(createLegalizeOperands());
+    // Scheduling phase: hoist iter-arg waits then run the low-level scheduler
+    // BEFORE LDS allocation, so the scheduler sees live
+    // alloc_lds/get_lds_offset.
+    if (options.hoistIterArgWaits) {
+      kernelPm.addPass(createHoistIterArgWaits());
+      kernelPm.addPass(createCanonicalizerPass());
+    }
+    if (options.llSched > 0) {
+      LowLevelSchedulerOptions llSchedOpts;
+      llSchedOpts.preset = options.llSched;
+      kernelPm.addPass(createLowLevelScheduler(llSchedOpts));
+    }
+    // LDS allocation: assign byte offsets + fold the handles to constants,
+    // after the scheduler, before register allocation.
+    buildLdsAllocPassPipeline(kernelPm);
     RegAllocPipelineOptions regAllocOpts;
     regAllocOpts.numVGPRs = options.numVGPRs;
     regAllocOpts.numAGPRs = options.numAGPRs;
     regAllocOpts.hoistIterArgWaits = options.hoistIterArgWaits;
-    regAllocOpts.llSched = options.llSched;
     buildRegAllocPassPipeline(kernelPm, regAllocOpts);
     kernelPm.addPass(createCanonicalizerPass());
     kernelPm.addPass(createCSEPass());
@@ -214,6 +250,7 @@ static void registerAMDGCNBackendPassPipeline() {
 
 void mlir::aster::amdgcn::registerPipelines() {
   registerRegAllocPassPipeline();
+  registerLdsAllocationPassPipeline();
   registerLateWaitsPassPipeline();
   registerAMDGCNBackendPassPipeline();
 }

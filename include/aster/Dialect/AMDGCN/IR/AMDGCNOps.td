@@ -198,9 +198,12 @@ def AMDGCN_GetLDSOffsetOp : AMDGCN_Op<"get_lds_offset", [Pure]> {
     ```mlir
     %ptr = amdgcn.get_lds_offset %0 : i32
     ```
+
+    The variadic result type allows more progressing lowering:
+      index -> i32 -> register.
   }];
   let arguments = (ins LDSBufferType:$buffer);
-  let results = (outs AnyTypeOf<[I32, Index]>:$result);
+  let results = (outs AnyTypeOf<[I32, Index, SGPRType]>:$result);
   let assemblyFormat = "$buffer attr-dict `:` type($result)";
 }
 
