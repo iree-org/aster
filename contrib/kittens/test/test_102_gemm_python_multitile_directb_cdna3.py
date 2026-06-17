@@ -694,7 +694,7 @@ class TestResourceEstimates:
 
         Tolerances:
         - LDS:   estimate must be >= actual AND within 15% (tight).
-        - VGPRs: within factor 2 (estimate is structural, regalloc varies).
+        - VGPRs: within [0.65, 1.5] of actual (structural model, regalloc varies).
         - AGPRs: exact match expected (purely determined by tile shape).
         """
         from aster.compiler.metadata import parse_asm_kernel_resources
@@ -721,10 +721,10 @@ class TestResourceEstimates:
                 f"LDS estimate {est_lds} is {lds_ratio:.2f}x actual {actual.lds_bytes} -- >15% over"
             )
 
-        # VGPRs: within factor 2 (regalloc can vary)
+        # VGPRs: within [0.65, 1.5] of actual (structural model, regalloc varies)
         if actual.vgpr_count > 0:
             vgpr_ratio = est_vgprs / actual.vgpr_count
-            assert 0.5 <= vgpr_ratio <= 2.0, (
+            assert 0.65 <= vgpr_ratio <= 1.5, (
                 f"VGPR estimate {est_vgprs} vs actual {actual.vgpr_count} (ratio {vgpr_ratio:.2f})"
             )
 

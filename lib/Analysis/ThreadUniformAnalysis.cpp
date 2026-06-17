@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/ThreadUniformAnalysis.h"
+#include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AsterUtils/IR/AsterUtilsOps.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
@@ -56,7 +57,11 @@ static bool isWorkgroupUniform(Operation *op) {
           aster_utils::BlockIdOp, aster_utils::BlockDimOp,
           lsir::AssumeNoaliasOp, aster_utils::AssumeRangeOp,
           aster_utils::PassthroughOp, aster_utils::AssumeUniformOp,
-          ptr::PtrAddOp>(op))
+          ptr::PtrAddOp, amdgcn::AllocLDSOp, amdgcn::GetLDSOffsetOp>(op))
+    return true;
+  // A pure type cast preserves uniformity. Without this, some lowering paths
+  // erase uniformity for no reason beyond ConversionInfra implementation..
+  if (isa<mlir::UnrealizedConversionCastOp>(op))
     return true;
   if (isa<affine::AffineDialect>(op->getDialect()))
     return !isa<affine::AffineDmaStartOp, affine::AffineDmaWaitOp>(op);
