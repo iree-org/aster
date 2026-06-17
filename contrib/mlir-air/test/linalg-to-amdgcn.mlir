@@ -1,6 +1,6 @@
 // RUN: mlir-air-opt %s \
 // RUN:   --transform-interpreter --canonicalize \
-// RUN:   --convert-linalg-to-amdgcn \
+// RUN:   --convert-to-amdgcn-library-calls \
 // RUN:   --amdgcn-preload-library="library-paths=%p/../../../mlir_kernels/library/common/register-init.mlir,%p/../../../mlir_kernels/library/common/indexing.mlir,%p/../../../mlir_kernels/library/common/indexing_ptr.mlir,%p/../../../mlir_kernels/library/common/futures.mlir,%p/../../../contrib/kittens/library/compute_16x16_f16.mlir,%p/../../../contrib/kittens/library/global_16x64_b.mlir,%p/../../../contrib/kittens/library/lds_16x64_b.mlir,%p/../../../contrib/kittens/library/lds_mfma_16x64_b.mlir" \
 // RUN:   --inline --symbol-dce --canonicalize \
 // RUN:   --mlir-air-to-asm \

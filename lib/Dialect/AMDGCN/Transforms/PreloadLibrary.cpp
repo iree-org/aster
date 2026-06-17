@@ -138,7 +138,10 @@ bool PreloadLibrary::processModule(
   for (auto funcOp : module.getOps<func::FuncOp>()) {
     if (funcOp.isDeclaration()) {
       StringRef name = funcOp.getSymName();
-      if (libraryFunctions.contains(name)) {
+      auto it = libraryFunctions.find(name);
+      // Only replace if the library has a definition (not another declaration).
+      if (it != libraryFunctions.end() &&
+          !it->second->getRegions().front().empty()) {
         declarationsToReplace.push_back(funcOp);
       }
     }

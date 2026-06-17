@@ -40,7 +40,7 @@ def _mlir_air_pipeline(library_paths):
     return (
         "builtin.module("
         "transform-interpreter, canonicalize,"
-        "convert-linalg-to-amdgcn,"
+        "convert-to-amdgcn-library-calls,"
         f"amdgcn-preload-library{{library-paths={libs}}},"
         "inline, symbol-dce, canonicalize,"
         "mlir-air-to-asm)"
