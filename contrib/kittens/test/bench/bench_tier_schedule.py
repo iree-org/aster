@@ -19,6 +19,42 @@ def make_constraints(grid) -> tuple[str, ...]:
     return tuple(f.name for f in grid._filters if f.name is not None)
 
 
+def make_ilp_scheduler_tier(
+    tier_idx: int,
+    max_configs: int,
+    random_seed: int,
+    constraints: tuple[str, ...],
+) -> "TierSpec":
+    """ILP-scheduler refinement tier, shared across the GEMM benches.
+
+    Sweeps ll_ilp_sched and its interleave knobs on the prior tiers'
+    winning shapes. ll_sched is pinned to 0: the two schedulers are
+    mutually exclusive (ll_ilp_sched >= 0 takes pipeline precedence).
+    Anchored at the best-known level-2 / lgkm-gap-2 config.
+    """
+    return TierSpec(
+        tier_idx=tier_idx,
+        max_configs=max_configs,
+        random_seed=random_seed,
+        constraints=constraints,
+        axis_grid=dict(
+            ll_sched=[0],
+            ll_ilp_sched=[0, 1, 2],
+            lgkm_gap=[0, 2, 4],
+            rotate_compute_stage=[True, False],
+            hoist_wait=[True, False],
+            epilogue_peeling=[True, False],
+        ),
+        anchor_axes=dict(
+            ll_sched=0,
+            ll_ilp_sched=2,
+            lgkm_gap=2,
+            rotate_compute_stage=True,
+        ),
+        discriminator=("ll_ilp_sched", "lgkm_gap"),
+    )
+
+
 @dataclass(frozen=True)
 class TierSpec:
     """Declarative description of one tier.

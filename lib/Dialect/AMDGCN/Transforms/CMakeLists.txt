@@ -8,6 +8,7 @@ add_mlir_library(AMDGCNTransforms
   HoistIterArgWaits.cpp
   HoistOps.cpp
   ILPColoring.cpp
+  ILPScheduler.cpp
   InstructionSchedulingAutoschedulePass.cpp
   LDSAlloc.cpp
   LegalizeCF.cpp

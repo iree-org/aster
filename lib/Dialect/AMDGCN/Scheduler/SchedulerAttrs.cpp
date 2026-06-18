@@ -38,6 +38,11 @@ FailureOr<SchedGraph> buildValueSchedulerGraph(Block *block,
                                                const SchedAnalysis &analysis);
 } // namespace mlir::aster::amdgcn
 
+// Defined in ILPSchedulerAttrs.cpp; attaches the ILP scheduler external model.
+namespace mlir::aster::amdgcn {
+void attachILPSchedulerModel(MLIRContext *ctx);
+} // namespace mlir::aster::amdgcn
+
 //===----------------------------------------------------------------------===//
 // ValueSchedulerAttr - SchedGraphAttrInterface external model
 //===----------------------------------------------------------------------===//
@@ -917,5 +922,6 @@ void mlir::aster::amdgcn::registerAMDGCNSchedulerExternalModels(
     LatencyPipelinerSchedAttr::attachInterface<LatencyPipelinerSchedAttrImpl>(
         *ctx);
     LowLevelSchedulerAttr::attachInterface<LowLevelSchedulerAttrImpl>(*ctx);
+    attachILPSchedulerModel(ctx);
   });
 }

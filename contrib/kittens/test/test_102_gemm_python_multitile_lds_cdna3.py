@@ -432,6 +432,7 @@ def _make_instance(
     mcpu=None,
     rotate_compute_stage=False,
     ll_sched=0,
+    ll_ilp_sched=-1,
 ):
     """Build a MultitileGemmInstance from list parameters.
 
@@ -462,6 +463,7 @@ def _make_instance(
         operand_path=OperandPath.LDS,
         rotate_compute_stage=rotate_compute_stage,
         ll_sched=ll_sched,
+        ll_ilp_sched=ll_ilp_sched,
         **mapping_kw,
     )
     spec_kw = {} if mfma_shape is None else {"mfma_shape": mfma_shape}
@@ -746,3 +748,24 @@ if __name__ == "__main__":
         )
     if args.print_asm:
         print(asm)
+
+
+class TestILPScheduler:
+    """Real ILP-scheduler coverage (ll_ilp_sched=2) on a small config set, so the
+    ILP path is exercised without doubling the greedy correctness sweeps above."""
+
+    @pytest.mark.parametrize(
+        "num_waves_per_wg,num_tiles_per_wg",
+        [([2, 2, 1], [6, 4, 1]), ([4, 2, 1], [12, 6, 1])],
+        ids=["4w_6x4", "8w_12x6"],
+    )
+    def test_correctness(self, num_waves_per_wg, num_tiles_per_wg):
+        cfg = _make_instance(
+            [1, 1, 1],
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult=4,
+            pipeline_strategy=3,
+            ll_ilp_sched=2,
+        )
+        _run_multitile(cfg)

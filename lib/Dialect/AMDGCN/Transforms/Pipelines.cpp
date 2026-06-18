@@ -189,6 +189,40 @@ struct AMDGCNBackendPipelineOptions
       llvm::cl::desc("Low-level scheduler preset (0 = off, 1+ = run with "
                      "preset N; see SchedAttrs.cpp)"),
       llvm::cl::init(0)};
+  mlir::detail::PassOptions::Option<int32_t> llIlpSched{
+      *this, "ll-ilp-sched",
+      llvm::cl::desc("ILP scheduler formulation level (-1 = off, 0/1/2 = "
+                     "level; takes precedence over ll-sched when >= 0)"),
+      llvm::cl::init(-1)};
+  mlir::detail::PassOptions::Option<int32_t> mfmaGap{
+      *this, "mfma-gap",
+      llvm::cl::desc("ILP scheduler: min MFMA issue-rank spacing (hide gap-1 "
+                     "ops behind each MFMA; <=1 off)"),
+      llvm::cl::init(4)};
+  mlir::detail::PassOptions::Option<int32_t> vmemGap{
+      *this, "vmem-gap",
+      llvm::cl::desc("ILP scheduler: min VMEM issue-rank spacing (<=1 off)"),
+      llvm::cl::init(0)};
+  mlir::detail::PassOptions::Option<int32_t> lgkmGap{
+      *this, "lgkm-gap",
+      llvm::cl::desc("ILP scheduler: min LGKM/DS issue-rank spacing (<=1 off)"),
+      llvm::cl::init(0)};
+  mlir::detail::PassOptions::Option<bool> barrierBypass{
+      *this, "barrier-bypass",
+      llvm::cl::desc("ILP scheduler: drop conservative DS/VMEM-to-barrier pin "
+                     "edges (cross-loop barrier does not fence)"),
+      llvm::cl::init(false)};
+  mlir::detail::PassOptions::Option<int32_t> maxLoadDistance{
+      *this, "ilp-max-load-distance",
+      llvm::cl::desc("ILP scheduler: bound a memory load's live range "
+                     "(consumers within N ranks; 0 = unbounded)"),
+      llvm::cl::init(0)};
+  mlir::detail::PassOptions::Option<int32_t> minLgkmDistance{
+      *this, "ilp-min-lgkm-distance",
+      llvm::cl::desc(
+          "ILP scheduler: force each ds_read to lead its consumer by "
+          ">= N ranks (LDS prefetch; 0 = off)"),
+      llvm::cl::init(0)};
   mlir::detail::PassOptions::Option<bool> setMfmaPriority{
       *this, "set-mfma-priority",
       llvm::cl::desc("Insert s_setprio around MFMA groups"),
@@ -233,7 +267,19 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
       kernelPm.addPass(createHoistIterArgWaits());
       kernelPm.addPass(createCanonicalizerPass());
     }
-    if (options.llSched > 0) {
+    // ll-ilp-sched takes precedence over the greedy ll-sched (mutually
+    // exclusive).
+    if (options.llIlpSched >= 0) {
+      AMDGCNILPSchedulerOptions ilpSchedOpts;
+      ilpSchedOpts.level = options.llIlpSched;
+      ilpSchedOpts.mfmaGap = options.mfmaGap;
+      ilpSchedOpts.vmemGap = options.vmemGap;
+      ilpSchedOpts.lgkmGap = options.lgkmGap;
+      ilpSchedOpts.barrierBypass = options.barrierBypass;
+      ilpSchedOpts.maxLoadDistance = options.maxLoadDistance;
+      ilpSchedOpts.minLgkmDistance = options.minLgkmDistance;
+      kernelPm.addPass(createAMDGCNILPScheduler(ilpSchedOpts));
+    } else if (options.llSched > 0) {
       LowLevelSchedulerOptions llSchedOpts;
       llSchedOpts.preset = options.llSched;
       kernelPm.addPass(createLowLevelScheduler(llSchedOpts));

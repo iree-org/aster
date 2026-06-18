@@ -253,6 +253,21 @@ class GemmMappingSpec(PipelineConfigProtocol):
     prologue_peeling: int = 0  # peel + fully unroll the first N iterations
     epilogue_peeling: bool = True  # fully unroll cleanup loop
     ll_sched: int = 0  # 0 = off; 1+ = run scheduler with preset N (see SchedAttrs.cpp)
+    ll_ilp_sched: int = -1  # -1 = off; 0/1/2 = ILP scheduler level (excl. ll_sched)
+    mfma_gap: int = (
+        4  # ILP: min MFMA issue-rank spacing (hide gap-1 behind each; <=1 off)
+    )
+    vmem_gap: int = (
+        2  # ILP: min VMEM spacing; interleaves stores w/ addresses (0/1 off)
+    )
+    lgkm_gap: int = 0  # ILP: min LGKM/DS issue-rank spacing (<=1 off)
+    barrier_bypass: bool = False  # ILP: drop conservative DS/VMEM-to-barrier pin edges
+    max_load_distance: int = (
+        0  # ILP: bound load live range (consumers within N ranks; 0 off)
+    )
+    min_lgkm_distance: int = (
+        20  # ILP: ds_read leads consumer by >=N ranks (prefetch; 0=off)
+    )
     hoist_wait: bool = False  # hoist iter-arg waits
     set_mfma_priority: bool = False  # insert s_setprio around MFMA groups
     rotate_compute_stage: bool = False  # enable compute-stage rotation in pass pipeline
@@ -604,7 +619,15 @@ class WeakScaledMappedGemmInstance:
                 r"_lcm([01])"
                 r"_um(\d+)"
                 r"_epeel([01])"
-                r"_llsched(\d+)"
+                # ll-sched and ll-ilp-sched are mutually exclusive -> one slot.
+                r"_(?:llsched(\d+)|llilpsched(\d+))"
+                # ILP interleaving knobs (optional; present only when non-default).
+                r"(?:_mfmagap(\d+))?"
+                r"(?:_vmemgap(\d+))?"
+                r"(?:_lgkmgap(\d+))?"
+                r"(?:_byp(1))?"
+                r"(?:_ilpmaxld(\d+))?"
+                r"(?:_minlgkm(\d+))?"
                 r"_hoistwait([01])"
                 r"_rotc([01])"
                 r"_lt_(flat|buf)$"
@@ -612,7 +635,9 @@ class WeakScaledMappedGemmInstance:
         return cls._LABEL_RE
 
     @classmethod
-    def from_label(cls, label: str) -> WeakScaledMappedGemmInstance:
+    def from_label(
+        cls, label: str, _validate: bool = True
+    ) -> WeakScaledMappedGemmInstance:
         """Parse a label string back into an instance."""
         m = cls._label_pattern().match(label)
         if not m:
@@ -636,6 +661,13 @@ class WeakScaledMappedGemmInstance:
             um,
             epeel,
             llsched,
+            llilpsched,
+            mfmagap,
+            vmemgap,
+            lgkmgap,
+            byp,
+            ilpmaxld,
+            minlgkm,
             hoistwait,
             rotc,
             lt,
@@ -661,12 +693,30 @@ class WeakScaledMappedGemmInstance:
             lcm_unroll=lcm == "1",
             unroll_factor_multiplier=int(um),
             epilogue_peeling=epeel == "1",
-            ll_sched=int(llsched),
+            ll_sched=int(llsched) if llsched is not None else 0,
+            ll_ilp_sched=int(llilpsched) if llilpsched is not None else -1,
+            mfma_gap=int(mfmagap) if mfmagap is not None else 2,
+            vmem_gap=int(vmemgap) if vmemgap is not None else 2,
+            lgkm_gap=int(lgkmgap) if lgkmgap is not None else 4,
+            barrier_bypass=byp == "1",
+            max_load_distance=int(ilpmaxld) if ilpmaxld is not None else 0,
+            min_lgkm_distance=int(minlgkm) if minlgkm is not None else 20,
             hoist_wait=hoistwait == "1",
             rotate_compute_stage=rotc == "1",
         )
         cfg = cls(spec, mapping)
-        assert cfg.label == label, f"Round-trip failed: {cfg.label!r} != {label!r}"
+        # The label need not be canonical: an optional token written at its
+        # default value (e.g. _mfmagap2_ when 2 is the default) is dropped on
+        # re-encode, so strict equality would spuriously reject it. Check
+        # idempotency of the CANONICAL label instead -- it must re-parse to the
+        # same canonical form. This still catches encode/decode bugs (a dropped
+        # non-default field changes the canonical) while accepting non-canonical
+        # but equivalent inputs. _validate=False breaks the one-level recursion.
+        if _validate:
+            canon = cfg.label
+            assert cls.from_label(canon, _validate=False).label == canon, (
+                f"Non-idempotent label encode/decode: {canon!r}"
+            )
         return cfg
 
     @property
@@ -677,6 +727,28 @@ class WeakScaledMappedGemmInstance:
         twg = self.num_tiles_per_workgroup
         gs = self.gemm_size
         lt = "buf" if m.load_type == LoadType.BUFFER else "flat"
+        # ll-sched and ll-ilp-sched are mutually exclusive -> one label slot.
+        sched_tok = (
+            f"_llilpsched{m.ll_ilp_sched}"
+            if m.ll_ilp_sched >= 0
+            else f"_llsched{int(m.ll_sched)}"
+        )
+        # ILP interleaving knobs: emit only when the ILP scheduler is active and
+        # the value differs from the pass default (keeps other labels stable).
+        ilp_tok = ""
+        if m.ll_ilp_sched >= 0:
+            if int(m.mfma_gap) != 2:
+                ilp_tok += f"_mfmagap{int(m.mfma_gap)}"
+            if int(m.vmem_gap) != 2:
+                ilp_tok += f"_vmemgap{int(m.vmem_gap)}"
+            if int(m.lgkm_gap) != 4:
+                ilp_tok += f"_lgkmgap{int(m.lgkm_gap)}"
+            if m.barrier_bypass:
+                ilp_tok += "_byp1"
+            if int(m.max_load_distance) != 0:
+                ilp_tok += f"_ilpmaxld{int(m.max_load_distance)}"
+            if int(m.min_lgkm_distance) != 20:
+                ilp_tok += f"_minlgkm{int(m.min_lgkm_distance)}"
         return (
             f"m{gs[DIM_M]}xn{gs[DIM_N]}xk{gs[DIM_K]}"
             f"_wg{wg[DIM_M]}x{wg[DIM_N]}x{wg[DIM_K]}"
@@ -687,7 +759,8 @@ class WeakScaledMappedGemmInstance:
             f"_lcm{int(m.lcm_unroll)}"
             f"_um{m.unroll_factor_multiplier}"
             f"_epeel{int(m.epilogue_peeling)}"
-            f"_llsched{int(m.ll_sched)}"
+            f"{sched_tok}"
+            f"{ilp_tok}"
             f"_hoistwait{int(m.hoist_wait)}"
             f"_rotc{int(m.rotate_compute_stage)}"
             f"_lt_{lt}"

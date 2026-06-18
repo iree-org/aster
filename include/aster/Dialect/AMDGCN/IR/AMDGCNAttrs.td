@@ -161,6 +161,47 @@ def LowLevelSchedulerAttr : AMDGCN_Attr<"LowLevelScheduler", "low_level_schedule
   let assemblyFormat = "`<` $preset `,` $annotateStalls `>`";
 }
 
+def ILPSchedulerAttr : AMDGCN_Attr<"ILPScheduler", "ilp_scheduler", []> {
+  let summary = "ILP-based instruction scheduler for AMDGCN";
+  let description = [{
+    Schedules using an Integer Linear Programming (CP-SAT) model that minimizes
+    issue latency subject to data-dependence and hardware-resource constraints.
+
+    `level` selects the formulation complexity:
+      0 = correctness only (graph precedence + all-different ordering)
+      1 = + entry-latency / same-kind window penalties
+      2 = + exit-latency / makespan
+    `timeLimitMs` is the CP-SAT solver budget in deterministic-time units
+    (value/1000, machine-independent for reproducible schedules); 0 = unbounded.
+
+    Interleaving cost knobs (level 2): `mfmaGap` / `vmemGap` / `lgkmGap` are the
+    minimum issue-rank spacing between same-kind ops (XDL / VMEM / LGKM); a gap of
+    G hides G-1 other ops behind each such op (<=1 disables). `barrierBypass`
+    drops the conservative DS/VMEM-to-s_barrier pin edges so a cross-loop barrier
+    does not fence the next iteration's loads/ds out of the compute shadow.
+
+    `maxLoadDistance` bounds register pressure: for every edge out of a memory
+    load (VMEM / LGKM), the consumer must issue within `maxLoadDistance` ranks of
+    the load, capping the loaded value's live range (0 = unbounded). It is the
+    latency-hiding vs register-pressure knob -- larger spreads loads earlier
+    (more hiding, more pressure), smaller keeps them near their use.
+  }];
+  let parameters = (ins
+    DefaultValuedParameter<"int32_t", "0">:$level,
+    DefaultValuedParameter<"int32_t", "500">:$timeLimitMs,
+    DefaultValuedParameter<"int32_t", "4">:$mfmaGap,
+    DefaultValuedParameter<"int32_t", "0">:$vmemGap,
+    DefaultValuedParameter<"int32_t", "0">:$lgkmGap,
+    DefaultValuedParameter<"bool", "false">:$barrierBypass,
+    DefaultValuedParameter<"int32_t", "0">:$maxLoadDistance,
+    DefaultValuedParameter<"int32_t", "0">:$minLgkmDistance
+  );
+  let assemblyFormat =
+    "`<` $level `,` $timeLimitMs `,` $mfmaGap `,` $vmemGap `,` $lgkmGap `,` "
+    "$barrierBypass `,` $maxLoadDistance `,` "
+    "$minLgkmDistance `>`";
+}
+
 //===----------------------------------------------------------------------===//
 // Kernel argument attributes
 //===----------------------------------------------------------------------===//

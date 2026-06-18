@@ -56,6 +56,7 @@ from kittens_helpers import PIPELINE_STRATEGIES as PS
 from bench_search import (
     SweepGrid,
     add_gemm_sweep_axes,
+    add_ll_sched_exclusion_filter,
     add_resource_filter,
     add_size_cli_args,
     fits_on_cu_post_compile,
@@ -67,7 +68,7 @@ from bench_search import (
     wps,
 )
 from bench_tier_driver import run_tier_mode
-from bench_tier_schedule import TierSpec, make_constraints
+from bench_tier_schedule import TierSpec, make_constraints, make_ilp_scheduler_tier
 
 
 # --- Tier schedule (policy) ---
@@ -82,17 +83,18 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             random_seed=random_seed,
             constraints=constraints,
             axis_grid=dict(
-                wg_m=[16, 19, 32, 38, 76],
-                wg_n=[16, 19, 32, 38, 76],
+                wg_m=[19],
+                wg_n=[16],
                 waves_m=[1, 2, 4],
                 waves_n=[1, 2, 4],
                 twg_m=[4, 6, 8, 12, 16],
                 twg_n=[4, 6, 8, 12, 16],
                 twg_k=[1, 2, 4],
-                occ=[1, 2],
+                occ=[1],
                 ps=[1, 3, 5],
                 unroll_factor_multiplier=[1, 3],
-                ll_sched=[1],
+                ll_sched=[0],
+                ll_ilp_sched=[0, 1, 2],
                 rotate_compute_stage=[True],
                 hoist_wait=[False],
             ),
@@ -104,13 +106,14 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             random_seed=random_seed,
             constraints=constraints,
             axis_grid=dict(
-                ll_sched=[0, 1, 2, 3, 4, 5],
+                ll_sched=[0],
+                ll_ilp_sched=[0, 1, 2],
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
             ),
-            anchor_axes=dict(ll_sched=1, rotate_compute_stage=True),
-            discriminator=("hoist_wait", "ll_sched", "rotate_compute_stage"),
+            anchor_axes=dict(ll_ilp_sched=2, rotate_compute_stage=True),
+            discriminator=("hoist_wait", "ll_ilp_sched", "rotate_compute_stage"),
         ),
         TierSpec(
             tier_idx=3,
@@ -120,14 +123,16 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
             axis_grid=dict(
                 ps=[1, 2, 3, 4, 5, 6, 7, 8],
                 unroll_factor_multiplier=[1, 2, 3, 4, 5],
-                ll_sched=[0, 1, 2, 3, 4, 5],
+                ll_sched=[0],
+                ll_ilp_sched=[0, 1, 2],
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
             ),
-            anchor_axes=dict(ll_sched=1, rotate_compute_stage=True),
+            anchor_axes=dict(ll_ilp_sched=2, rotate_compute_stage=True),
             discriminator=("ps", "unroll_factor_multiplier", "hoist_wait"),
         ),
+        make_ilp_scheduler_tier(4, max_configs, random_seed, constraints),
     ]
 
 
@@ -190,6 +195,7 @@ def _make_grid(
     tile_m, tile_n, tile_k = _tile_elements(mcpu)
     grid = SweepGrid()
     add_gemm_sweep_axes(grid)
+    add_ll_sched_exclusion_filter(grid)
     grid.restrict_axes(
         {
             "lcm_unroll": [True],
@@ -206,8 +212,7 @@ def _make_grid(
     grid.filter(
         "waves_m",
         "waves_n",
-        check=lambda d, ns=hw.num_simds: ns <= d["waves_m"] * d["waves_n"] <= 4 * ns
-        and (d["waves_m"] * d["waves_n"]) % ns == 0,
+        check=lambda d, ns=hw.num_simds: d["waves_m"] * d["waves_n"] == ns,
         name="wave_pair_valid",
     )
     grid.filter(

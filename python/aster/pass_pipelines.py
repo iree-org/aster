@@ -13,6 +13,13 @@ class PipelineConfigProtocol(Protocol):
     epilogue_peeling: bool
     prologue_peeling: int
     ll_sched: int
+    ll_ilp_sched: int
+    mfma_gap: int
+    vmem_gap: int
+    lgkm_gap: int
+    barrier_bypass: bool
+    max_load_distance: int
+    min_lgkm_distance: int
     hoist_wait: bool
     set_mfma_priority: bool
     rotate_stage: int | None
@@ -27,6 +34,13 @@ class PipelineConfig(PipelineConfigProtocol):
     epilogue_peeling: bool = True
     prologue_peeling: int = 0
     ll_sched: int = 0
+    ll_ilp_sched: int = -1
+    mfma_gap: int = 4
+    vmem_gap: int = 0
+    lgkm_gap: int = 0
+    barrier_bypass: bool = False
+    max_load_distance: int = 0
+    min_lgkm_distance: int = 0
     hoist_wait: bool = False
     set_mfma_priority: bool = False
     rotate_stage: int | None = None
@@ -247,7 +261,9 @@ PHASE_LOWER_TO_AMDGCN = (
 # TODO: NORMAL FORMS for amdgcn-backend.
 def phase_amdgcn_backend(
     num_vgprs=256, num_agprs=256, ll_sched=0, hoist_iter_arg_waits=False,
-    set_mfma_priority=False,
+    set_mfma_priority=False, ll_ilp_sched=-1,
+    mfma_gap=4, vmem_gap=0, lgkm_gap=0, barrier_bypass=False, max_load_distance=0,
+    min_lgkm_distance=0,
 ):
     """Build the amdgcn-backend pipeline string with optional register limits."""
     opts = []
@@ -261,6 +277,23 @@ def phase_amdgcn_backend(
     ll_sched = int(ll_sched)
     if ll_sched > 0:
         opts.append(f"ll-sched={ll_sched}")
+    # ll-ilp-sched (-1 = off; 0/1/2 = level) takes precedence over ll-sched.
+    ll_ilp_sched = int(ll_ilp_sched)
+    if ll_ilp_sched >= 0:
+        opts.append(f"ll-ilp-sched={ll_ilp_sched}")
+        # ILP interleaving knobs (only meaningful when the ILP scheduler runs).
+        if int(mfma_gap) != 4:
+            opts.append(f"mfma-gap={int(mfma_gap)}")
+        if int(vmem_gap) != 0:
+            opts.append(f"vmem-gap={int(vmem_gap)}")
+        if int(lgkm_gap) != 0:
+            opts.append(f"lgkm-gap={int(lgkm_gap)}")
+        if barrier_bypass:
+            opts.append("barrier-bypass=true")
+        if int(max_load_distance) != 0:
+            opts.append(f"ilp-max-load-distance={int(max_load_distance)}")
+        if int(min_lgkm_distance) != 0:
+            opts.append(f"ilp-min-lgkm-distance={int(min_lgkm_distance)}")
     if set_mfma_priority:
         opts.append("set-mfma-priority=true")
     # Use the ILP register allocator when ASTER_ILP is set.
@@ -344,6 +377,13 @@ def make_default_pass_pipeline(
             ll_sched=mapping.ll_sched,
             hoist_iter_arg_waits=mapping.hoist_wait,
             set_mfma_priority=mapping.set_mfma_priority,
+            ll_ilp_sched=mapping.ll_ilp_sched,
+            mfma_gap=mapping.mfma_gap,
+            vmem_gap=mapping.vmem_gap,
+            lgkm_gap=mapping.lgkm_gap,
+            barrier_bypass=mapping.barrier_bypass,
+            max_load_distance=mapping.max_load_distance,
+            min_lgkm_distance=mapping.min_lgkm_distance,
         ),
         phase_nop_insertion(delays=0),
     )

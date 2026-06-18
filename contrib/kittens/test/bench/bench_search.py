@@ -285,6 +285,22 @@ def add_scheduling_axes(grid: SweepGrid) -> None:
         "rotate_compute_stage",
     ):
         grid.axis(name, [])
+    # ILP scheduler axes. Unlike the axes above (always filled by a tier), most
+    # benches do not sweep the ILP scheduler, so each is registered with its
+    # GemmMappingSpec default as a single value: no product growth and ILP stays
+    # off (ll_ilp_sched=-1) unless a tier overrides it. ll_ilp_sched is the gate
+    # and is mutually exclusive with ll_sched (see make_default_pass_pipeline);
+    # an ILP-sweeping tier must pin ll_sched=0.
+    for name, default in (
+        ("ll_ilp_sched", -1),
+        ("mfma_gap", 4),
+        ("vmem_gap", 2),
+        ("lgkm_gap", 0),
+        ("barrier_bypass", False),
+        ("max_load_distance", 0),
+        ("min_lgkm_distance", 20),
+    ):
+        grid.axis(name, [default])
 
 
 # Sweep-axis -> GemmMappingSpec kwarg. New axes that must reach the mapping
@@ -296,6 +312,13 @@ _SWEEP_TO_MAPPING_KWARG = {
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
     "rotate_compute_stage": "rotate_compute_stage",
+    "ll_ilp_sched": "ll_ilp_sched",
+    "mfma_gap": "mfma_gap",
+    "vmem_gap": "vmem_gap",
+    "lgkm_gap": "lgkm_gap",
+    "barrier_bypass": "barrier_bypass",
+    "max_load_distance": "max_load_distance",
+    "min_lgkm_distance": "min_lgkm_distance",
 }
 
 
@@ -307,6 +330,21 @@ def mapping_kwargs_from_sweep(d: dict) -> dict:
     mapping defaults.
     """
     return {mapping_kwarg: d[axis] for axis, mapping_kwarg in _SWEEP_TO_MAPPING_KWARG.items() if axis in d}
+
+
+def add_ll_sched_exclusion_filter(grid: SweepGrid) -> None:
+    """Reject configs that enable both schedulers at once.
+
+    The greedy (ll_sched) and ILP (ll_ilp_sched) schedulers are mutually
+    exclusive: ll_ilp_sched >= 0 takes pipeline precedence over ll_sched, so a
+    config asking for both is never compiled. Call from each bench's _make_grid.
+    """
+    grid.filter(
+        "ll_sched",
+        "ll_ilp_sched",
+        check=lambda d: not (d["ll_sched"] > 0 and d["ll_ilp_sched"] >= 0),
+        name="ll_sched_and_ll_ilp_sched_mutually_exclusive",
+    )
 
 
 # -- GPU hardware constants --------------------------------------------------

@@ -446,6 +446,53 @@ def LowLevelScheduler : Pass<"amdgcn-low-level-scheduler",
   ];
 }
 
+def AMDGCNILPScheduler : Pass<"amdgcn-ilp-scheduler",
+                              "::mlir::aster::amdgcn::KernelOp"> {
+  let summary = "ILP-based pre-register-allocation instruction scheduler";
+  let description = [{
+    Reorders instructions within basic blocks to minimize issue latency using
+    an Integer Linear Programming (CP-SAT) model with data-dependence and
+    hardware-resource constraints. `level` selects the formulation:
+    0 = correctness only, 1 = + entry latency, 2 = + exit latency.
+
+    Runs after aster-to-amdgcn and before the register allocation pipeline.
+    Operates on flat basic blocks (post-SCF lowering). Mutually exclusive with
+    the greedy amdgcn-low-level-scheduler.
+  }];
+  let dependentDialects = [
+    "mlir::aster::amdgcn::AMDGCNDialect",
+    "mlir::aster::aster_utils::AsterUtilsDialect"
+  ];
+  let options = [
+    Option<"level", "level", "int32_t", "0",
+           "Formulation level: 0=correctness, 1=+entry latency, 2=+exit latency">,
+    Option<"ilpTimeLimitMs", "ilp-time-limit-ms", "int32_t", "500",
+           "CP-SAT solver deterministic-time budget (value/1000 units, "
+           "machine-independent for reproducible schedules)">,
+    Option<"mfmaGap", "mfma-gap", "int32_t", "4",
+           "Min issue-rank spacing between MFMAs (hides mfma-gap-1 ops behind "
+           "each MFMA; <=1 disables). Level 2 only.">,
+    Option<"vmemGap", "vmem-gap", "int32_t", "0",
+           "Min issue-rank spacing between VMEM ops (even load spreading; <=1 "
+           "disables). Level >=1.">,
+    Option<"lgkmGap", "lgkm-gap", "int32_t", "0",
+           "Min issue-rank spacing between LGKM/DS ops (<=1 disables). "
+           "Level >=1.">,
+    Option<"barrierBypass", "barrier-bypass", "bool", "false",
+           "Drop conservative DS/VMEM-to-s_barrier pin edges so a cross-loop "
+           "barrier does not fence next-iteration fillers out of the shadow.">,
+    Option<"maxLoadDistance", "ilp-max-load-distance", "int32_t", "0",
+           "Bound a memory load's live range: its consumers must issue within "
+           "this many ranks of the load (0 = unbounded). Caps register pressure "
+           "from aggressive interleaving.">,
+    Option<"minLgkmDistance", "ilp-min-lgkm-distance", "int32_t", "0",
+           "Force each ds_read (LGKM) to lead its consumer by >= this many "
+           "issue ranks, so other ds_reads prefetch into the gap and the "
+           "consumer waits lgkmcnt(depth) instead of lgkmcnt(0) (hides LDS "
+           "latency). 0 = off.">,
+  ];
+}
+
 def AMDGCNHazards : Pass<"amdgcn-hazards"> {
   let summary = "Resolve hazards for AMDGCN instructions";
   let description = [{

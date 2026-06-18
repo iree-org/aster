@@ -287,17 +287,26 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
             b.dealloc_lds(lds_a_h)
 
         # -- COMPUTE: join 2 vx2 A frags into vx4, MFMA with vx4 B directly.
+        # Per-tile fine-grained waits (not one coarse wait on all tokens) so the
+        # scheduler can interleave ds_read_(mi,kt) with the MFMAs of an earlier
+        # tile. Loop (mi, kt) outer / ni inner: the A-frag pair (mi,kt) is reused
+        # across all ni, so wait its two read tokens once per (mi,kt).
         with b.stage(STG_COMPUTE):
-            b.wait_deps(a_frags, b_vx4_loads)
-            for kt, mi, ni in enumerate_flat_coords((k_t, m_per_wave, n_per_wave)):
-                acc_idx = b.constant_index(mi * n_per_wave + ni)
+            for mi, kt in enumerate_flat_coords((m_per_wave, k_t)):
+                b.wait_deps(
+                    a_frags.token_at((mi, kt, 0)),
+                    a_frags.token_at((mi, kt, 1)),
+                )
                 a_lo = a_frags.data_at((mi, kt, 0))
                 a_hi = a_frags.data_at((mi, kt, 1))
                 a_vx4 = b.join_vx2_to_vx4(a_lo, a_hi)
-                b_vx4 = b_vx4_loads.data_at((ni, kt))
-                acc = b.memref_load(c_buf, acc_idx)
-                new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
-                b.memref_store(new_acc, c_buf, acc_idx)
+                for ni in range(n_per_wave):
+                    b.wait_deps(b_vx4_loads.token_at((ni, kt)))
+                    acc_idx = b.constant_index(mi * n_per_wave + ni)
+                    b_vx4 = b_vx4_loads.data_at((ni, kt))
+                    acc = b.memref_load(c_buf, acc_idx)
+                    new_acc = b.mfma(MFMA_F16_CDNA4.opcode, acc, a_vx4, b_vx4)
+                    b.memref_store(new_acc, c_buf, acc_idx)
 
             # WAR sync: without this, a fast wave's next-iter G2S can
             # overwrite LDS offsets that a slow wave is still ds_read'ing.
@@ -385,6 +394,7 @@ def _make_instance(
     k_mult,
     pipeline_strategy=0,
     rotate_compute_stage=False,
+    ll_ilp_sched=-1,
 ):
     """Build a Cdna4GemmInstance from tile grid and K multiplier."""
     mfma = MFMA_F16_CDNA4.shape
@@ -402,6 +412,13 @@ def _make_instance(
         pipeline_strategy=pipeline_strategy,
         operand_path=OperandPath.DIRECT_B,
         rotate_compute_stage=rotate_compute_stage,
+        ll_ilp_sched=ll_ilp_sched,
+        # ILP scheduler interleaving defaults (hill-climbed on the ds/mfma
+        # ladder): mfma-gap=2 spaces MFMAs, lgkm-gap=4 spreads ds_reads one per
+        # two MFMAs (the 2:1 ds:mfma ratio of this GEMM). Only active when the
+        # ILP scheduler runs (ll_ilp_sched >= 0).
+        mfma_gap=2,
+        lgkm_gap=4,
         mcpu="gfx950",
     )
     return Cdna4GemmInstance(spec, mapping)
@@ -649,3 +666,13 @@ if __name__ == "__main__":
         )
     if args.print_asm:
         print(asm)
+
+
+class TestILPScheduler:
+    """Real ILP-scheduler coverage (ll_ilp_sched=2) on a small config set, so the
+    ILP path is exercised without doubling the greedy correctness sweeps above."""
+
+    @pytest.mark.parametrize("twg", [[2, 2, 1], [2, 1, 1]], ids=["2x2", "2x1"])
+    def test_correctness(self, twg):
+        cfg = _make_instance([1, 1, 1], twg, twg, 4, ll_ilp_sched=2)
+        _run_cdna4_gemm(cfg)

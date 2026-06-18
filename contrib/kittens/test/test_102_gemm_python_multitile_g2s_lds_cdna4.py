@@ -396,6 +396,7 @@ def _make_instance(
     k_mult,
     pipeline_strategy=0,
     rotate_compute_stage=False,
+    ll_ilp_sched=-1,
 ):
     """Build a Cdna4GemmInstance from tile grid and K multiplier (lds B path)."""
     mfma = MFMA_F16_CDNA4.shape
@@ -413,6 +414,7 @@ def _make_instance(
         pipeline_strategy=pipeline_strategy,
         operand_path=OperandPath.LDS,
         rotate_compute_stage=rotate_compute_stage,
+        ll_ilp_sched=ll_ilp_sched,
         mcpu="gfx950",
     )
     return Cdna4GemmInstance(spec, mapping)
@@ -654,3 +656,13 @@ if __name__ == "__main__":
         )
     if args.print_asm:
         print(asm)
+
+
+class TestILPScheduler:
+    """Real ILP-scheduler coverage (ll_ilp_sched=2) on a small config set, so the
+    ILP path is exercised without doubling the greedy correctness sweeps above."""
+
+    @pytest.mark.parametrize("twg", [[2, 2, 1], [2, 1, 1]], ids=["2x2", "2x1"])
+    def test_correctness(self, twg):
+        cfg = _make_instance([1, 1, 1], twg, twg, 4, ll_ilp_sched=2)
+        _run_cdna4_gemm(cfg)
