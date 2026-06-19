@@ -1146,7 +1146,7 @@ class VCmpInst<string mnemonic> : AMDISAInstruction<mnemonic> {
   let props = [IsVALU];
   let archs = [CDNA3Isa, CDNA4Isa, GFX12_50Isa];
   let outputs = (ins
-    AnyRegOf<[TwoSGPROrVCCType, VCCType]>:$dst0
+    AnyRegOf<[TwoSGPROrVCCType, VCCLoType]>:$dst0
   );
   let inputs = (ins
     AnyOperandOf<[OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>, OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>]>:$src0,
@@ -1154,7 +1154,7 @@ class VCmpInst<string mnemonic> : AMDISAInstruction<mnemonic> {
   );
   let trailingArgs = (ins);
   let asm_syntax = [
-    ASMString<[ENC_VOP3_CDNA3], "${mnemonic}_e64 $dst0, $src0, $src1">,
+    ASMString<[ENC_VOP3_CDNA3, ENC_VOP3_GFX12_50], "${mnemonic}_e64 $dst0, $src0, $src1">,
     ASMString<[ENC_VOPC_CDNA3, ENC_VOPC_CDNA4, ENC_VOP3_CDNA4], "${mnemonic} $dst0, $src0, $src1">
   ];
 }
@@ -1173,8 +1173,13 @@ def VCmpEqI32 : VCmpInst<"v_cmp_eq_i32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011000010, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000010, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011000010, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1196,8 +1201,13 @@ def VCmpGeI32 : VCmpInst<"v_cmp_ge_i32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011000110, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000110, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011000110, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1219,8 +1229,13 @@ def VCmpGeU32 : VCmpInst<"v_cmp_ge_u32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011001110, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001110, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011001110, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1241,8 +1256,13 @@ def VCmpGtI32 : VCmpInst<"v_cmp_gt_i32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011000100, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000100, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011000100, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1263,8 +1283,13 @@ def VCmpGtU32 : VCmpInst<"v_cmp_gt_u32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011001100, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001100, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011001100, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1285,8 +1310,13 @@ def VCmpLeI32 : VCmpInst<"v_cmp_le_i32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011000011, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000011, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011000011, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1307,8 +1337,13 @@ def VCmpLeU32 : VCmpInst<"v_cmp_le_u32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011001011, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001011, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011001011, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1329,8 +1364,13 @@ def VCmpLtI32 : VCmpInst<"v_cmp_lt_i32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011000001, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000001, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011000001, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1351,8 +1391,13 @@ def VCmpLtU32 : VCmpInst<"v_cmp_lt_u32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011001001, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011001001, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011001001, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1373,8 +1418,13 @@ def VCmpNeI32 : VCmpInst<"v_cmp_ne_i32"> {
       OneGPROrSRegOrConstOf<InlineLitInt<[IntType<32>]>, IntType<32>>:$src0,
       VGPROf<1>:$src1
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0011000101, (pred
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0011000101, (pred
       TwoSGPROrVCCType:$dst0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0011000101, (pred
+      OneSGPROrVCCType:$dst0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrLitOf<InlineLitInt<[IntType<32>]>>:$src1
     )>
@@ -1392,15 +1442,25 @@ def VCndmaskB32 : AMDISAInstruction<"v_cndmask_b32"> {
     store the result into a vector register.
   }];
   let encodings = [
-    InstEnc<[ENC_VOP2_CDNA3, ENC_VOP2_CDNA4, ENC_VOP2_GFX12_50], 0b000000, (pred
+    InstEnc<[ENC_VOP2_CDNA3, ENC_VOP2_CDNA4], 0b000000, (pred
       OneGPROrSRegOrConstType:$src0,
       VGPROf<1>:$src1,
       VCCType:$src2
     )>,
-    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4, ENC_VOP3_GFX12_50], 0b0100000000, (pred
+    InstEnc<[ENC_VOP2_GFX12_50], 0b000000, (pred
+      OneGPROrSRegOrConstType:$src0,
+      VGPROf<1>:$src1,
+      VCCLoType:$src2
+    )>,
+    InstEnc<[ENC_VOP3_CDNA3, ENC_VOP3_CDNA4], 0b0100000000, (pred
       OneGPROrSRegOrConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>>:$src0,
       OneGPROrSRegOrConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>>:$src1,
       TwoSGPROrVCCType:$src2
+    )>,
+    InstEnc<[ENC_VOP3_GFX12_50], 0b0100000000, (pred
+      OneGPROrSRegOrConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>>:$src0,
+      OneGPROrSRegOrConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>>:$src1,
+      OneSGPROrVCCType:$src2
     )>
   ];
   let outputs = (ins
@@ -1409,7 +1469,7 @@ def VCndmaskB32 : AMDISAInstruction<"v_cndmask_b32"> {
   let inputs = (ins
     AnyOperandOf<[OneGPROrSRegOrConstType, OneGPROrSRegOrConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>>]>:$src0,
     AnyOperandOf<[VGPROf<1>, OneGPROrSRegOrConstOf<InlineLitFP<[F32]>, InlineLitInt<[IntType<32>]>>]>:$src1,
-    AnyRegOf<[VCCType, TwoSGPROrVCCType]>:$src2
+    AnyRegOf<[VCCType, VCCLoType, TwoSGPROrVCCType]>:$src2
   );
   let trailingArgs = (ins);
   let asm_syntax = [

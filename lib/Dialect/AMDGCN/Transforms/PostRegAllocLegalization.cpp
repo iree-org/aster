@@ -124,6 +124,17 @@ CopyExpansionPattern::matchAndRewrite(lsir::CopyOp op,
     return success();
   }
 
+  if (isa<VCCLoType>(srcTy) || isa<VCCLoType>(tgtTy)) {
+    assert((isa<VCCLoType>(srcTy) ||
+            srcTy.getRegisterKind() == RegisterKind::SGPR) &&
+           (isa<VCCLoType>(tgtTy) ||
+            tgtTy.getRegisterKind() == RegisterKind::SGPR) &&
+           "VCC_LO copy: the other side must be SGPR-class (s_mov_b32)");
+    SMovB32::create(rewriter, op.getLoc(), op.getTarget(), op.getSource());
+    rewriter.eraseOp(op);
+    return success();
+  }
+
   // Bail if the copy cannot be performed.
   if (srcTy.getRegisterKind() != RegisterKind::SGPR &&
       tgtTy.getRegisterKind() == RegisterKind::SGPR) {

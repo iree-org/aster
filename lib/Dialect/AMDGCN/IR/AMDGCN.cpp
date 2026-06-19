@@ -655,6 +655,29 @@ LogicalResult LibraryOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// LaneMaskWidthTrait
+//===----------------------------------------------------------------------===//
+
+LogicalResult mlir::aster::amdgcn::detail::verifyLaneMaskWidth(Operation *op) {
+  if (!llvm::any_of(op->getOperandTypes(), isLaneMask) &&
+      !llvm::any_of(op->getResultTypes(), isLaneMask))
+    return success();
+  auto module = op->getParentOfType<amdgcn::ModuleOp>();
+  if (!module)
+    return success();
+  TypeID expected =
+      getLaneMaskType(op->getContext(), getIsaForTarget(module.getTarget()))
+          .getTypeID();
+  for (Type t : op->getOperandTypes())
+    if (isLaneMask(t) && t.getTypeID() != expected)
+      return op->emitOpError("VCC operand must match the wave size: got ") << t;
+  for (Type t : op->getResultTypes())
+    if (isLaneMask(t) && t.getTypeID() != expected)
+      return op->emitOpError("VCC result must match the wave size: got ") << t;
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // PtrAddOp
 //===----------------------------------------------------------------------===//
 

@@ -76,6 +76,32 @@ amdgcn.module @test_vcc target = <gfx942> {
 
 // -----
 
+// gfx1250 VCC_LO conditional branch.
+
+// CHECK-LABEL: kernel @test_cond_branch_vcc_lo
+// CHECK:         v_cmp_lt_i32 outs(%[[VCC:.*]]) ins(%{{.*}}, %{{.*}})
+// CHECK:         s_cbranch_vccz %[[VCC]], true(^bb2) false(^bb1)
+// CHECK:       ^bb1:
+// CHECK:         end_kernel
+// CHECK:       ^bb2:
+// CHECK:         end_kernel
+amdgcn.module @test_vcc_lo target = <gfx1250> {
+  amdgcn.kernel @test_cond_branch_vcc_lo attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %c0 = arith.constant 0 : i32
+    %v0 = alloca : !amdgcn.vgpr<0>
+    %vcc_lo = alloca : !amdgcn.vcc_lo<0>
+    v_mov_b32 outs(%v0) ins(%c0) : outs(!amdgcn.vgpr<0>) ins(i32)
+    v_cmp_lt_i32 outs(%vcc_lo) ins(%v0, %c0) : outs(!amdgcn.vcc_lo<0>) ins(!amdgcn.vgpr<0>, i32)
+    lsir.cond_br %vcc_lo : !amdgcn.vcc_lo<0>, ^bb1, ^bb2
+  ^bb1:
+    end_kernel
+  ^bb2:
+    end_kernel
+  }
+}
+
+// -----
+
 // Test: SCC conditional branch where falseDest (^bb1) is the next block.
 // This means the pass uses s_cbranch_scc1 to branch to ^bb2 when SCC=1,
 // falling through to ^bb1 when SCC=0.

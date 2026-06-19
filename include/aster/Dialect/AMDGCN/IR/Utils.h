@@ -88,6 +88,28 @@ bool isAMDReg(Type regTy);
 /// Get the ISA version for the given target.
 ISAVersion getIsaForTarget(Target target);
 
+/// True when `isa` is modeled as wave32 (lane mask is VCC_LO).
+bool isWave32(ISAVersion isa);
+
+/// True when `target` is modeled as wave32.
+bool isWave32(Target target);
+
+/// True when the enclosing amdgcn.module target is wave32; false outside a
+/// module.
+bool isWave32(Operation *op);
+
+/// Lane-mask type for `isa` (VCC_LO on wave32, else VCC).
+Type getLaneMaskType(MLIRContext *ctx, ISAVersion isa);
+
+/// Lane-mask type from the enclosing amdgcn.module target.
+Type getLaneMaskType(Operation *op);
+
+/// Lane-mask type from the enclosing amdgcn.module target of `value`.
+Type getLaneMaskType(Value value);
+
+/// VCC or VCC_LO.
+bool isLaneMask(Type t);
+
 /// Bytes of LDS (aka shared memory) available per compute unit for the given
 /// target. CDNA3 is 64KB; CDNA4 is 256KB; RDNA4 is 128KB.
 int64_t getLdsBytesPerCU(Target target);

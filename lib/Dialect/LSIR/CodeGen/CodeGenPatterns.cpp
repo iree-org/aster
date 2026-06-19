@@ -136,7 +136,7 @@ struct ArithMinMaxOpPattern : public OpCodeGenPattern<MinMaxOp> {
     Value dst = this->createAlloca(rewriter, loc, regType);
     Type cmpDstType =
         isa<amdgcn::VGPRType>(lhs.getType())
-            ? Type(amdgcn::VCCType::get(rewriter.getContext(), Register()))
+            ? amdgcn::getLaneMaskType(op.getOperation())
             : Type(amdgcn::SCCType::get(rewriter.getContext(), Register()));
     Value cmpDst = this->createAlloca(rewriter, loc, cmpDstType);
     Value cmp = lsir::CmpIOp::create(
@@ -298,11 +298,9 @@ LogicalResult
 ArithCmpFOpPattern::matchAndRewrite(arith::CmpFOp op,
                                     arith::CmpFOp::Adaptor adaptor,
                                     ConversionPatternRewriter &rewriter) const {
-  // AMDGCN has no scalar float compare instructions (s_cmp_* is integer-only).
-  // All float comparisons use VOPC instructions (v_cmp_f_*) which write to VCC.
   assert(isa<amdgcn::VGPRType>(adaptor.getLhs().getType()) &&
          "arith.cmpf operands must be VGPRs after codegen conversion");
-  Type dstType = amdgcn::VCCType::get(op.getContext(), Register());
+  Type dstType = amdgcn::getLaneMaskType(op.getOperation());
   Value dst = createAlloca(rewriter, op.getLoc(), dstType);
   auto cmpOp = lsir::CmpFOp::create(
       rewriter, op.getLoc(), TypeAttr::get(op.getLhs().getType()),
