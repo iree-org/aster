@@ -67,6 +67,21 @@ static Value createSOP2Out2In3(OpBuilder &builder, Location loc, Value dst,
       .getDst0Res();
 }
 
+/// Lane-mask AND/OR/XOR -> s_{and,or,xor}_b32/b64 by mask width.
+template <typename SOp32, typename SOp64>
+static LogicalResult lowerVCCBitwise(Operation *op, PatternRewriter &rewriter,
+                                     Value dst, Value lhs, Value rhs) {
+  Value result;
+  if (isa<VCCLoType>(dst.getType()))
+    result = createSOP2Out2In2<SOp32>(rewriter, op->getLoc(), dst, lhs, rhs);
+  else if (isa<VCCType>(dst.getType()))
+    result = createSOP2Out2In2<SOp64>(rewriter, op->getLoc(), dst, lhs, rhs);
+  else
+    return failure();
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
 namespace {
 //===----------------------------------------------------------------------===//
 // AddIOpPattern
@@ -683,6 +698,10 @@ LogicalResult AndIOpPattern::matchAndRewrite(lsir::AndIOp op,
   unsigned width = op.getSemantics().getWidth();
   OperandKind lhsKind, rhsKind;
 
+  // VCC case short-circuit.
+  if (succeeded(lowerVCCBitwise<SAndB32, SAndB64>(op, rewriter, dst, lhs, rhs)))
+    return success();
+
   // Check we can transform this op
   if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
                        rhsKind, {32, 64}, {32})))
@@ -1169,6 +1188,10 @@ LogicalResult OrIOpPattern::matchAndRewrite(lsir::OrIOp op,
   unsigned width = op.getSemantics().getWidth();
   OperandKind lhsKind, rhsKind;
 
+  // VCC case short-circuit.
+  if (succeeded(lowerVCCBitwise<SOrB32, SOrB64>(op, rewriter, dst, lhs, rhs)))
+    return success();
+
   // Check we can transform this op
   if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
                        rhsKind, {32, 64}, {32})))
@@ -1207,6 +1230,10 @@ LogicalResult XOrIOpPattern::matchAndRewrite(lsir::XOrIOp op,
   OperandKind kind = getOperandKind(oTy);
   unsigned width = op.getSemantics().getWidth();
   OperandKind lhsKind, rhsKind;
+
+  // VCC case short-circuit.
+  if (succeeded(lowerVCCBitwise<SXorB32, SXorB64>(op, rewriter, dst, lhs, rhs)))
+    return success();
 
   // Check we can transform this op
   if (failed(checkAIOp(op, rewriter, kind, lhs, rhs, oTy, width, lhsKind,
@@ -1956,6 +1983,31 @@ PtrAddOpPattern::matchAndRewrite(PtrAddOp op, PatternRewriter &rewriter) const {
   return success();
 }
 
+/// Broadcast SCC (or other non-lane-mask flag) to a full lane mask.
+static Value broadcastFlagToLaneMask(PatternRewriter &rewriter, Location loc,
+                                     Operation *anchor, Value flagReg) {
+  if (isWave32(anchor)) {
+    Value vccDst = createAllocation(
+        rewriter, loc, VCCLoType::get(rewriter.getContext(), Register()));
+    Type i32 = rewriter.getI32Type();
+    Value allOnes = arith::ConstantOp::create(rewriter, loc, i32,
+                                              rewriter.getIntegerAttr(i32, -1));
+    Value zero = arith::ConstantOp::create(rewriter, loc, i32,
+                                           rewriter.getIntegerAttr(i32, 0));
+    return SCselectB32::create(rewriter, loc, vccDst, allOnes, zero, flagReg)
+        .getDst0Res();
+  }
+  Value vccDst = createAllocation(
+      rewriter, loc, VCCType::get(rewriter.getContext(), Register()));
+  Type i64 = rewriter.getI64Type();
+  Value allOnes = arith::ConstantOp::create(rewriter, loc, i64,
+                                            rewriter.getIntegerAttr(i64, -1));
+  Value zero = arith::ConstantOp::create(rewriter, loc, i64,
+                                         rewriter.getIntegerAttr(i64, 0));
+  return SCselectB64::create(rewriter, loc, vccDst, allOnes, zero, flagReg)
+      .getDst0Res();
+}
+
 //===----------------------------------------------------------------------===//
 // SelectOpPattern
 //===----------------------------------------------------------------------===//
@@ -1963,32 +2015,40 @@ PtrAddOpPattern::matchAndRewrite(PtrAddOp op, PatternRewriter &rewriter) const {
 LogicalResult
 SelectOpPattern::matchAndRewrite(lsir::SelectOp op,
                                  PatternRewriter &rewriter) const {
-  Value flagReg = op.getCondition();
-  bool isVector = isa<VCCType>(flagReg.getType());
   Location loc = op.getLoc();
   Value dst = op.getDst();
-  Value result;
+  Value flagReg = op.getCondition();
+  Value trueVal = op.getTrueValue();
+  Value falseVal = op.getFalseValue();
 
-  if (isVector) {
-    // v_cndmask_b32: vdst = VCC[lane] ? src1 : src0 (note: reversed order!).
-    // src0 = false_value, src1 = true_value, src2 = VCC.
-    // VOP2 src1 must be a VGPR; materialize via v_mov_b32 into dst if needed.
-    // The resulting dst WAR in v_cndmask_b32 is well-defined for VOP2.
-    Value trueVal = op.getTrueValue();
-    Value falseVal = op.getFalseValue();
-    if (!isa<VGPRType>(trueVal.getType())) {
-      VMovB32::create(rewriter, loc, dst, trueVal);
-      trueVal = dst;
-    }
-    result = VCndmaskB32::create(rewriter, loc, dst, falseVal, trueVal, flagReg)
-                 .getDst0Res();
-  } else {
+  bool resultIsVector = isVGPR(dst.getType(), /*numWords=*/-1) ||
+                        isVGPR(trueVal.getType(), /*numWords=*/-1) ||
+                        isVGPR(falseVal.getType(), /*numWords=*/-1);
+
+  if (!resultIsVector) {
     // s_cselect_b32: sdst = SCC ? src0 : src1.
     // src0 = true_value (selected when SCC=1), src1 = false_value.
-    result = SCselectB32::create(rewriter, loc, dst, op.getTrueValue(),
-                                 op.getFalseValue(), flagReg)
-                 .getDst0Res();
+    Value result =
+        SCselectB32::create(rewriter, loc, dst, trueVal, falseVal, flagReg)
+            .getDst0Res();
+    rewriter.replaceOp(op, result);
+    return success();
   }
+
+  // v_cndmask_b32: vdst = VCC[lane] ? src1 : src0 (note: reversed order!).
+  // src0 = false_value, src1 = true_value, src2 = lane mask.
+  Value vccMask = isLaneMask(flagReg.getType())
+                      ? flagReg
+                      : broadcastFlagToLaneMask(rewriter, loc, op, flagReg);
+  // VOP2 src1 must be a VGPR; materialize via v_mov_b32 into dst if needed.
+  // The resulting dst WAR in v_cndmask_b32 is well-defined for VOP2.
+  if (!isa<VGPRType>(trueVal.getType())) {
+    VMovB32::create(rewriter, loc, dst, trueVal);
+    trueVal = dst;
+  }
+  Value result =
+      VCndmaskB32::create(rewriter, loc, dst, falseVal, trueVal, vccMask)
+          .getDst0Res();
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -2096,10 +2156,7 @@ LogicalResult CmpIOpPattern::matchAndRewrite(lsir::CmpIOp op,
   Location loc = op.getLoc();
 
   Value result;
-  if (isa<VCCType>(dst.getType())) {
-    // Vector compare: v_cmp_* writes to VCC. The 32-bit VOPC encoding requires
-    // src1 (rhs) to be a VGPR. If rhs is not a VGPR, swap operands and flip
-    // the predicate.
+  if (isLaneMask(dst.getType())) {
     if (!isa<VGPRType>(rhs.getType())) {
       assert(isa<VGPRType>(lhs.getType()) &&
              "at least one operand must be a VGPR for vector compare");

@@ -161,7 +161,7 @@ def SCbranchScc1 : SCbranchInst<"s_cbranch_scc1",
 #ifndef SCBRANCHVCCNZ_DEF
 #define SCBRANCHVCCNZ_DEF
 def SCbranchVccnz : SCbranchInst<"s_cbranch_vccnz",
-    /*src=*/[VCCType]
+    /*src=*/[VCCType, VCCLoType]
   > {
   let description = [{
     If VCCZ is 0 then jump to a constant offset relative to the current PC.
@@ -173,7 +173,7 @@ def SCbranchVccnz : SCbranchInst<"s_cbranch_vccnz",
 #ifndef SCBRANCHVCCZ_DEF
 #define SCBRANCHVCCZ_DEF
 def SCbranchVccz : SCbranchInst<"s_cbranch_vccz",
-    /*src=*/[VCCType]
+    /*src=*/[VCCType, VCCLoType]
   > {
   let description = [{
     If VCCZ is 1 then jump to a constant offset relative to the current PC.

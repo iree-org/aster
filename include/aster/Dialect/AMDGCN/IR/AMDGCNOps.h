@@ -48,6 +48,19 @@ namespace aster::amdgcn {
 bool checkFloatConst(Value value, ArrayRef<float> values);
 bool checkIntConst(Value value, ArrayRef<int64_t> values);
 bool checkOffsetConst(Value value, int64_t offsetWidth, bool isSigned = false);
+
+namespace detail {
+/// Lane-mask operand/result width must match the enclosing module wave size.
+LogicalResult verifyLaneMaskWidth(Operation *op);
+} // namespace detail
+
+template <typename ConcreteType>
+struct LaneMaskWidthTrait
+    : public OpTrait::TraitBase<ConcreteType, LaneMaskWidthTrait> {
+  static LogicalResult verifyTrait(Operation *op) {
+    return detail::verifyLaneMaskWidth(op);
+  }
+};
 } // namespace aster::amdgcn
 } // namespace mlir
 

@@ -319,7 +319,7 @@ static Type convertTypeImpl(Value value, const CodeGenConverter &converter) {
     std::optional<bool> isUniform = converter.isThreadUniform(value);
     if (isUniform.has_value() && *isUniform)
       return amdgcn::SCCType::get(value.getContext(), Register());
-    return amdgcn::VCCType::get(value.getContext(), Register());
+    return amdgcn::getLaneMaskType(value);
   }
 
   int64_t typeSize = converter.getTypeSize(value.getType());

@@ -24,6 +24,11 @@ include "aster/Interfaces/InstOpInterfaces.td"
 // Base instruction class for AMDGCN instructions.
 //===----------------------------------------------------------------------===//
 
+// Lane-mask operand width must match module wave size.
+def LaneMaskWidthTrait : NativeOpTrait<"LaneMaskWidthTrait"> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
+
 def AMDInstTrait : InstructionTrait {
   let extraConcreteClassDeclaration = [{
     /// Returns whether the instruction is valid for the given target and encoding.
@@ -85,6 +90,7 @@ class AMDISAInstruction<string mnemonic, list<Trait> opTraits = []>
     : Instruction<AMDGCN_Dialect, mnemonic, opTraits # [
         AMDInstTrait,
         AMDGCNInstOpInterface,
+        LaneMaskWidthTrait,
       ]>, AMDInstOpCode<mnemonic, mnemonic> {
   list<InstProp> props = [];
   code instExtraClassDeclaration = "";

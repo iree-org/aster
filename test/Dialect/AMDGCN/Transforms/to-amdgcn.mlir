@@ -416,6 +416,88 @@ func.func @test_xor_i64_sgpr(%dst: !amdgcn.sgpr<[? + 2]>, %lhs: !amdgcn.sgpr<[? 
   return %res : !amdgcn.sgpr<[? + 2]>
 }
 
+// Lane-mask bitwise ops -> s_{and,or,xor}_b32/b64.
+
+// CHECK-LABEL:   func.func @test_and_i1_vcc(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vcc, %[[ARG1:.*]]: !amdgcn.vcc, %[[ARG2:.*]]: !amdgcn.vcc) -> !amdgcn.vcc {
+// CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.s_and_b64 outs(%[[ARG0]], %[[SCC_ALLOCA_0]]) ins(%[[ARG1]], %[[ARG2]]) : outs(!amdgcn.vcc, !amdgcn.scc<0>) ins(!amdgcn.vcc, !amdgcn.vcc)
+// CHECK:           return %[[VAL_0]] : !amdgcn.vcc
+// CHECK:         }
+func.func @test_and_i1_vcc(%dst: !amdgcn.vcc, %lhs: !amdgcn.vcc, %rhs: !amdgcn.vcc) -> !amdgcn.vcc{
+  %res = lsir.andi i1 %dst, %lhs, %rhs : !amdgcn.vcc, !amdgcn.vcc, !amdgcn.vcc
+  return %res : !amdgcn.vcc
+}
+
+// CHECK-LABEL:   func.func @test_or_i1_vcc(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vcc, %[[ARG1:.*]]: !amdgcn.vcc, %[[ARG2:.*]]: !amdgcn.vcc) -> !amdgcn.vcc {
+// CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.s_or_b64 outs(%[[ARG0]], %[[SCC_ALLOCA_0]]) ins(%[[ARG1]], %[[ARG2]]) : outs(!amdgcn.vcc, !amdgcn.scc<0>) ins(!amdgcn.vcc, !amdgcn.vcc)
+// CHECK:           return %[[VAL_0]] : !amdgcn.vcc
+// CHECK:         }
+func.func @test_or_i1_vcc(%dst: !amdgcn.vcc, %lhs: !amdgcn.vcc, %rhs: !amdgcn.vcc) -> !amdgcn.vcc{
+  %res = lsir.ori i1 %dst, %lhs, %rhs : !amdgcn.vcc, !amdgcn.vcc, !amdgcn.vcc
+  return %res : !amdgcn.vcc
+}
+
+// CHECK-LABEL:   func.func @test_xor_i1_vcc(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vcc, %[[ARG1:.*]]: !amdgcn.vcc, %[[ARG2:.*]]: !amdgcn.vcc) -> !amdgcn.vcc {
+// CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.s_xor_b64 outs(%[[ARG0]], %[[SCC_ALLOCA_0]]) ins(%[[ARG1]], %[[ARG2]]) : outs(!amdgcn.vcc, !amdgcn.scc<0>) ins(!amdgcn.vcc, !amdgcn.vcc)
+// CHECK:           return %[[VAL_0]] : !amdgcn.vcc
+// CHECK:         }
+func.func @test_xor_i1_vcc(%dst: !amdgcn.vcc, %lhs: !amdgcn.vcc, %rhs: !amdgcn.vcc) -> !amdgcn.vcc{
+  %res = lsir.xori i1 %dst, %lhs, %rhs : !amdgcn.vcc, !amdgcn.vcc, !amdgcn.vcc
+  return %res : !amdgcn.vcc
+}
+
+// Wave32 lane masks use the b32 form.
+
+// CHECK-LABEL:   func.func @test_and_i1_vcc_lo(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vcc_lo, %[[ARG1:.*]]: !amdgcn.vcc_lo, %[[ARG2:.*]]: !amdgcn.vcc_lo) -> !amdgcn.vcc_lo {
+// CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.s_and_b32 outs(%[[ARG0]], %[[SCC_ALLOCA_0]]) ins(%[[ARG1]], %[[ARG2]]) : outs(!amdgcn.vcc_lo, !amdgcn.scc<0>) ins(!amdgcn.vcc_lo, !amdgcn.vcc_lo)
+// CHECK:           return %[[VAL_0]] : !amdgcn.vcc_lo
+// CHECK:         }
+func.func @test_and_i1_vcc_lo(%dst: !amdgcn.vcc_lo, %lhs: !amdgcn.vcc_lo, %rhs: !amdgcn.vcc_lo) -> !amdgcn.vcc_lo{
+  %res = lsir.andi i1 %dst, %lhs, %rhs : !amdgcn.vcc_lo, !amdgcn.vcc_lo, !amdgcn.vcc_lo
+  return %res : !amdgcn.vcc_lo
+}
+
+// CHECK-LABEL:   func.func @test_or_i1_vcc_lo(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vcc_lo, %[[ARG1:.*]]: !amdgcn.vcc_lo, %[[ARG2:.*]]: !amdgcn.vcc_lo) -> !amdgcn.vcc_lo {
+// CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.s_or_b32 outs(%[[ARG0]], %[[SCC_ALLOCA_0]]) ins(%[[ARG1]], %[[ARG2]]) : outs(!amdgcn.vcc_lo, !amdgcn.scc<0>) ins(!amdgcn.vcc_lo, !amdgcn.vcc_lo)
+// CHECK:           return %[[VAL_0]] : !amdgcn.vcc_lo
+// CHECK:         }
+func.func @test_or_i1_vcc_lo(%dst: !amdgcn.vcc_lo, %lhs: !amdgcn.vcc_lo, %rhs: !amdgcn.vcc_lo) -> !amdgcn.vcc_lo{
+  %res = lsir.ori i1 %dst, %lhs, %rhs : !amdgcn.vcc_lo, !amdgcn.vcc_lo, !amdgcn.vcc_lo
+  return %res : !amdgcn.vcc_lo
+}
+
+// CHECK-LABEL:   func.func @test_xor_i1_vcc_lo(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vcc_lo, %[[ARG1:.*]]: !amdgcn.vcc_lo, %[[ARG2:.*]]: !amdgcn.vcc_lo) -> !amdgcn.vcc_lo {
+// CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
+// CHECK:           %[[VAL_0:.*]] = amdgcn.s_xor_b32 outs(%[[ARG0]], %[[SCC_ALLOCA_0]]) ins(%[[ARG1]], %[[ARG2]]) : outs(!amdgcn.vcc_lo, !amdgcn.scc<0>) ins(!amdgcn.vcc_lo, !amdgcn.vcc_lo)
+// CHECK:           return %[[VAL_0]] : !amdgcn.vcc_lo
+// CHECK:         }
+func.func @test_xor_i1_vcc_lo(%dst: !amdgcn.vcc_lo, %lhs: !amdgcn.vcc_lo, %rhs: !amdgcn.vcc_lo) -> !amdgcn.vcc_lo{
+  %res = lsir.xori i1 %dst, %lhs, %rhs : !amdgcn.vcc_lo, !amdgcn.vcc_lo, !amdgcn.vcc_lo
+  return %res : !amdgcn.vcc_lo
+}
+
+// A vector lsir.cmpi with vcc_lo dst -> v_cmp.
+
+// CHECK-LABEL:   func.func @test_cmpi_slt_vcc_lo(
+// CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vcc_lo, %[[ARG1:.*]]: !amdgcn.vgpr, %[[ARG2:.*]]: !amdgcn.vgpr) -> !amdgcn.vcc_lo {
+// CHECK:           %[[VAL_0:.*]] = amdgcn.v_cmp_lt_i32 outs(%[[ARG0]]) ins(%[[ARG1]], %[[ARG2]]) : outs(!amdgcn.vcc_lo) ins(!amdgcn.vgpr, !amdgcn.vgpr)
+// CHECK:           return %[[VAL_0]] : !amdgcn.vcc_lo
+// CHECK:         }
+func.func @test_cmpi_slt_vcc_lo(%dst: !amdgcn.vcc_lo, %lhs: !amdgcn.vgpr, %rhs: !amdgcn.vgpr) -> !amdgcn.vcc_lo {
+  %res = lsir.cmpi i32 slt %dst, %lhs, %rhs : !amdgcn.vcc_lo, !amdgcn.vgpr, !amdgcn.vgpr
+  return %res : !amdgcn.vcc_lo
+}
+
 // CHECK-LABEL:   func.func @test_load_global_dword(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr<[? + 2]>) -> !amdgcn.vgpr {
 // CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ARG0]] addr %[[ARG1]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>

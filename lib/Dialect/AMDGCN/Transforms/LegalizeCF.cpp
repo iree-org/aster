@@ -20,6 +20,7 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNAttrs.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
+#include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "mlir/IR/Builders.h"
@@ -57,9 +58,9 @@ private:
 };
 
 LogicalResult LegalizeCF::lowerCondBranch(lsir::CondBranchOp condBr) {
-  // The condition is a register type (SCC or VCC) directly.
+  // The condition is a register type (SCC or lane mask) directly.
   Value flagReg = condBr.getCondition();
-  bool isVector = isa<VCCType>(flagReg.getType());
+  bool isVector = isLaneMask(flagReg.getType());
 
   // All values flow through side effects; operands must be allocated registers.
   for (auto &brOpRange :

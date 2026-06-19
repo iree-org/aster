@@ -156,3 +156,38 @@ amdgcn.library @library_multi_isa_gfx12_50 isa = [#amdgcn.isa<cdna3>, #amdgcn.is
     return
   }
 }
+
+//===----------------------------------------------------------------------===//
+// v_cndmask_b32 with VCC_LO mask
+//===----------------------------------------------------------------------===//
+
+func.func @test_v_cndmask_b32_vcc_lo(
+    %dst: !amdgcn.vgpr,
+    %src0: !amdgcn.vgpr,
+    %src1: !amdgcn.vgpr,
+    %mask: !amdgcn.vcc_lo) -> !amdgcn.vgpr {
+  %result = amdgcn.v_cndmask_b32 outs(%dst) ins(%src0, %src1, %mask)
+      : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vcc_lo)
+  return %result : !amdgcn.vgpr
+}
+
+//===----------------------------------------------------------------------===//
+// v_cmp + s_cbranch with VCC_LO
+//===----------------------------------------------------------------------===//
+
+func.func @test_v_cmp_lt_i32_vcc_lo(
+    %dst: !amdgcn.vcc_lo,
+    %lhs: !amdgcn.vgpr,
+    %rhs: !amdgcn.vgpr) -> !amdgcn.vcc_lo {
+  %result = amdgcn.v_cmp_lt_i32 outs(%dst) ins(%lhs, %rhs)
+      : outs(!amdgcn.vcc_lo) ins(!amdgcn.vgpr, !amdgcn.vgpr)
+  return %result : !amdgcn.vcc_lo
+}
+
+func.func @test_s_cbranch_vccnz_vcc_lo(%cond: !amdgcn.vcc_lo) {
+  amdgcn.s_cbranch_vccnz %cond, true(^taken) false(^fallthru) : !amdgcn.vcc_lo
+^fallthru:
+  return
+^taken:
+  return
+}

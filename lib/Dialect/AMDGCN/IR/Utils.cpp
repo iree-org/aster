@@ -153,6 +153,48 @@ ISAVersion mlir::aster::amdgcn::getIsaForTarget(Target target) {
   llvm_unreachable("unknown target");
 }
 
+bool mlir::aster::amdgcn::isWave32(ISAVersion isa) {
+  // TODO: Some architectures (e.g. RDNA4) support both wave32 and wave64; we
+  // infer wave size from ISA only and do not model a per-module wave-size yet.
+  return isa == ISAVersion::GFX12_50;
+}
+
+bool mlir::aster::amdgcn::isWave32(Target target) {
+  return isWave32(getIsaForTarget(target));
+}
+
+bool mlir::aster::amdgcn::isWave32(Operation *op) {
+  if (auto module = op->getParentOfType<amdgcn::ModuleOp>())
+    return isWave32(module.getTarget());
+  return false;
+}
+
+Type mlir::aster::amdgcn::getLaneMaskType(MLIRContext *ctx, ISAVersion isa) {
+  if (isWave32(isa))
+    return VCCLoType::get(ctx, Register());
+  return VCCType::get(ctx, Register());
+}
+
+Type mlir::aster::amdgcn::getLaneMaskType(Operation *op) {
+  ISAVersion isa = ISAVersion::Invalid;
+  if (auto module = op->getParentOfType<amdgcn::ModuleOp>())
+    isa = getIsaForTarget(module.getTarget());
+  return getLaneMaskType(op->getContext(), isa);
+}
+
+Type mlir::aster::amdgcn::getLaneMaskType(Value value) {
+  Operation *anchor = value.getDefiningOp();
+  if (!anchor)
+    anchor = cast<BlockArgument>(value).getOwner()->getParentOp();
+  if (!anchor)
+    return getLaneMaskType(value.getContext(), ISAVersion::Invalid);
+  return getLaneMaskType(anchor);
+}
+
+bool mlir::aster::amdgcn::isLaneMask(Type t) {
+  return isa<VCCType, VCCLoType>(t);
+}
+
 int64_t mlir::aster::amdgcn::getLdsBytesPerCU(Target target) {
   switch (target) {
   case Target::GFX940:
