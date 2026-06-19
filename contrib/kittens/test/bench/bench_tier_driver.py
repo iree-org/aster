@@ -25,8 +25,9 @@ from bench_search import verify_top_configs  # noqa: E402
 from bench_tier_schedule import TierSpec, apply_tier_overrides  # noqa: E302, E402
 
 
-# Tier-to-tier survival rate: keep the top 10% of measured winners.
+# Tier-to-tier survival rate: keep min(candidate, max(top 10%, 50)) winners per tier.
 TIER_KEEP_PCT = 0.10
+TIER_KEEP_CAP = 50
 
 
 def _alarm_to_keyboard_interrupt(signum, frame):
@@ -85,7 +86,7 @@ def run_tier_mode(
         if tier.random_seed is not None:
             random.seed(tier.random_seed)
         print(
-            f"\n=== Tier {tier.tier_idx}: cap={cap}, keep_pct={TIER_KEEP_PCT * 100:.0f}%, "
+            f"\n=== Tier {tier.tier_idx}: cap={cap}, keep=min(cands, max({TIER_KEEP_PCT * 100:.0f}%, {TIER_KEEP_CAP})), "
             f"discriminator={tier.discriminator!r}, seed={tier.random_seed!r} ==="
         )
 
@@ -183,7 +184,7 @@ def run_tier_mode(
             break
 
         annotated_winners.sort(key=lambda d: d["_tflops"], reverse=True)
-        keep_n = max(1, int(len(annotated_winners) * TIER_KEEP_PCT))
+        keep_n = min(len(annotated_winners), max(int(len(annotated_winners) * TIER_KEEP_PCT), TIER_KEEP_CAP))
         if tier.per_stratum_diversity and stratification_key is not None:
             seen_strata: set = set()
             stratified_keepers: list[dict] = []
@@ -198,7 +199,10 @@ def run_tier_mode(
             winners = annotated_winners[:keep_n]
         prev_winners = winners
 
-        print(f"Tier {tier.tier_idx} kept {len(winners)}/{len(annotated_winners)} (top {TIER_KEEP_PCT * 100:.0f}%):")
+        print(
+            f"Tier {tier.tier_idx} kept {len(winners)}/{len(annotated_winners)} "
+            f"(min(cands, max({TIER_KEEP_PCT * 100:.0f}%, {TIER_KEEP_CAP}))):"
+        )
         for w in winners[:5]:
             print(
                 f"  {w['_tflops']:>7.1f} TF/s  "

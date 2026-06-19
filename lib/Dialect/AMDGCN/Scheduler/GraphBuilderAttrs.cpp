@@ -14,9 +14,11 @@
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Interfaces/DependentOpInterface.h"
+#include "aster/Interfaces/RegisterType.h"
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/SliceAnalysis.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
 
@@ -215,6 +217,100 @@ static void addArchRegEffectEdges(SchedGraph &graph, Block *block) {
   }
 }
 
+/// Resolve a register operand to preallocated VGPR/SGPR/AGPR, recursively
+/// through make_register_range / split_register_range.
+static void
+collectAllocatedRegistersForValue(Value v,
+                                  SmallVectorImpl<RegisterTypeInterface> &out) {
+  auto regTy = dyn_cast<RegisterTypeInterface>(v.getType());
+  if (!regTy || !regTy.hasAllocatedSemantics())
+    return;
+  if (auto bundle = v.getDefiningOp<OperandBundleOpInterface>()) {
+    for (Value c : bundle.unpackBundle())
+      collectAllocatedRegistersForValue(c, out);
+    return;
+  }
+  if (auto split = v.getDefiningOp<SplitRegisterRangeOp>()) {
+    collectAllocatedRegistersForValue(split.getInput(), out);
+    return;
+  }
+  std::optional<RegisterKind> kind = getRegKind(regTy);
+  if (kind != RegisterKind::VGPR && kind != RegisterKind::SGPR &&
+      kind != RegisterKind::AGPR)
+    return;
+  out.push_back(regTy);
+}
+
+/// Expand an allocated range into per-word keys (kind << 32 | index) so
+/// vgpr<32>:2 overlaps vgpr<33> but not sgpr<33>.
+static void appendRegWords(RegisterTypeInterface regTy,
+                           llvm::DenseSet<int64_t> &words) {
+  std::optional<RegisterKind> kind = getRegKind(regTy);
+  assert(kind && "expected an AMD register kind on an allocated register");
+  RegisterRange range = regTy.getAsRange();
+  int16_t base = range.begin().getRegister();
+  for (int16_t i = 0, e = range.size(); i < e; ++i)
+    words.insert((int64_t(*kind) << 32) | uint32_t(base + i));
+}
+
+static void addOperandRegWords(Value v, llvm::DenseSet<int64_t> &words) {
+  SmallVector<RegisterTypeInterface> regs;
+  collectAllocatedRegistersForValue(v, regs);
+  for (RegisterTypeInterface r : regs)
+    appendRegWords(r, words);
+}
+
+struct OpPhysRegUse {
+  Operation *op;
+  llvm::DenseSet<int64_t> readWords;
+  llvm::DenseSet<int64_t> writeWords;
+};
+
+/// Add scheduling edges between ops whose preallocated register ranges overlap.
+/// One op must write the overlapping word (no RAR). Edges follow program order
+/// for now; last-writer / first-reader refinement is left for later.
+///
+///   %a = ... : !amdgcn.vgpr<33>              // W
+///   %b = ... : !amdgcn.vgpr<33>              // unrelated SSA, same phys reg
+///   ... = v_mov_b32 ... ins(%b)              // R
+///   => writer -> reader (program order).
+static bool allocatedRegWordsOverlap(const OpPhysRegUse &a,
+                                     const OpPhysRegUse &b) {
+  for (int64_t word : a.writeWords)
+    if (b.readWords.contains(word) || b.writeWords.contains(word))
+      return true;
+  for (int64_t word : a.readWords)
+    if (b.writeWords.contains(word))
+      return true;
+  return false;
+}
+
+/// Conservative modeling of edges for preallocated physical registers,
+/// with at least one op writing the overlapping word (no RAR).
+// TODO: firstRead / lastWrite refinement.
+static void addPhysicalRegisterEffectEdges(SchedGraph &graph, Block *block) {
+  SmallVector<OpPhysRegUse> uses;
+  for (Operation &op : *block) {
+    auto instOp = dyn_cast<AMDGCNInstOpInterface>(&op);
+    if (!instOp)
+      continue;
+    OpPhysRegUse use{&op, {}, {}};
+    for (Value in : instOp.getInstIns())
+      addOperandRegWords(in, use.readWords);
+    for (Value out : instOp.getInstOuts())
+      addOperandRegWords(out, use.writeWords);
+    if (use.readWords.empty() && use.writeWords.empty())
+      continue;
+    uses.push_back(std::move(use));
+  }
+
+  for (size_t i = 0; i < uses.size(); ++i)
+    for (size_t j = i + 1; j < uses.size(); ++j)
+      if (allocatedRegWordsOverlap(uses[i], uses[j]) &&
+          !graph.hasEdge(uses[i].op, uses[j].op))
+        graph.addEdge(uses[i].op, uses[j].op);
+}
+
 void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
   ArrayRef<Operation *> ops = graph.getOps();
   for (int64_t &i : syncPoints) {
@@ -268,6 +364,9 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
   // Modeling M0 here lets the s_mov M0 setup drop out of the conservative
   // sync-point fence set (see buildSSADeps) without losing M0 ordering.
   addArchRegEffectEdges<M0Type>(graph, block);
+  // Edges for preallocated physical registers, with at least one op writing the
+  // overlapping word (no RAR).
+  addPhysicalRegisterEffectEdges(graph, block);
 }
 
 static bool isTokenOfKind(Type type, MemoryInstructionKind kind) {
