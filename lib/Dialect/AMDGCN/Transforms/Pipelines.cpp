@@ -217,6 +217,11 @@ struct AMDGCNBackendPipelineOptions
       llvm::cl::desc("ILP scheduler: bound a memory load's live range "
                      "(consumers within N ranks; 0 = unbounded)"),
       llvm::cl::init(0)};
+  mlir::detail::PassOptions::Option<int32_t> windowMfmas{
+      *this, "ilp-window-mfmas",
+      llvm::cl::desc("ILP scheduler: solve in windows of N MFMAs each "
+                     "(0 = whole block)"),
+      llvm::cl::init(0)};
   mlir::detail::PassOptions::Option<int32_t> minLgkmDistance{
       *this, "ilp-min-lgkm-distance",
       llvm::cl::desc(
@@ -277,6 +282,7 @@ buildAMDGCNBackendPassPipeline(OpPassManager &pm,
       ilpSchedOpts.lgkmGap = options.lgkmGap;
       ilpSchedOpts.barrierBypass = options.barrierBypass;
       ilpSchedOpts.maxLoadDistance = options.maxLoadDistance;
+      ilpSchedOpts.windowMfmas = options.windowMfmas;
       ilpSchedOpts.minLgkmDistance = options.minLgkmDistance;
       kernelPm.addPass(createAMDGCNILPScheduler(ilpSchedOpts));
     } else if (options.llSched > 0) {

@@ -485,6 +485,12 @@ def AMDGCNILPScheduler : Pass<"amdgcn-ilp-scheduler",
            "Bound a memory load's live range: its consumers must issue within "
            "this many ranks of the load (0 = unbounded). Caps register pressure "
            "from aggressive interleaving.">,
+    Option<"windowMfmas", "ilp-window-mfmas", "int32_t", "0",
+           "Solve the block in windows of this many MFMAs each (0 = one ILP for "
+           "the whole block). Each window groups its MFMAs with the ds/adds that "
+           "feed them and is solved to optimality, so large blocks interleave "
+           "cleanly instead of timing out. Pass default 0 (whole block); the GEMM "
+           "sweep opts in via the mapping (window_mfmas=32).">,
     Option<"minLgkmDistance", "ilp-min-lgkm-distance", "int32_t", "0",
            "Force each ds_read (LGKM) to lead its consumer by >= this many "
            "issue ranks, so other ds_reads prefetch into the gap and the "

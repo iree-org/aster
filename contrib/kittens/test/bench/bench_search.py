@@ -298,6 +298,7 @@ def add_scheduling_axes(grid: SweepGrid) -> None:
         ("lgkm_gap", 0),
         ("barrier_bypass", False),
         ("max_load_distance", 0),
+        ("window_mfmas", 32),
         ("min_lgkm_distance", 20),
     ):
         grid.axis(name, [default])
@@ -318,6 +319,7 @@ _SWEEP_TO_MAPPING_KWARG = {
     "lgkm_gap": "lgkm_gap",
     "barrier_bypass": "barrier_bypass",
     "max_load_distance": "max_load_distance",
+    "window_mfmas": "window_mfmas",
     "min_lgkm_distance": "min_lgkm_distance",
 }
 

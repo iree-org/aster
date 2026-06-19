@@ -120,6 +120,11 @@ struct ILPSchedulerAttrImpl
     // interleaving cannot push loads so far ahead of their use that the live
     // value count exceeds the register budget. 0 = unbounded.
     int64_t maxLoadDistance = ilpAttr.getMaxLoadDistance();
+    // Windowing: solve the block in windows of `windowMfmas` MFMAs each
+    // (0 = one ILP for the whole block). A window groups its MFMAs with the
+    // ds/adds that feed them; each window is solved to optimality, so a large
+    // block interleaves cleanly instead of the full ILP timing out.
+    int32_t windowMfmas = ilpAttr.getWindowMfmas();
     // LDS prefetch depth: force each ds_read to lead its consumer by >= this
     // many issue ranks so other ds_reads issue in the gap -- the consumer then
     // waits lgkmcnt(depth) instead of lgkmcnt(0), hiding the LDS read latency.
@@ -179,7 +184,32 @@ struct ILPSchedulerAttrImpl
       if (isFreeOp(nodeOps[i]))
         issueCost[i] = 0;
 
-    ArrayRef<Graph::Edge> edges = schedGraph.getEdges();
+    // Windowed solves reorder ops within each MFMA window independently. To keep
+    // memory ordering correct under that reordering, freeze the program-order
+    // relative order of all memory ops (VMEM + LGKM) as extra precedence edges so
+    // no window can swap two memory ops. Program order is a valid memory ordering
+    // (the input IR is correct), so this preserves every memory-vs-memory
+    // RAW/WAR/WAW dependence that holds in program order -- including cross-counter
+    // LDS deps the memory-dependence analysis coarsens (a G2S addresses LDS through
+    // M0, not an alloc_lds operand) and the same-counter FIFO a shared wait count
+    // depends on. Token-form waits recompute counts once compute is interleaved;
+    // what they cannot recover is a swapped memory order, which these forward edges
+    // pin. Scoped to the windowed path; the whole-block solve and the greedy
+    // fallback are left as the validated-safe baseline.
+    SmallVector<Graph::Edge> edgeStorage(schedGraph.getEdges().begin(),
+                                         schedGraph.getEdges().end());
+    if (windowMfmas > 0) {
+      int32_t prevMem = -1;
+      for (int32_t i = 0; i < n; ++i) {
+        QueueType qt = cost.queueTypes[i];
+        if (qt != QueueType::VMEM && qt != QueueType::LGKM)
+          continue;
+        if (prevMem >= 0)
+          edgeStorage.push_back({prevMem, i});
+        prevMem = i;
+      }
+    }
+    ArrayRef<Graph::Edge> edges = edgeStorage;
     bool dump = std::getenv("ASTER_ILP_DUMP_GRAPH") != nullptr;
 
     // Build + solve the dense-rank issue model over `subset` (global node ids,
@@ -376,20 +406,77 @@ struct ILPSchedulerAttrImpl
       return true;
     };
 
+    // Windowed solve: group the block into windows of `windowMfmas` MFMAs each.
+    // An MFMA's window is its XDL-order index / windowMfmas; a non-MFMA
+    // inherits the MIN window over its successors (so a ds_read / address-add
+    // lands in the window of the EARLIEST MFMA it feeds). Sinks (no
+    // MFMA-reaching successor) go to the last window. This guarantees
+    // producer-window <= consumer-window, so concatenating windows in order
+    // respects precedence.
+    auto solveWindowed = [&](int32_t xdlCount,
+                             SmallVectorImpl<int32_t> &out) -> bool {
+      int32_t numWindows = (xdlCount + windowMfmas - 1) / windowMfmas;
+      SmallVector<SmallVector<int32_t>> succ(n);
+      for (const Graph::Edge &e : edges)
+        succ[e.first].push_back(e.second);
+      constexpr int32_t kUnset = std::numeric_limits<int32_t>::max();
+      SmallVector<int32_t> window(n, kUnset);
+      int32_t xdlIdx = 0;
+      for (int32_t i = 0; i < n; ++i)
+        if (cost.queueTypes[i] == QueueType::XDL)
+          window[i] = (xdlIdx++) / windowMfmas;
+      // Block order is topological (edges have src < tgt), so one reverse pass
+      // finalizes each non-MFMA from its already-finalized successors.
+      for (int32_t i = n - 1; i >= 0; --i) {
+        if (cost.queueTypes[i] == QueueType::XDL)
+          continue;
+        for (int32_t s : succ[i])
+          window[i] = std::min(window[i], window[s]);
+      }
+      for (int32_t i = 0; i < n; ++i)
+        if (window[i] == kUnset)
+          window[i] = numWindows - 1;
+      // The last window collects the whole sink region (the store epilogue: its
+      // global_stores + the address VALU + setup). That is often far larger
+      // than an MFMA window and TIMES OUT -- a timed-out solve drops the
+      // source-order interleaving and crumples the stores together. Re-chunk it
+      // by block (topological) order into solver-sized windows so each solves
+      // optimally; block order keeps each store near its address, so the
+      // interleaving is restored. Precedence is safe: within the sinks an edge
+      // u->v has u before v in block order, hence chunk(u) <= chunk(v).
+      constexpr int32_t kSinkChunk = 96;
+      SmallVector<int32_t> sinkOps;
+      for (int32_t i = 0; i < n; ++i)
+        if (window[i] == numWindows - 1)
+          sinkOps.push_back(i);
+      if (static_cast<int32_t>(sinkOps.size()) > kSinkChunk) {
+        int32_t base = numWindows - 1;
+        for (int32_t k = 0; k < static_cast<int32_t>(sinkOps.size()); ++k)
+          window[sinkOps[k]] = base + k / kSinkChunk;
+        numWindows =
+            base + (static_cast<int32_t>(sinkOps.size()) + kSinkChunk - 1) /
+                       kSinkChunk;
+      }
+      SmallVector<SmallVector<int32_t>> groups(numWindows);
+      for (int32_t i = 0; i < n; ++i)
+        groups[window[i]].push_back(i);
+      for (int32_t w = 0; w < numWindows; ++w)
+        if (failed(solveSubset(groups[w], w, out)))
+          return false;
+      return true;
+    };
+
     // Dispatch. The expensive part is CP-SAT's presolve on a big whole-block
-    // model, so skip it where it does not buy hot-loop interleaving:
+    // model, so avoid it wherever it does not buy hot-loop interleaving:
     //   Lever 1 -- a block with NO MFMA (prologue / epilogue / setup) is not
     //   the
     //     compute hot path, so it is not worth a whole-block ILP; the greedy
     //     low-level scheduler orders it well enough.
-    // Windowing is disabled: the windowed solve dumps consumer-less
-    // loop-carried prefetch loads into the last window, clustering them at the
-    // iteration tail. At the back edge the whole cluster is in flight at once
-    // and the count-based wait cannot drain it to vmcnt(0) before the next
-    // iteration's loads reuse the same registers -- a loop-carried VMEM WAR
-    // that surfaces as an illegal access. The whole-block solve spaces those
-    // loads with vmemGap and stays safe. An MFMA block is always solved
-    // whole-block.
+    //   Lever 2 -- for an MFMA block with windowing on, the windowed solve IS
+    //   the
+    //     schedule we want for the hot loop, so do not also pay for the
+    //     whole-block solve (its presolve is the bottleneck). The whole-block
+    //     ILP is the fallback only when windowing is off or fails.
     auto greedy = [&]() -> LogicalResult {
       return cast<SchedBuilderAttrInterface>(
                  LowLevelSchedulerAttr::get(ilpAttr.getContext(), /*preset=*/1,
@@ -409,7 +496,16 @@ struct ILPSchedulerAttrImpl
       return greedy();
     }
 
-    // Solve the whole block as one ILP.
+    // Lever 2: windowed-only when it produces a valid schedule.
+    if (windowMfmas > 0) {
+      SmallVector<int32_t> orderWin;
+      if (solveWindowed(xdlCount, orderWin) && isValidSchedule(orderWin)) {
+        sched.assign(orderWin.begin(), orderWin.end());
+        return success();
+      }
+    }
+
+    // No windowing (or windowing failed): solve the whole block as one ILP.
     SmallVector<int32_t> orderWhole;
     SmallVector<int32_t> allNodes = llvm::to_vector(llvm::seq<int32_t>(0, n));
     if (succeeded(solveSubset(allNodes, /*windowId=*/0, orderWhole)) &&

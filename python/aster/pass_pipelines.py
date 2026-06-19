@@ -19,6 +19,7 @@ class PipelineConfigProtocol(Protocol):
     lgkm_gap: int
     barrier_bypass: bool
     max_load_distance: int
+    window_mfmas: int
     min_lgkm_distance: int
     hoist_wait: bool
     set_mfma_priority: bool
@@ -40,6 +41,7 @@ class PipelineConfig(PipelineConfigProtocol):
     lgkm_gap: int = 0
     barrier_bypass: bool = False
     max_load_distance: int = 0
+    window_mfmas: int = 32
     min_lgkm_distance: int = 0
     hoist_wait: bool = False
     set_mfma_priority: bool = False
@@ -263,7 +265,7 @@ def phase_amdgcn_backend(
     num_vgprs=256, num_agprs=256, ll_sched=0, hoist_iter_arg_waits=False,
     set_mfma_priority=False, ll_ilp_sched=-1,
     mfma_gap=4, vmem_gap=0, lgkm_gap=0, barrier_bypass=False, max_load_distance=0,
-    min_lgkm_distance=0,
+    window_mfmas=32, min_lgkm_distance=0,
 ):
     """Build the amdgcn-backend pipeline string with optional register limits."""
     opts = []
@@ -292,6 +294,8 @@ def phase_amdgcn_backend(
             opts.append("barrier-bypass=true")
         if int(max_load_distance) != 0:
             opts.append(f"ilp-max-load-distance={int(max_load_distance)}")
+        # Always pass it: 0 (disable windowing) is now a meaningful non-default.
+        opts.append(f"ilp-window-mfmas={int(window_mfmas)}")
         if int(min_lgkm_distance) != 0:
             opts.append(f"ilp-min-lgkm-distance={int(min_lgkm_distance)}")
     if set_mfma_priority:
@@ -383,6 +387,7 @@ def make_default_pass_pipeline(
             lgkm_gap=mapping.lgkm_gap,
             barrier_bypass=mapping.barrier_bypass,
             max_load_distance=mapping.max_load_distance,
+            window_mfmas=mapping.window_mfmas,
             min_lgkm_distance=mapping.min_lgkm_distance,
         ),
         phase_nop_insertion(delays=0),

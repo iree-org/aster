@@ -58,7 +58,7 @@ struct AMDGCNILPSchedulerPass
         SchedListLabelerAttr::get(ctx, ArrayRef<SchedLabelerAttrInterface>{}),
         mlir::cast<SchedBuilderAttrInterface>(ILPSchedulerAttr::get(
             ctx, level, ilpTimeLimitMs, mfmaGap, vmemGap, lgkmGap,
-            barrierBypass, maxLoadDistance, minLgkmDistance)));
+            barrierBypass, maxLoadDistance, windowMfmas, minLgkmDistance)));
 
     StringAttr schedName = StringAttr::get(ctx, "amdgcn.ilp_sched");
     SmallVector<SchedInfo> schedInfos(

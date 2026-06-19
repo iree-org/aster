@@ -27,10 +27,13 @@ def make_ilp_scheduler_tier(
 ) -> "TierSpec":
     """ILP-scheduler refinement tier, shared across the GEMM benches.
 
-    Sweeps ll_ilp_sched and its interleave knobs on the prior tiers'
-    winning shapes. ll_sched is pinned to 0: the two schedulers are
-    mutually exclusive (ll_ilp_sched >= 0 takes pipeline precedence).
-    Anchored at the best-known level-2 / lgkm-gap-2 config.
+    Sweeps ll_ilp_sched and its interleave knobs (window_mfmas, lgkm_gap) on
+    the prior tiers' winning shapes. ll_sched is pinned to 0: the two schedulers
+    are mutually exclusive (ll_ilp_sched >= 0 takes pipeline precedence).
+    Anchored at the best-known level-2 / window-mfmas-4 / lgkm-gap-2 config.
+    window_mfmas solves the block in windows of N MFMAs (interleaving + avoids
+    whole-block compile timeouts on big K-loops); the loop-carried-WAR graph
+    edge keeps it correct.
     """
     return TierSpec(
         tier_idx=tier_idx,
@@ -40,6 +43,7 @@ def make_ilp_scheduler_tier(
         axis_grid=dict(
             ll_sched=[0],
             ll_ilp_sched=[0, 1, 2],
+            window_mfmas=[4, 8, 32],
             lgkm_gap=[0, 2, 4],
             rotate_compute_stage=[True, False],
             hoist_wait=[True, False],
@@ -48,10 +52,11 @@ def make_ilp_scheduler_tier(
         anchor_axes=dict(
             ll_sched=0,
             ll_ilp_sched=2,
+            window_mfmas=4,
             lgkm_gap=2,
             rotate_compute_stage=True,
         ),
-        discriminator=("ll_ilp_sched", "lgkm_gap"),
+        discriminator=("ll_ilp_sched", "window_mfmas", "lgkm_gap"),
     )
 
 

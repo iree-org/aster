@@ -194,11 +194,12 @@ def ILPSchedulerAttr : AMDGCN_Attr<"ILPScheduler", "ilp_scheduler", []> {
     DefaultValuedParameter<"int32_t", "0">:$lgkmGap,
     DefaultValuedParameter<"bool", "false">:$barrierBypass,
     DefaultValuedParameter<"int32_t", "0">:$maxLoadDistance,
+    DefaultValuedParameter<"int32_t", "0">:$windowMfmas,
     DefaultValuedParameter<"int32_t", "0">:$minLgkmDistance
   );
   let assemblyFormat =
     "`<` $level `,` $timeLimitMs `,` $mfmaGap `,` $vmemGap `,` $lgkmGap `,` "
-    "$barrierBypass `,` $maxLoadDistance `,` "
+    "$barrierBypass `,` $maxLoadDistance `,` $windowMfmas `,` "
     "$minLgkmDistance `>`";
 }
 

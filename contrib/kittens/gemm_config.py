@@ -265,6 +265,7 @@ class GemmMappingSpec(PipelineConfigProtocol):
     max_load_distance: int = (
         0  # ILP: bound load live range (consumers within N ranks; 0 off)
     )
+    window_mfmas: int = 32  # ILP: windows of N MFMAs (default 32; 0 = whole block)
     min_lgkm_distance: int = (
         20  # ILP: ds_read leads consumer by >=N ranks (prefetch; 0=off)
     )
@@ -627,6 +628,7 @@ class WeakScaledMappedGemmInstance:
                 r"(?:_lgkmgap(\d+))?"
                 r"(?:_byp(1))?"
                 r"(?:_ilpmaxld(\d+))?"
+                r"(?:_ilpwin(\d+))?"
                 r"(?:_minlgkm(\d+))?"
                 r"_hoistwait([01])"
                 r"_rotc([01])"
@@ -667,6 +669,7 @@ class WeakScaledMappedGemmInstance:
             lgkmgap,
             byp,
             ilpmaxld,
+            ilpwin,
             minlgkm,
             hoistwait,
             rotc,
@@ -700,6 +703,7 @@ class WeakScaledMappedGemmInstance:
             lgkm_gap=int(lgkmgap) if lgkmgap is not None else 4,
             barrier_bypass=byp == "1",
             max_load_distance=int(ilpmaxld) if ilpmaxld is not None else 0,
+            window_mfmas=int(ilpwin) if ilpwin is not None else 32,
             min_lgkm_distance=int(minlgkm) if minlgkm is not None else 20,
             hoist_wait=hoistwait == "1",
             rotate_compute_stage=rotc == "1",
@@ -747,6 +751,8 @@ class WeakScaledMappedGemmInstance:
                 ilp_tok += "_byp1"
             if int(m.max_load_distance) != 0:
                 ilp_tok += f"_ilpmaxld{int(m.max_load_distance)}"
+            if int(m.window_mfmas) != 32:
+                ilp_tok += f"_ilpwin{int(m.window_mfmas)}"
             if int(m.min_lgkm_distance) != 20:
                 ilp_tok += f"_minlgkm{int(m.min_lgkm_distance)}"
         return (
