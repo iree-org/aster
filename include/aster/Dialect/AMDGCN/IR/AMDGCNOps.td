@@ -222,6 +222,46 @@ def AMDGCN_GridDimOp : AMDGCN_Op<"grid_dim", [Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
+// Workgroup-cluster id ops (gfx1250+)
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_ClusterIdOp : AMDGCN_Op<"cluster_id",
+    [Pure, DeclareOpInterfaceMethods<ISACompatibleOpInterface>]> {
+  let summary = "cluster ID in the specified dimension";
+  let description = [{
+    Returns the cluster ID in the grid in the (x, y, or z) dimension.
+    Valid on gfx1250+ (GFX12.5) targets.
+  }];
+  let arguments = (ins DimAttr:$dim);
+  let results = (outs SGPRType:$result);
+  let assemblyFormat = "custom<DimAttr>($dim) attr-dict `:` type($result)";
+}
+
+def AMDGCN_ClusterWorkgroupIdOp : AMDGCN_Op<"cluster_workgroup_id",
+    [Pure, DeclareOpInterfaceMethods<ISACompatibleOpInterface>]> {
+  let summary = "workgroup ID in the cluster in the specified dimension";
+  let description = [{
+    Returns the workgroup ID in the cluster in the (x, y, or z) dimension.
+    Valid on gfx1250+ (GFX12.5) targets.
+  }];
+  let arguments = (ins DimAttr:$dim);
+  let results = (outs SGPRType:$result);
+  let assemblyFormat = "custom<DimAttr>($dim) attr-dict `:` type($result)";
+}
+
+def AMDGCN_ClusterWorkgroupMaxIdOp : AMDGCN_Op<"cluster_workgroup_max_id",
+    [Pure, DeclareOpInterfaceMethods<ISACompatibleOpInterface>]> {
+  let summary = "max workgroup ID in the cluster in the specified dimension";
+  let description = [{
+    Returns the max workgroup ID in the cluster in the (x, y, or z) dimension.
+    Valid on gfx1250+ (GFX12.5) targets.
+  }];
+  let arguments = (ins DimAttr:$dim);
+  let results = (outs SGPRType:$result);
+  let assemblyFormat = "custom<DimAttr>($dim) attr-dict `:` type($result)";
+}
+
+//===----------------------------------------------------------------------===//
 // LoadArgOp
 //===----------------------------------------------------------------------===//
 
@@ -344,6 +384,9 @@ def AMDGCN_KernelOp : AMDGCN_Op<"kernel", [
     // Workgroup hints
     ConfinedAttr<IntMDAttr<1024>, [IntMaxValue<1024>]>:$max_flat_workgroup_size,
     ReqdWgpSize:$reqd_workgroup_size,
+    // gfx1250+ workgroup-cluster dimensions.
+    // Emitted as .cluster_dims metadata (default {0,0,0} erased from metadata).
+    ReqdWgpSize:$cluster_dims,
     // Math flags:
     FloatRoundModeAttr:$f32_round_mode,
     FloatRoundModeAttr:$f16_f64_round_mode,

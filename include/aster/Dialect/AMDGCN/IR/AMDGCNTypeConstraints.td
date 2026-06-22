@@ -47,6 +47,7 @@ def EXECHiType : AMDReg<"EXECHiType", "EXEC Hi", /*isSReg=*/true>;
 def VCCZType : AMDReg<"VCCZType", "VCCZ", /*isSReg=*/true>;
 def EXECZType : AMDReg<"EXECZType", "EXECZ", /*isSReg=*/true>;
 def SCCType : AMDReg<"SCCType", "SCC", /*isSReg=*/true>;
+def TTMPType : AMDReg<"TTMPType", "TTMP", /*isSReg=*/true>;
 
 //===----------------------------------------------------------------------===//
 // Special register constraint
@@ -269,7 +270,7 @@ class OneGPROrSRegOrConstOf<Type litType, Type dataType> : AnyOperandOf<[VGPROf<
 class OneGPROrSRegOrLitOf<Type litType> : AnyOperandOf<[VGPROf<1>, SGPROf<1>, VCCLoType, VCCHiType, M0Type, EXECLoType, EXECHiType, VCCZType, EXECZType, SCCType, litType]>;
 class OneGPROrVCCM0OrFPConstOf<Type floatLit, Type fpConst> : AnyOperandOf<[VGPROf<1>, SGPROf<1>, VCCLoType, VCCHiType, M0Type, VCCZType, EXECZType, SCCType, floatLit, fpConst]>;
 class OneGPROrVCCM0OrFPLitOf<Type floatLit> : AnyOperandOf<[VGPROf<1>, SGPROf<1>, VCCLoType, VCCHiType, M0Type, VCCZType, EXECZType, SCCType, floatLit]>;
-class OneSGPROrSRegOrIntConstOf<Type intLit, Type intConst> : AnyOperandOf<[SGPROf<1>, VCCLoType, VCCHiType, M0Type, EXECLoType, EXECHiType, VCCZType, EXECZType, SCCType, intLit, intConst]>;
+class OneSGPROrSRegOrIntConstOf<Type intLit, Type intConst> : AnyOperandOf<[SGPROf<1>, VCCLoType, VCCHiType, M0Type, EXECLoType, EXECHiType, VCCZType, EXECZType, SCCType, TTMPType, intLit, intConst]>;
 class OneSGPROrSRegOrLitConstOf<Type floatLit, Type intLit, Type fpConst, Type intConst> : AnyOperandOf<[SGPROf<1>, VCCLoType, VCCHiType, M0Type, EXECLoType, EXECHiType, VCCZType, EXECZType, SCCType, floatLit, intLit, fpConst, intConst]>;
 class TwoGPROrSRegOrConstOf<Type litType, Type intConst> : AnyOperandOf<[VGPROf<2>, SGPROf<2>, VCCType, EXECType, VCCZType, EXECZType, SCCType, litType, intConst]>;
 class TwoGPROrVCCOrFPLitOf<Type floatLit> : AnyOperandOf<[VGPROf<2>, SGPROf<2>, VCCType, VCCZType, EXECZType, SCCType, floatLit]>;

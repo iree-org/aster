@@ -231,6 +231,18 @@ LogicalResult VGPRType::verify(function_ref<InFlightDiagnostic()> emitError,
 Resource *VGPRType::getResource() const { return VGPRResource::get(); }
 
 //===----------------------------------------------------------------------===//
+// TTMP types
+//===----------------------------------------------------------------------===//
+
+LogicalResult TTMPType::verify(function_ref<InFlightDiagnostic()> emitError,
+                               RegisterRange range) {
+  return verifyRegisterRange(emitError, range, "TTMP");
+}
+
+// TTMP is not an allocatable GP resource; report the special-register resource.
+Resource *TTMPType::getResource() const { return SREGResource::get(); }
+
+//===----------------------------------------------------------------------===//
 // GPRegTrait interface method definitions
 //===----------------------------------------------------------------------===//
 
@@ -249,6 +261,7 @@ Resource *VGPRType::getResource() const { return VGPRResource::get(); }
 GP_REG_COMPOSITE_SPLIT(AGPRType)
 GP_REG_COMPOSITE_SPLIT(SGPRType)
 GP_REG_COMPOSITE_SPLIT(VGPRType)
+GP_REG_COMPOSITE_SPLIT(TTMPType)
 
 #undef GP_REG_COMPOSITE_SPLIT
 

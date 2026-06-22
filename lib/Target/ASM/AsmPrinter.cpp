@@ -76,6 +76,9 @@ static void printRegister(llvm::raw_ostream &os,
   case RegisterKind::SCC:
     os << " scc";
     return;
+  case RegisterKind::TTMP:
+    os << " ttmp" << range.begin().getRegister();
+    return;
   default:
     llvm_unreachable("nyi register kind");
   }
