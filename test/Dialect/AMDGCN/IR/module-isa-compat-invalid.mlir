@@ -39,3 +39,23 @@ amdgcn.module @cdna4_new_wait target = #amdgcn.target<gfx950> {
     return
   }
 }
+
+// -----
+
+amdgcn.module @cdna3_cluster_id target = #amdgcn.target<gfx942> {
+  func.func @f() {
+    // expected-error @below {{'amdgcn.cluster_id' op is not compatible with module target gfx942}}
+    %0 = amdgcn.cluster_id x : !amdgcn.sgpr
+    return
+  }
+}
+
+// -----
+
+amdgcn.module @cdna4_cluster_id target = #amdgcn.target<gfx950> {
+  func.func @f() {
+    // expected-error @below {{'amdgcn.cluster_id' op is not compatible with module target gfx950}}
+    %0 = amdgcn.cluster_id x : !amdgcn.sgpr
+    return
+  }
+}

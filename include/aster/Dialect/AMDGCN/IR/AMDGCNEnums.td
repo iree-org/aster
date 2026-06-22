@@ -41,6 +41,7 @@ def RegisterKind : AutoI32EnumCases<"RegisterKind", "AMDGCN register kind", [
     EnumCaseInfo<"Unknown", "Unknown">,
     EnumCaseInfo<"AGPR">,
     EnumCaseInfo<"SGPR">,
+    EnumCaseInfo<"TTMP">,
     EnumCaseInfo<"VGPR">,
     EnumCaseInfo<"SREG">
   ] # !foreach(sreg, SpecialRegisters, EnumCaseInfo<sreg.name>)> {

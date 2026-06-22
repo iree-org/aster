@@ -59,6 +59,35 @@ func.func @test_s_wait_counters() {
   return
 }
 
+//===----------------------------------------------------------------------===//
+// Workgroup-cluster id ops (cluster_id, cluster_workgroup_*)
+//===----------------------------------------------------------------------===//
+
+func.func @test_cluster_id_dims() -> !amdgcn.sgpr {
+  %x = amdgcn.cluster_id x : !amdgcn.sgpr
+  %y = amdgcn.cluster_id y : !amdgcn.sgpr
+  %z = amdgcn.cluster_id z : !amdgcn.sgpr
+  return %x : !amdgcn.sgpr
+}
+
+func.func @test_cluster_workgroup_id_dims() -> !amdgcn.sgpr {
+  %x = amdgcn.cluster_workgroup_id x : !amdgcn.sgpr
+  %y = amdgcn.cluster_workgroup_id y : !amdgcn.sgpr
+  %z = amdgcn.cluster_workgroup_id z : !amdgcn.sgpr
+  return %x : !amdgcn.sgpr
+}
+
+func.func @test_cluster_workgroup_max_id_dims() -> !amdgcn.sgpr {
+  %x = amdgcn.cluster_workgroup_max_id x : !amdgcn.sgpr
+  %y = amdgcn.cluster_workgroup_max_id y : !amdgcn.sgpr
+  %z = amdgcn.cluster_workgroup_max_id z : !amdgcn.sgpr
+  return %x : !amdgcn.sgpr
+}
+
+//===----------------------------------------------------------------------===//
+// gfx1250 split wait op (amdgcn.wait_gfx1250; disjoint from the CDNA amdgcn.wait)
+//===----------------------------------------------------------------------===//
+
 func.func @test_s_wait_fused_counters() {
   amdgcn.s_wait_loadcnt_dscnt 259
   amdgcn.s_wait_storecnt_dscnt 0
@@ -77,10 +106,6 @@ func.func @test_s_barrier_gfx1250() {
   amdgcn.s_barrier_wait -1
   return
 }
-
-//===----------------------------------------------------------------------===//
-// gfx1250 split wait op (amdgcn.wait_gfx1250; disjoint from the CDNA amdgcn.wait)
-//===----------------------------------------------------------------------===//
 
 func.func @test_wait_gfx1250_explicit() {
   amdgcn.wait_gfx1250 load_cnt 1 store_cnt 2 ds_cnt 3 km_cnt 4 tensor_cnt 5

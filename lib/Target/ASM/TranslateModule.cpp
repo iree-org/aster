@@ -149,9 +149,10 @@ struct YAMLList {
                        ArrayRef<int32_t> defaultValue) {
     if (value == defaultValue)
       return;
-    emit() << key << ": ";
+    // HSA metadata array values are YAML flow sequences, e.g. [ 2, 2, 1 ].
+    emit() << key << ": [ ";
     llvm::interleaveComma(value, os);
-    os << "\n";
+    os << " ]\n";
   }
   void printField(StringRef key, int32_t value, int32_t defaultValue) {
     if (value == defaultValue)
@@ -210,6 +211,7 @@ void RegisterUsage::updateRegisters(AMDGCNRegisterTypeInterface ty,
   case RegisterKind::EXECZ:
   case RegisterKind::M0:
   case RegisterKind::SCC:
+  case RegisterKind::TTMP:
     return;
   default:
     llvm_unreachable("nyi register kind");
@@ -523,6 +525,7 @@ LogicalResult TranslateModuleImpl::emitKernelMetadata(KernelOp kernel,
       emitKernelArgument(arg, argInfo.offsets[i]);
   }
 
+  yOs.printArrayField(".cluster_dims", kernel.getClusterDims(), {0, 0, 0});
   yOs.printField(".group_segment_fixed_size", kernel.getSharedMemorySize());
   yOs.printField(".kernarg_segment_align", argInfo.maxAlignment);
   yOs.printField(".kernarg_segment_size", argInfo.size);

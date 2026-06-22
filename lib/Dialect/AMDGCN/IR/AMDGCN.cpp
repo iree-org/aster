@@ -971,6 +971,20 @@ ArrayRef<ISAVersion> WaitGfx1250Op::getCompatibleISAVersions() {
   return versions;
 }
 
+// Workgroup-cluster ops gfx1250 only for now.
+static ArrayRef<ISAVersion> clusterOpsISAVersions() {
+  static ISAVersion versions[] = {ISAVersion::GFX12_50};
+  return versions;
+}
+ArrayRef<ISAVersion> ClusterIdOp::getCompatibleISAVersions() {
+  return clusterOpsISAVersions();
+}
+ArrayRef<ISAVersion> ClusterWorkgroupIdOp::getCompatibleISAVersions() {
+  return clusterOpsISAVersions();
+}
+ArrayRef<ISAVersion> ClusterWorkgroupMaxIdOp::getCompatibleISAVersions() {
+  return clusterOpsISAVersions();
+}
 /// Merge contiguous wait_gfx1250 ops into one and canonicalize its operands.
 static LogicalResult canonicalizeWaitGfx1250Impl(WaitGfx1250Op waitOp,
                                                  RewriterBase &rewriter,

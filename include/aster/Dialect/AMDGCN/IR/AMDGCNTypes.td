@@ -305,6 +305,15 @@ def SCCType : SRegTypeBase<"SCC", "scc"> {
   }];
 }
 
+// TTMP (trap-temporary) registers, special non-allocatable registers.
+// Supports cluster_id ops on gfx1250+.
+def TTMPType : GPRegTypeBase<"TTMP", "ttmp"> {
+  let summary = "TTMP trap-temporary register type";
+  let extraClassDeclaration = [{
+    static constexpr RegisterKind kRegisterKind = RegisterKind::TTMP;
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // Misc types
 //===----------------------------------------------------------------------===//

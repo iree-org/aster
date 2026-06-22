@@ -57,6 +57,19 @@ TEST_LOWER_WAITS_MINIMAL_PASS_PIPELINE = builtin_module(
     phase_nop_insertion(delays=0),
 )
 
+# Pipeline matching test/Target/ASM/gfx1250-cluster-id-asm.mlir lit RUN lines.
+TEST_GFX1250_CLUSTER_ASM_PASS_PIPELINE = builtin_module(
+    amdgcn_module(
+        amdgcn_kernel(
+            "aster-amdgcn-expand-md-ops",
+            "aster-amdgcn-bufferization",
+            "amdgcn-to-register-semantics",
+        ),
+    ),
+    PHASE_AMDGCN_BACKEND,
+    phase_nop_insertion(delays=0),
+)
+
 # --------------------------------------------------------------------------- #
 # SROA test pipeline (non-pipelined, scheduling-based)
 # --------------------------------------------------------------------------- #

@@ -252,6 +252,70 @@ static void handleBlockId(RewriterBase &rewriter, KernelOp op,
   }
 }
 
+/// Field descriptor for a TTMP-backed cluster id read, lower to s_bfe_u32.
+struct ClusterField {
+  int16_t ttmpIdx;
+  uint32_t offset;
+  uint32_t width;
+};
+
+/// s_bfe_u32 control immediate:
+///   - bits [4:0] offset in ttmp register
+///   - bits [22:16] width in ttmp register.
+static uint32_t bfeU32Imm(uint32_t offset, uint32_t width) {
+  assert(offset < 32 && "offset must be less than 32");
+  assert(width <= 32 && "width must be less than or equal to 32");
+  return offset | (width << 16);
+}
+
+/// Lower a single TTMP-backed cluster identity op via s_bfe_u32.
+static void lowerClusterField(RewriterBase &rewriter, Operation *op,
+                              const ClusterField &field) {
+  rewriter.setInsertionPoint(op);
+  Location loc = op->getLoc();
+  Value ttmpSrc = createAllocation(
+      rewriter, loc,
+      TTMPType::get(rewriter.getContext(), Register(field.ttmpIdx)));
+  Value dst = createAllocation(
+      rewriter, loc, SGPRType::get(rewriter.getContext(), Register()));
+  Value ctrl = arith::ConstantIntOp::create(
+      rewriter, loc, bfeU32Imm(field.offset, field.width), 32);
+  Value id = createSOP2Out2In2<SBfeU32>(rewriter, loc, dst, ttmpSrc, ctrl);
+  assert(llvm::none_of(op->getUses(),
+                       [](OpOperand &use) {
+                         return isa<BranchOpInterface>(use.getOwner());
+                       }) &&
+         "NYI: cluster id op should not be carried through a branch");
+  rewriter.replaceOp(op, id);
+}
+
+/// Handle cluster id ops backed by TTMP registers, gfx1250 kernel ABI imposes:
+///   - cluster_id:               x / y / z ->  t9[31:0] /  t7[15:0] / t7[31:16]
+///   - cluster_workgroup_id:     x / y / z ->   t6[3:0] /   t6[7:4] /  t6[11:8]
+///   - cluster_workgroup_max_id: x / y / z -> t6[15:12] / t6[19:16] / t6[23:20]
+static void handleClusterId(RewriterBase &rewriter,
+                            ArrayRef<ClusterIdOp> clusterIds,
+                            ArrayRef<ClusterWorkgroupIdOp> wgIds,
+                            ArrayRef<ClusterWorkgroupMaxIdOp> wgMaxIds) {
+  for (ClusterIdOp op : clusterIds) {
+    int32_t dim = static_cast<int32_t>(op.getDim());
+    ClusterField field = (dim == 0)   ? ClusterField{9, 0, 32}
+                         : (dim == 1) ? ClusterField{7, 0, 16}
+                                      : ClusterField{7, 16, 16};
+    lowerClusterField(rewriter, op, field);
+  }
+  for (ClusterWorkgroupIdOp op : wgIds) {
+    int32_t dim = static_cast<int32_t>(op.getDim());
+    lowerClusterField(rewriter, op,
+                      ClusterField{6, static_cast<uint32_t>(dim) * 4, 4});
+  }
+  for (ClusterWorkgroupMaxIdOp op : wgMaxIds) {
+    int32_t dim = static_cast<int32_t>(op.getDim());
+    lowerClusterField(rewriter, op,
+                      ClusterField{6, 12 + static_cast<uint32_t>(dim) * 4, 4});
+  }
+}
+
 /// Handle MakeBufferRsrcOps in a kernel.
 /// Expands make_buffer_rsrc into split + s_mov/s_or (for dword 1 upper bits
 /// and dword 3 flags) + make_register_range.
@@ -518,6 +582,9 @@ void ExpandMetadataOps::runOnOperation() {
   SmallVector<BlockIdOp> blockIds;
   SmallVector<GridDimOp> gridDims;
   SmallVector<MakeBufferRsrcOp> makeBufferRsrcs;
+  SmallVector<ClusterIdOp> clusterIds;
+  SmallVector<ClusterWorkgroupIdOp> clusterWgIds;
+  SmallVector<ClusterWorkgroupMaxIdOp> clusterWgMaxIds;
   std::array<bool, 3> threadIdSeen = {false, false, false};
   std::array<bool, 3> blockIdSeen = {false, false, false};
   std::array<bool, 3> blockDimSeen = {false, false, false};
@@ -543,6 +610,12 @@ void ExpandMetadataOps::runOnOperation() {
       gridDimSeen[dim] = true;
     } else if (auto makeRsrc = dyn_cast<MakeBufferRsrcOp>(op)) {
       makeBufferRsrcs.push_back(makeRsrc);
+    } else if (auto clusterId = dyn_cast<ClusterIdOp>(op)) {
+      clusterIds.push_back(clusterId);
+    } else if (auto wgId = dyn_cast<ClusterWorkgroupIdOp>(op)) {
+      clusterWgIds.push_back(wgId);
+    } else if (auto wgMaxId = dyn_cast<ClusterWorkgroupMaxIdOp>(op)) {
+      clusterWgMaxIds.push_back(wgMaxId);
     }
   });
 
@@ -593,6 +666,9 @@ void ExpandMetadataOps::runOnOperation() {
   handleThreadId(rewriter, op, threadIds, threadIdSeen, packedTID);
 
   handleMakeBufferRsrc(rewriter, makeBufferRsrcs);
+
+  // Cluster id ops expand to architected TTMP reads.
+  handleClusterId(rewriter, clusterIds, clusterWgIds, clusterWgMaxIds);
 
   // Note: we do NOT set #amdgcn.no_metadata_ops here because the pipeline
   // may run expand-md-ops multiple times with aster-codegen in between
