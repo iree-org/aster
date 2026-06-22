@@ -1075,7 +1075,7 @@ def run_on_gpus(
                 if stats.p50_tf > best_tf:
                     best_tf = stats.p50_tf
             pbar.update(1)
-            pbar.set_postfix_str(f"best p50 {best_tf:.1f} TF, fail={len(failed)}")
+            pbar.set_postfix_str(f"best p50 {best_tf:.1f} TF, xfail={len(failed)}")
     except KeyboardInterrupt:
         remaining = total - collected
         print(
@@ -1415,9 +1415,13 @@ def bench_perf_sweep_pipelined(
                 exec_result_q, cfg_by_label, results, exec_failed, bench=bench, results_file=results_file
             )
             n_exec_done += dn
-            n_fail = len(compile_failed) + len(exec_failed)
+            # cfail = configs that failed to compile (timeout / regalloc / encoding);
+            # xfail = configs that compiled but failed at runtime (illegal access /
+            # wrong numeric). Kept distinct so a runtime regression is not masked by
+            # compile noise (and vice versa).
             pbar.set_postfix_str(
-                f"C={n_compiled}/{total_compile} X={n_exec_done}/{n_exec_submitted} p50={best_tf:.1f}TF fail={n_fail}"
+                f"C={n_compiled}/{total_compile} X={n_exec_done}/{n_exec_submitted} "
+                f"p50={best_tf:.1f}TF cfail={len(compile_failed)} xfail={len(exec_failed)}"
             )
     except KeyboardInterrupt:
         interrupted = True
@@ -1583,7 +1587,7 @@ def bench_perf_sweep(
                     short = type(e).__name__
                 failed.append((cfg, f"compile: {short}", full_err))
             pbar.update(1)
-            pbar.set_postfix(ok=len(hsaco_paths), fail=len(failed))
+            pbar.set_postfix(ok=len(hsaco_paths), cfail=len(failed))
     except KeyboardInterrupt:
         pending = len(futs) - len(hsaco_paths) - len(failed)
         print(
