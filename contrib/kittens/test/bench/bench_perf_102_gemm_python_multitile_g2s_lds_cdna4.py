@@ -50,6 +50,7 @@ from bench_search import (
     add_gemm_sweep_axes,
     add_resource_filter,
     add_size_cli_args,
+    apply_bench_scheduling_defaults,
     fits_on_cu_post_compile,
     hw_for_target,
     is_label,
@@ -84,6 +85,7 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 ll_sched=[1],
                 rotate_compute_stage=[True],
                 hoist_wait=[False],
+                use_conservative_barriers=[False, True],
             ),
             discriminator=("wg_m", "wg_n"),
         ),
@@ -97,9 +99,10 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
+                use_conservative_barriers=[False, True],
             ),
             anchor_axes=dict(ll_sched=1, rotate_compute_stage=True),
-            discriminator=("hoist_wait", "ll_sched", "rotate_compute_stage"),
+            discriminator=("hoist_wait", "ll_sched", "rotate_compute_stage", "use_conservative_barriers"),
         ),
         TierSpec(
             tier_idx=3,
@@ -111,6 +114,7 @@ def make_tiered_schedule(max_configs: int, random_seed: int, constraints: tuple[
                 rotate_compute_stage=[True, False],
                 hoist_wait=[True, False],
                 epilogue_peeling=[True, False],
+                use_conservative_barriers=[False, True],
             ),
             anchor_axes=dict(ll_sched=1, rotate_compute_stage=True),
             neighbor_radius=dict(
@@ -182,13 +186,8 @@ def _make_grid(
     tile_m, tile_n, tile_k = _TILE_M, _TILE_N, _TILE_K
     grid = SweepGrid()
     add_gemm_sweep_axes(grid)
-    grid.restrict_axes(
-        {
-            "occ": [1],
-            "lcm_unroll": [True],
-            "epilogue_peeling": [False, True],
-        }
-    )
+    apply_bench_scheduling_defaults(grid)
+    grid.restrict_axes({"occ": [1]})
 
     grid.filter(
         "lcm_unroll",

@@ -75,7 +75,15 @@ STG_COMPUTE = 3
 N_STAGES = STG_COMPUTE + 1
 
 
-def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K, stride_a, stride_b):
+def _build_gemm_pipelined(
+    num_workgroups,
+    num_waves_per_wg,
+    num_tiles_per_wg,
+    K,
+    stride_a,
+    stride_b,
+    use_conservative_barriers=False,
+):
     """Build a multi-WG, multi-wave pipelined GEMM with shared LDS A + direct preshuffled B."""
     wg_m_count, wg_n_count = num_workgroups
     wpw_m, wpw_n = num_waves_per_wg
@@ -240,10 +248,16 @@ def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K,
             a_write = b.transfer_tiles(sA_write, tc_dsw_a, unroll_axes=plan_a.unroll_axes, data=a_load)
 
         with b.stage(STG_A_READ):
-            wfence = b.wait_deps(a_write)
-            bfence = b.cross_wave_token_barrier(wfence)
-            sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
-            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence)
+            if use_conservative_barriers:
+                b.wait_deps(a_write)
+                b.s_barrier()
+                sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+                a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            else:
+                wfence = b.wait_deps(a_write)
+                bfence = b.cross_wave_token_barrier(wfence)
+                sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+                a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence)
 
         with b.stage(STG_COMPUTE):
             b.wait_deps(a_frags, b_vx4)
@@ -311,8 +325,15 @@ class TestPythonGEMMDirectB:
         [(1, 1), (2, 2)],
         ids=["wg1x1", "wg2x2"],
     )
+    @pytest.mark.parametrize(
+        "use_conservative_barriers",
+        [False, True],
+        ids=["token_barrier", "s_barrier"],
+    )
     @pytest.mark.parametrize("K", [384])
-    def test_gemm_directb_python(self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, K):
+    def test_gemm_directb_python(
+        self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, K, use_conservative_barriers
+    ):
         wg_m_count, wg_n_count = num_workgroups
         wpw_m, wpw_n = num_waves_per_wg
         m_t, n_t, k_t = num_tiles_per_wg
@@ -334,7 +355,15 @@ class TestPythonGEMMDirectB:
         ctx = ir.Context()
         ctx.allow_unregistered_dialects = True
         with ctx:
-            module = _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K, stride_a, stride_b)
+            module = _build_gemm_pipelined(
+                num_workgroups,
+                num_waves_per_wg,
+                num_tiles_per_wg,
+                K,
+                stride_a,
+                stride_b,
+                use_conservative_barriers=use_conservative_barriers,
+            )
             asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline(PipelineConfig()))
 
         path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
@@ -374,6 +403,7 @@ if __name__ == "__main__":
     parser.add_argument("--k_t", type=int, default=1)
     parser.add_argument("--print-asm", action="store_true")
     parser.add_argument("--print-ir-after-all", action="store_true")
+    parser.add_argument("--use-conservative-barriers", action="store_true")
     args = parser.parse_args()
 
     from aster.compiler.core import PrintOptions
@@ -386,7 +416,15 @@ if __name__ == "__main__":
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, args.K, stride_a, stride_b)
+        module = _build_gemm_pipelined(
+            num_workgroups,
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            args.K,
+            stride_a,
+            stride_b,
+            use_conservative_barriers=args.use_conservative_barriers,
+        )
         asm = compile_mlir_module_to_asm(
             module,
             pass_pipeline=make_default_pass_pipeline(PipelineConfig()),

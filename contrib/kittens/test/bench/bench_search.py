@@ -151,6 +151,12 @@ class SweepGrid:
         import random
 
         axis_names = [a.name for a in self._axes]
+        empty_axes = [a.name for a in self._axes if not a.values]
+        if empty_axes:
+            raise ValueError(
+                "SweepGrid has axes with no values "
+                f"{empty_axes!r}; set them in tier axis_grid, fixed_axes, or restrict_axes()"
+            )
 
         level_filters: list[list[SweepFilter]] = []
         for i in range(len(self._axes)):
@@ -276,15 +282,36 @@ def _stratified_sample(
 
 
 def add_scheduling_axes(grid: SweepGrid) -> None:
-    """Register scheduling-flag axis names (values supplied by tier-1)."""
+    """Register scheduling-flag axis names (values supplied per tier)."""
     for name in (
         "lcm_unroll",
         "epilogue_peeling",
         "ll_sched",
         "hoist_wait",
         "rotate_compute_stage",
+        "use_conservative_barriers",
     ):
         grid.axis(name, [])
+
+
+def apply_bench_scheduling_defaults(grid: SweepGrid) -> None:
+    """Seed scheduling-flag value pools before tier overrides narrow them.
+
+    Each tier's ``axis_grid`` / ``fixed_axes`` replaces entries here. Axes
+    omitted from a tier keep the pool established at grid-build time, so tier 1
+    still searches e.g. ``use_conservative_barriers=[False, True]`` unless
+    pinned.
+    """
+    known = {a.name for a in grid._axes}
+    defaults = {
+        "lcm_unroll": [True],
+        "epilogue_peeling": [False, True],
+        "ll_sched": [0, 1, 2, 3, 4, 5],
+        "hoist_wait": [False, True],
+        "rotate_compute_stage": [False, True],
+        "use_conservative_barriers": [False, True],
+    }
+    grid.restrict_axes({k: v for k, v in defaults.items() if k in known})
 
 
 # Sweep-axis -> GemmMappingSpec kwarg. New axes that must reach the mapping
@@ -296,6 +323,7 @@ _SWEEP_TO_MAPPING_KWARG = {
     "ll_sched": "ll_sched",
     "hoist_wait": "hoist_wait",
     "rotate_compute_stage": "rotate_compute_stage",
+    "use_conservative_barriers": "use_conservative_barriers",
 }
 
 

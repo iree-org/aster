@@ -280,10 +280,16 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
         # -- LDS READ A: wait G2S + barrier + read via tc_dsr_a + dealloc.
         with b.stage(STG_A_LDS_READ):
-            b.wait_deps(*g2s_toks_a)
-            b.s_barrier()
-            sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
-            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            if mapping.use_conservative_barriers:
+                b.wait_deps(*g2s_toks_a)
+                b.s_barrier()
+                sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+                a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            else:
+                wfence = b.wait_deps(*g2s_toks_a)
+                bfence = b.cross_wave_token_barrier(wfence)
+                sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+                a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence)
             b.dealloc_lds(lds_a_h)
 
         # -- COMPUTE: join 2 vx2 A frags into vx4, MFMA with vx4 B directly.
@@ -385,6 +391,8 @@ def _make_instance(
     k_mult,
     pipeline_strategy=0,
     rotate_compute_stage=False,
+    ll_sched=0,
+    use_conservative_barriers=False,
 ):
     """Build a Cdna4GemmInstance from tile grid and K multiplier."""
     mfma = MFMA_F16_CDNA4.shape
@@ -402,6 +410,8 @@ def _make_instance(
         pipeline_strategy=pipeline_strategy,
         operand_path=OperandPath.DIRECT_B,
         rotate_compute_stage=rotate_compute_stage,
+        ll_sched=ll_sched,
+        use_conservative_barriers=use_conservative_barriers,
         mcpu="gfx950",
     )
     return Cdna4GemmInstance(spec, mapping)

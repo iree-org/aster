@@ -9,6 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "aster/Analysis/MemoryDependenceAnalysis.h"
+#include "aster/Dialect/AMDGCN/Analysis/BufferAnalysis.h"
 #include "aster/Dialect/AMDGCN/Analysis/WaitAnalysis.h"
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
 #include "aster/Dialect/AMDGCN/IR/Interfaces/AMDGCNInterfaces.h"
@@ -60,16 +61,17 @@ private:
   void handleWaitOp(SchedGraph &graph, int64_t pos, WaitCntOpInterface wait);
 
   /// Conservative pinning for hardware s_barrier.
-  void handleSBarrier(SchedGraph &graph, int64_t pos, SBarrier barrier);
-
-  /// Serialize barrier ops in program order.
-  void addBarrierSerializationEdges(SchedGraph &graph);
+  void handleConservativeFenceBarriers(SchedGraph &graph);
 
   /// Add serialization edges for i1-producing ops within a block.
   void addI1SerializationEdges(SchedGraph &graph);
 
+  /// Pin get_lds_offset and its offset users before dealloc_lds. SSA only
+  /// connects alloc to dealloc on the buffer handle; offset consumers use a
+  /// different value and are not otherwise ordered against deallocation.
+  void buildLDSBufferLifetimeEdges(SchedGraph &graph);
+
   Block *block;
-  SmallVector<int64_t> syncPoints;
   DataFlowSolver &solver;
 };
 } // namespace
@@ -77,8 +79,6 @@ private:
 LogicalResult GraphBuilder::run(SchedGraph &graph) {
   buildSSADeps(graph);
   buildNonSSADeps(graph);
-  buildMemDepEdges(graph);
-  addI1SerializationEdges(graph);
   return success();
 }
 
@@ -108,36 +108,18 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
     LDBG() << "Processing operation: " << i << " "
            << OpWithFlags(op, OpPrintingFlags().skipRegions());
 
-    bool hasEffects = op->hasTrait<OpTrait::HasRecursiveMemoryEffects>() ||
-                      op->hasTrait<MemoryEffectOpInterface::Trait>();
-
-    // If the operation has no side-effect we need to treat it as a possible
-    // sync point. Same for non-pure operations.
-    //
-    // Exclude SOP1 mov ops and SOP2 SALU arithmetic ops (s_add_*, ...) from
-    // sync points. The implicit read/write effects on architectural registers
-    // SCC are captured by the register effect edges added in buildNonSSADeps.
-    // Treating as fences would serialize independent arithmetic chains.
-    bool isReorderableArith = false;
-    if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
-      isReorderableArith = instOp.hasAnyProps(
-          {InstProp::Sop1, InstProp::Sop2, InstProp::IsValu});
-    if ((!hasEffects || !mlir::isPure(op)) && !isReorderableArith &&
-        !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
-      LDBG() << "Adding sync point: " << i
-             << " op: " << OpWithFlags(op, OpPrintingFlags().skipRegions());
-      syncPoints.push_back(i);
-    }
-
-    ValueRange deps = op->getOperands();
-
     // Add edges for the dependencies.
+    ValueRange deps = op->getOperands();
     for (Value operand : deps) {
       Operation *producer = operand.getDefiningOp();
       if (producer && producer->getBlock() == block)
         graph.addEdge(producer, op);
     }
   }
+
+  // Add serialization edges for i1-producing ops in the block, these are
+  // additional edges that are not captured by SSA semantics only.
+  addI1SerializationEdges(graph);
 }
 
 static bool archRegTypesOverlap(Type a, Type b) {
@@ -235,52 +217,56 @@ static void addRegisterEffectEdges(SchedGraph &graph, Block *block) {
 }
 
 void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
-  // Preprocess and erase synchronization points.
-  ArrayRef<Operation *> ops = graph.getOps();
-  for (int64_t &i : syncPoints) {
-    Operation *op = ops[i];
-    if (auto waitOp = dyn_cast<WaitCntOpInterface>(op)) {
-      handleWaitOp(graph, i, waitOp);
-      // Mark the sync point as processed.
-      i = -1;
-      continue;
-    }
-    if (auto barrierOp = dyn_cast<SBarrier>(op)) {
-      handleSBarrier(graph, i, barrierOp);
-      // Mark the sync point as processed.
-      i = -1;
-      continue;
-    }
-    // Cross-wave ordering is entirely SSA, nothing to add here.
-    if (isa<CrossWaveTokenBarrierOp>(op)) {
-      i = -1;
-      continue;
-    }
+  // Deal with conservative barriers first.
+  handleConservativeFenceBarriers(graph);
+
+  for (auto opIndex : llvm::enumerate(graph.getOps())) {
+    if (auto wait = dyn_cast<WaitCntOpInterface>(opIndex.value()))
+      handleWaitOp(graph, opIndex.index(), wait);
   }
 
-  // Erase all the processed sync points.
-  llvm::erase(syncPoints, -1);
-
-  addBarrierSerializationEdges(graph);
-
-  // Add fence edges for the remaining sync points: every preceding op in
-  // the segment must precede the sync point, and every following op in the
-  // segment must come after.
-  if (!syncPoints.empty()) {
-    for (auto [i, syncPoint] : llvm::enumerate(syncPoints)) {
-      int64_t prevSyncPoint = i > 0 ? syncPoints[i - 1] : 0;
-      int64_t nextSyncPoint =
-          i < (syncPoints.size() - 1) ? syncPoints[i + 1] + 1 : ops.size();
-      for (int64_t point = prevSyncPoint; point < syncPoint; point++)
-        graph.addEdge(point, syncPoint);
-      for (int64_t point = syncPoint + 1; point < nextSyncPoint; point++)
-        graph.addEdge(syncPoint, point);
-    }
-  }
-
-  // RAW / WAR / WAW edges for read/write effects on architectural registers
-  // (SCC, VCC, M0) and preallocated physical registers (VGPR/SGPR/AGPR).
+  // Add register effect edges for RAW / WAR / WAW edges for read/write effects
+  // on architectural registers (SCC, VCC, M0) and preallocated physical
+  // registers (VGPR/SGPR/AGPR).
   addRegisterEffectEdges(graph, block);
+
+  // Add memory dependence edges for RAW / WAR / WAW).
+  buildMemDepEdges(graph);
+
+  /// Pin get_lds_offset its users before dealloc_lds (not tracked by SSA).
+  buildLDSBufferLifetimeEdges(graph);
+}
+
+void GraphBuilder::buildLDSBufferLifetimeEdges(SchedGraph &graph) {
+  auto pinBeforeDealloc = [&](Operation *user, DeallocLDSOp dealloc) {
+    if (user->getBlock() == block)
+      graph.addEdge(user, dealloc);
+  };
+
+  for (Operation &op : *block) {
+    auto dealloc = dyn_cast<DeallocLDSOp>(&op);
+    if (!dealloc)
+      continue;
+
+    Value buffer = dealloc.getBuffer();
+    for (Operation &other : *block) {
+      auto getOffset = dyn_cast<GetLDSOffsetOp>(&other);
+      if (!getOffset || getOffset.getBuffer() != buffer)
+        continue;
+
+      // Mirror LDSInterferenceGraph::checkGetLDSOffset: the offset op and each
+      // of its direct users must run while the buffer is still live.
+      const auto *beforeGetOffset = solver.lookupState<BufferState>(
+          solver.getProgramPointBefore(getOffset));
+      if (beforeGetOffset &&
+          beforeGetOffset->getBufferState(buffer) == BufferState::State::Dead)
+        continue;
+
+      pinBeforeDealloc(getOffset, dealloc);
+      for (Operation *user : getOffset.getResult().getUsers())
+        pinBeforeDealloc(user, dealloc);
+    }
+  }
 }
 
 static bool isTokenOfKind(Type type, MemoryInstructionKind kind) {
@@ -371,67 +357,91 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos,
   }
 }
 
-void GraphBuilder::handleSBarrier(SchedGraph &graph, int64_t pos,
-                                  SBarrier barrier) {
-  // Direction depends on whether op is a predecessor or successor of the
-  // barrier.
-  auto addEdge = [&](Operation *op, int64_t i) {
-    if (i < pos)
-      graph.addEdge(op, barrier);
-    if (i > pos)
-      graph.addEdge(barrier, op);
+void GraphBuilder::handleConservativeFenceBarriers(SchedGraph &graph) {
+  // Helper: direction depends on relative position of op and barrier.
+  auto addEdge = [&](std::pair<Operation *, int64_t> opWithPos,
+                     std::pair<SBarrier, int64_t> barrierWithPos) {
+    if (opWithPos.second < barrierWithPos.second)
+      graph.addEdge(opWithPos.first, barrierWithPos.first);
+    if (opWithPos.second > barrierWithPos.second)
+      graph.addEdge(barrierWithPos.first, opWithPos.first);
   };
 
-  // TODO: Gradually phase off these heuristics as we encourage finer-grained
-  // barrier usage.
+  // Barriers that require conservative fences.
+  // TODO: ConservativeFenceOpInterface.
+  SmallVector<std::pair<SBarrier, int64_t>> barriers;
+  for (auto opIndex : llvm::enumerate(graph.getOps())) {
+    auto barrier = dyn_cast<SBarrier>(opIndex.value());
+    if (!barrier)
+      continue;
+    barriers.push_back({barrier, opIndex.index()});
+  }
 
-  // Iterate over all the operations in the graph.
+  // Iterate over all the operations in the graph and set conservative fences
+  // for operations that have write effects visible by other threads / waves.
   for (auto opIndex : llvm::enumerate(graph.getOps())) {
     Operation *op = opIndex.value();
     int64_t i = opIndex.index();
 
-    // Skip self.
-    if (op == barrier)
-      continue;
-
-    auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-
-    // If there's no interface, add an edge from the barrier to the operation.
-    if (!instOp || instOp.getOpCode() == OpCode::Invalid) {
-      if (!isPure(op))
-        addEdge(op, i);
+    // All BarrierOpInterface, FenceOpInterface and FenceableOpInterface (with
+    // an SSA fence token) fence against SBarrier.
+    if (isa<BarrierOpInterface, FenceOpInterface>(op) ||
+        (isa<FenceableOpInterface>(op) &&
+         cast<FenceableOpInterface>(op).hasFenceToken())) {
+      for (auto [barrier, barrierPos] : barriers)
+        addEdge({op, i}, {barrier, barrierPos});
       continue;
     }
 
-    // Pin SALU and SMEM to barriers.
-    if (instOp.hasAnyProps({InstProp::Salu, InstProp::Smem})) {
-      addEdge(op, i);
-      continue;
+    // Ops with effects visible to other threads/waves (memory writes and VCC
+    // writes), are not allowed to execute past the SBarrier immediately
+    // following them.
+    bool hasCrossThreadVisibleWrite = isa<StoreOpInterface>(op);
+    if (!hasCrossThreadVisibleWrite) {
+      if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op)) {
+        llvm::DenseSet<Type> writeTypes;
+        for (Value v : instOp.getInstOuts())
+          appendRegTypesFromOperand(v, writeTypes);
+        for (Type ty : writeTypes) {
+          if (isa<VCCType, VCCLoType, VCCHiType>(ty)) {
+            hasCrossThreadVisibleWrite = true;
+            break;
+          }
+        }
+      }
+    }
+    if (hasCrossThreadVisibleWrite) {
+      for (auto [barrier, barrierPos] : barriers) {
+        if (barrierPos > i) {
+          graph.addEdge(op, barrier);
+          break;
+        }
+      }
     }
 
-    // Pin DS and VMEM ops to barriers (s_barrier is a memory fence).
-    if (instOp.hasAnyProps({InstProp::Ds, InstProp::IsVmem})) {
-      addEdge(op, i);
-      continue;
+    // Similarly, ops that depend on operations with effects visible to other
+    // threads/waves (memory and VCC reads), are not allowed to execute prior to
+    // the SBarrier immediately preceding them.
+    bool needsFence = isa<LoadOpInterface>(op);
+    if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op)) {
+      llvm::DenseSet<Type> readTypes;
+      for (Value v : instOp.getInstIns())
+        appendRegTypesFromOperand(v, readTypes);
+      for (Type ty : readTypes) {
+        if (isa<VCCType, VCCLoType, VCCHiType>(ty)) {
+          needsFence = true;
+          break;
+        }
+      }
     }
-
-    // If the operation has any SGPR outputs, add an edge.
-    bool hasSGPROut = llvm::any_of(instOp->getResults(), [](Value result) {
-      return isa<SGPRType>(result.getType());
-    });
-    if (hasSGPROut)
-      addEdge(op, i);
-  }
-}
-
-void GraphBuilder::addBarrierSerializationEdges(SchedGraph &graph) {
-  Operation *prevBarrier = nullptr;
-  for (Operation &op : *block) {
-    if (!isa<BarrierOpInterface>(op))
-      continue;
-    if (prevBarrier)
-      graph.addEdge(prevBarrier, &op);
-    prevBarrier = &op;
+    if (needsFence) {
+      for (auto [barrier, barrierPos] : barriers) {
+        if (barrierPos < i) {
+          graph.addEdge(barrier, op);
+          break;
+        }
+      }
+    }
   }
 }
 
@@ -480,9 +490,12 @@ void GraphBuilder::addI1SerializationEdges(SchedGraph &graph) {
 namespace mlir::aster::amdgcn {
 
 LogicalResult initValueSchedulerAnalyses(SchedAnalysis &analysis) {
+  DataFlowSolver &solver = analysis.getSolver();
+  DominanceInfo &domInfo = analysis.getDomInfo();
   // Load the wait analysis so the graph builder can query wait states.
-  loadWaitAnalysis(analysis.getSolver(), analysis.getDomInfo(),
-                   analysis.getIsaVersion());
+  loadWaitAnalysis(solver, domInfo, analysis.getIsaVersion());
+  // Load buffer liveness for get_lds_offset lifetime edges.
+  solver.load<BufferAnalysis>(domInfo);
   analysis.setRunDataflowAnalyses();
   return success();
 }

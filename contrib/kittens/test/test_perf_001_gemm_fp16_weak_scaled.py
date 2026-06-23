@@ -440,6 +440,7 @@ class TestWeakScaledMappedGemmInstanceSerde:
             "ll_sched",
             "hoist_wait",
             "rotate_compute_stage",
+            "use_conservative_barriers",
             "num_workgroups_per_kernel",
             "num_waves_per_workgroup",
             "num_tiles_per_workgroup",

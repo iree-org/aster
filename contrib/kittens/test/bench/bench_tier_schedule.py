@@ -126,3 +126,9 @@ def apply_tier_overrides(
     overrides = _tier_axis_overrides(universe, tier, prev_winners, ambient_pins or {})
     grid.restrict_axes(overrides)
     grid.retain_filters(set(tier.constraints))
+    empty_axes = [a.name for a in grid._axes if not a.values]
+    if empty_axes:
+        raise ValueError(
+            f"Tier {tier.tier_idx} left sweep axes with no values {empty_axes!r}; "
+            "add them to axis_grid, fixed_axes, or apply_bench_scheduling_defaults()"
+        )

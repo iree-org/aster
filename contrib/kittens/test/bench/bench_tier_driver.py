@@ -118,7 +118,19 @@ def run_tier_mode(
             return None
 
         if not instances:
-            print(f"Tier {tier.tier_idx}: empty population. Stopping.")
+            unset = [a.name for a in tier_grid._axes if not a.values]
+            if total == 0:
+                detail = (
+                    f"unset axes={unset!r}"
+                    if unset
+                    else "0 configs passed grid filters (check --size divisibility vs wg/twg grid)"
+                )
+                print(f"Tier {tier.tier_idx}: empty population ({detail}). Stopping.")
+            else:
+                print(
+                    f"Tier {tier.tier_idx}: empty population "
+                    f"(sample/dedup collapsed {total:,} eligible to 0). Stopping."
+                )
             break
 
         tier_budget = getattr(args, "tier_time_budget", None)

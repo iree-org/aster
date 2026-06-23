@@ -311,16 +311,29 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
             b_write = b.transfer_tiles(sB_write, tc_dsw_b, unroll_axes=plan_b.unroll_axes, data=b_load)
 
         with b.stage(STG_A_LDS_READ):
-            b.wait_deps(a_write)
-            b.s_barrier()
-            sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
-            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            if mapping.use_conservative_barriers:
+                b.wait_deps(a_write)
+                b.s_barrier()
+                sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+                a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            else:
+                wfence = b.wait_deps(a_write)
+                bfence = b.cross_wave_token_barrier(wfence)
+                sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+                a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence)
             b.dealloc_lds(lds_a_h)
 
         with b.stage(STG_B_LDS_READ):
-            b.wait_deps(b_write)
-            sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
-            b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile))
+            if mapping.use_conservative_barriers:
+                b.wait_deps(b_write)
+                b.s_barrier()
+                sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
+                b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile))
+            else:
+                wfence = b.wait_deps(b_write)
+                bfence = b.cross_wave_token_barrier(wfence)
+                sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
+                b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile), fence_token=bfence)
             b.dealloc_lds(lds_b_h)
 
         with b.stage(STG_COMPUTE):
@@ -446,6 +459,7 @@ def _make_instance(
     mcpu=None,
     rotate_compute_stage=False,
     ll_sched=0,
+    use_conservative_barriers=False,
 ):
     """Build a MultitileGemmInstance from list parameters.
 
@@ -476,6 +490,7 @@ def _make_instance(
         operand_path=OperandPath.LDS,
         rotate_compute_stage=rotate_compute_stage,
         ll_sched=ll_sched,
+        use_conservative_barriers=use_conservative_barriers,
         **mapping_kw,
     )
     spec_kw = {} if mfma_shape is None else {"mfma_shape": mfma_shape}
@@ -564,8 +579,13 @@ class TestCdna4Mfma:
 
 
 class TestLLSched:
+    @pytest.mark.parametrize(
+        "use_conservative_barriers",
+        [False, True],
+        ids=["token_barrier", "s_barrier"],
+    )
     @pytest.mark.parametrize("ll_sched", [0, 1, 2, 3, 5], ids=lambda v: f"llsched{v}")
-    def test_correctness(self, ll_sched):
+    def test_correctness(self, ll_sched, use_conservative_barriers):
         cfg = _make_instance(
             [1, 1, 1],
             [2, 2, 1],
@@ -574,5 +594,40 @@ class TestLLSched:
             pipeline_strategy=3,
             mcpu="gfx950",
             ll_sched=ll_sched,
+            use_conservative_barriers=use_conservative_barriers,
+        )
+        _run_multitile(cfg)
+
+
+class TestBarrierMode:
+    @pytest.mark.parametrize(
+        "use_conservative_barriers",
+        [False, True],
+        ids=["token_barrier", "s_barrier"],
+    )
+    @pytest.mark.parametrize("pipeline_strategy", [1, 3], ids=["ps1", "ps3"])
+    @pytest.mark.parametrize(
+        "num_waves_per_wg,num_tiles_per_wg",
+        [
+            ([2, 2, 1], [6, 4, 1]),
+            ([4, 2, 1], [12, 6, 1]),
+        ],
+        ids=["4w_6x4", "8w_12x6"],
+    )
+    def test_correctness(
+        self,
+        num_waves_per_wg,
+        num_tiles_per_wg,
+        pipeline_strategy,
+        use_conservative_barriers,
+    ):
+        cfg = _make_instance(
+            [1, 1, 1],
+            num_waves_per_wg,
+            num_tiles_per_wg,
+            k_mult=4,
+            pipeline_strategy=pipeline_strategy,
+            mcpu="gfx950",
+            use_conservative_barriers=use_conservative_barriers,
         )
         _run_multitile(cfg)

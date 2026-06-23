@@ -52,13 +52,13 @@ amdgcn.module @cross_wave_token_barrier_after target = #amdgcn.target<gfx942> {
 
 // -----
 
-// Plain s_barrier conservatively pins memory and SALU ops.
+// Plain s_barrier conservatively pins cross-thread memory ops.
 amdgcn.module @plain_barrier target = #amdgcn.target<gfx942> {
   // CHECK-LABEL: Kernel: @plain_barrier
   // CHECK:       digraph SchedGraph
   // CHECK-DAG:     label = "ds_write_b32 -> s_barrier"
   // CHECK-DAG:     label = "s_barrier -> ds_read_b32"
-  // CHECK-DAG:     label = "s_barrier -> s_mov_b32"
+  // CHECK-NOT:     label = "s_barrier -> s_mov_b32"
   // CHECK:       }
   amdgcn.kernel @plain_barrier {
     %addr = amdgcn.alloca : !v
