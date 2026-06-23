@@ -57,7 +57,8 @@ TEST_LOWER_WAITS_MINIMAL_PASS_PIPELINE = builtin_module(
     phase_nop_insertion(delays=0),
 )
 
-# Pipeline matching test/Target/ASM/gfx1250-cluster-id-asm.mlir lit RUN lines.
+# Low-level gfx1250 cluster bring-up: expand MD ops, bufferize, regalloc, NOPs.
+# Shared by lit (%gfx1250_cluster_asm_pipeline in test/lit.cfg.py) and e2e tests.
 TEST_GFX1250_CLUSTER_ASM_PASS_PIPELINE = builtin_module(
     PHASE_AFFINE_EXPANSION,
     PHASE_EXPAND_MD_OPS,

@@ -820,6 +820,86 @@ def GlobalLoadB128 : GlobalLoadBInst<"global_load_b128",
 #endif // GLOBALLOADB128_DEF
 
 //===----------------------------------------------------------------------===//
+// gfx1250 cluster multicast loads (cluster_load_b* family).
+//===----------------------------------------------------------------------===//
+
+#ifndef CLUSTERLOADB_INST_DEF
+#define CLUSTERLOADB_INST_DEF
+// Sync multicast load: global -> VGPR, broadcast to the workgroups selected by
+// the M0 mask within the cluster.
+// M0 is the asm-implicit arch register, ASTER models it as an operand.
+// Completion is tracked by loadcnt (FlatReadToken).
+class ClusterLoadBInst<string mnemonic, list<Type> dst0Type>
+    : AMDISAInstruction<mnemonic, [GlobalLoadInstOpInterface]> {
+  let props = [IsVMem, IsGlobal];
+  let archs = [GFX12_50Isa];
+  let effects = [GlobalRead];
+  let outputs = (ins
+    AnyRegOf<dst0Type>:$dest
+  );
+  let inputs = (ins
+    AnyRegOf<[VGPROf<2>, TwoSGPROrVCCType]>:$addr,
+    OptionalReg<VGPROf<1>>:$offset,
+    M0Type:$m0_src
+  );
+  let trailingArgs = (ins
+    OffsetType<13, /*signed=*/true>:$const_offset,
+    NT:$nt,
+    SC0:$sc0,
+    SC1:$sc1
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `dest` $dest `addr` $addr `m0` $m0_src
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `outs``(` type($dest) `)`
+    `ins` `(` type($addr) `,` type($m0_src) (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)` `->`
+    custom<LoadResults>(ref(type($dest)), type($dest_res), type($token))
+  }];
+  let trailingResults = (outs FlatReadToken:$token);
+  let asm_syntax = [
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $dest, $addr, off [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<VGPRType>($_self.getAddr().getType())">>,
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $dest, $offset, $addr [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<SGPRType>($_self.getAddr().getType())">>,
+  ];
+  let hasVerifier = 1;
+  let extraClassDefinition = [{
+    LogicalResult $cppClass::verify() {
+      if (isa<VGPRType>(getAddr().getType()) && getOffset())
+        return emitError("expects no offset with VGPR address");
+      if (isa<SGPRType>(getAddr().getType()) && !getOffset())
+        return emitError("expects an offset with SGPR address");
+      return success();
+    }
+  }];
+}
+#endif // CLUSTERLOADB_INST_DEF
+
+#ifndef CLUSTERLOADB32_DEF
+#define CLUSTERLOADB32_DEF
+def ClusterLoadB32 : ClusterLoadBInst<"cluster_load_b32", /*dest=*/[VGPROf<1>]> {
+  let description = [{
+    Multicast load 32 bits from global memory into a vector register,
+    broadcasting to the cluster workgroups selected by the M0 mask.
+  }];
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b1100111>];
+}
+#endif // CLUSTERLOADB32_DEF
+
+#ifndef CLUSTERLOADB128_DEF
+#define CLUSTERLOADB128_DEF
+def ClusterLoadB128 : ClusterLoadBInst<"cluster_load_b128", /*dest=*/[VGPROf<4>]> {
+  let description = [{
+    Multicast load 128 bits from global memory into a vector register.
+  }];
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b1101001>];
+}
+#endif // CLUSTERLOADB128_DEF
+
+//===----------------------------------------------------------------------===//
 // gfx1250 global store instructions (global_store_b* family).
 //===----------------------------------------------------------------------===//
 
