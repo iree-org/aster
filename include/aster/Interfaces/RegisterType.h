@@ -154,6 +154,19 @@ public:
            indexAlignment == other.indexAlignment;
   }
 
+  /// Returns true if two allocated register ranges overlap (half-open
+  /// intervals).
+  bool overlaps(const RegisterRange &other) const {
+    if (getSemantics() != RegisterSemantics::Allocated ||
+        other.getSemantics() != RegisterSemantics::Allocated)
+      return false;
+    int16_t lhsBegin = begin().getRegister();
+    int16_t lhsEnd = lhsBegin + size();
+    int16_t rhsBegin = other.begin().getRegister();
+    int16_t rhsEnd = rhsBegin + other.size();
+    return lhsEnd > rhsBegin && rhsEnd > lhsBegin;
+  }
+
   /// Compare register ranges.
   bool operator<(const RegisterRange &other) const {
     return std::make_tuple(regBegin, rangeSize, indexAlignment) <
