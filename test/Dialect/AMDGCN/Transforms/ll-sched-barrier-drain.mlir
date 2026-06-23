@@ -4,11 +4,12 @@
 
 amdgcn.module @test target = #amdgcn.target<gfx942> {
 
-  // ds_reads are pinned before the trailing s_barrier; mfma streams after.
+  // s_barrier has no cross-thread visible predecessors; reads and mfma may
+  // reorder freely around it.
   // CHECK-LABEL: kernel @barrier_first_then_mfma
-  // CHECK:         ds_read_b64
-  // CHECK:         ds_read_b64
   // CHECK:         s_barrier
+  // CHECK:         ds_read_b64
+  // CHECK:         ds_read_b64
   // CHECK:         v_mfma_f32_16x16x16_f16
   // CHECK:         end_kernel
   amdgcn.kernel @barrier_first_then_mfma {
@@ -33,13 +34,13 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 
-  // Each ds_read is pinned before its trailing s_barrier; mfma streams after.
+  // s_barrier does not pin unrelated ds_reads; mfma still follows its operands.
   // CHECK-LABEL: kernel @two_barriers
-  // CHECK:         ds_read_b64
   // CHECK:         s_barrier
+  // CHECK:         s_barrier
+  // CHECK:         ds_read_b64
   // CHECK:         v_mfma_f32_16x16x16_f16
   // CHECK:         ds_read_b64
-  // CHECK:         s_barrier
   // CHECK:         v_mfma_f32_16x16x16_f16
   // CHECK:         end_kernel
   amdgcn.kernel @two_barriers {

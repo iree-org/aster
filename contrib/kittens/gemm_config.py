@@ -256,6 +256,8 @@ class GemmMappingSpec(PipelineConfigProtocol):
     hoist_wait: bool = False  # hoist iter-arg waits
     set_mfma_priority: bool = False  # insert s_setprio around MFMA groups
     rotate_compute_stage: bool = False  # enable compute-stage rotation in pass pipeline
+    # False = cross_wave_token_barrier + fence_token on LDS reads; True = s_barrier.
+    use_conservative_barriers: bool = False
 
     # --- Atomic transfer sizes (bytes per lane per memory operation) ---
 
@@ -607,6 +609,7 @@ class WeakScaledMappedGemmInstance:
                 r"_llsched(\d+)"
                 r"_hoistwait([01])"
                 r"_rotc([01])"
+                r"(?:_consbar([01]))?"
                 r"_lt_(flat|buf)$"
             )
         return cls._LABEL_RE
@@ -638,10 +641,12 @@ class WeakScaledMappedGemmInstance:
             llsched,
             hoistwait,
             rotc,
+            consbar,
             lt,
         ) = m.groups()
 
         load_type = "buffer" if lt == "buf" else "flat"
+        use_conservative_barriers = consbar == "1" if consbar is not None else False
         wg = [int(wg_m), int(wg_n), int(wg_k)]
         wpw = [int(waves_m), int(waves_n), int(waves_k)]
         tiles_wg = [int(twg_m), int(twg_n), int(twg_k)]
@@ -664,6 +669,7 @@ class WeakScaledMappedGemmInstance:
             ll_sched=int(llsched),
             hoist_wait=hoistwait == "1",
             rotate_compute_stage=rotc == "1",
+            use_conservative_barriers=use_conservative_barriers,
         )
         cfg = cls(spec, mapping)
         assert cfg.label == label, f"Round-trip failed: {cfg.label!r} != {label!r}"
@@ -690,6 +696,7 @@ class WeakScaledMappedGemmInstance:
             f"_llsched{int(m.ll_sched)}"
             f"_hoistwait{int(m.hoist_wait)}"
             f"_rotc{int(m.rotate_compute_stage)}"
+            f"_consbar{int(m.use_conservative_barriers)}"
             f"_lt_{lt}"
         )
 

@@ -69,7 +69,15 @@ STG_COMPUTE = 3
 N_STAGES = STG_COMPUTE + 1
 
 
-def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K, stride_a, stride_b):
+def _build_gemm_pipelined(
+    num_workgroups,
+    num_waves_per_wg,
+    num_tiles_per_wg,
+    K,
+    stride_a,
+    stride_b,
+    use_conservative_barriers=False,
+):
     """Build a multi-WG, multi-wave pipelined GEMM with shared LDS + cooperative load."""
     wg_m_count, wg_n_count = num_workgroups
     wpw_m, wpw_n = num_waves_per_wg
@@ -260,16 +268,28 @@ def _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K,
             b_write = b.transfer_tiles(sB_write, tc_dsw_b, unroll_axes=plan_b.unroll_axes, data=b_load)
 
         with b.stage(STG_A_READ):
-            wfence_a = b.wait_deps(a_write)
-            bfence_a = b.cross_wave_token_barrier(wfence_a)
-            sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
-            a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence_a)
+            if use_conservative_barriers:
+                b.wait_deps(a_write)
+                b.s_barrier()
+                sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+                a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
+            else:
+                wfence_a = b.wait_deps(a_write)
+                bfence_a = b.cross_wave_token_barrier(wfence_a)
+                sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
+                a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence_a)
 
         with b.stage(STG_B_READ):
-            wfence_b = b.wait_deps(b_write)
-            bfence_b = b.cross_wave_token_barrier(wfence_b)
-            sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
-            b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile), fence_token=bfence_b)
+            if use_conservative_barriers:
+                b.wait_deps(b_write)
+                b.s_barrier()
+                sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
+                b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile))
+            else:
+                wfence_b = b.wait_deps(b_write)
+                bfence_b = b.cross_wave_token_barrier(wfence_b)
+                sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
+                b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile), fence_token=bfence_b)
 
         with b.stage(STG_COMPUTE):
             b.wait_deps(a_frags, b_frags)
@@ -331,8 +351,15 @@ class TestPythonGEMMCoopLoad:
         [(1, 1), (2, 2)],
         ids=["wg1x1", "wg2x2"],
     )
+    @pytest.mark.parametrize(
+        "use_conservative_barriers",
+        [False, True],
+        ids=["token_barrier", "s_barrier"],
+    )
     @pytest.mark.parametrize("K", [384])
-    def test_gemm_coopload_python(self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, K):
+    def test_gemm_coopload_python(
+        self, num_workgroups, num_waves_per_wg, num_tiles_per_wg, K, use_conservative_barriers
+    ):
         wg_m_count, wg_n_count = num_workgroups
         wpw_m, wpw_n = num_waves_per_wg
         m_t, n_t, k_t = num_tiles_per_wg
@@ -353,7 +380,15 @@ class TestPythonGEMMCoopLoad:
         ctx = ir.Context()
         ctx.allow_unregistered_dialects = True
         with ctx:
-            module = _build_gemm_pipelined(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K, stride_a, stride_b)
+            module = _build_gemm_pipelined(
+                num_workgroups,
+                num_waves_per_wg,
+                num_tiles_per_wg,
+                K,
+                stride_a,
+                stride_b,
+                use_conservative_barriers=use_conservative_barriers,
+            )
             asm = compile_mlir_module_to_asm(module, pass_pipeline=make_default_pass_pipeline(PipelineConfig()))
 
         path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=64)
