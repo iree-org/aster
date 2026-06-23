@@ -122,6 +122,38 @@ def RegisterTypeInterface : TypeInterface<"RegisterTypeInterface", [
     ::mlir::aster::RegisterTypeInterface cloneRegisterType(::mlir::aster::Register reg) const {
       return $_type.cloneRegisterType(::mlir::aster::RegisterRange(reg, 1));
     }
+
+    /// Returns true if two allocated register types have overlapping index ranges.
+    bool allocatedRangesOverlap(::mlir::aster::RegisterTypeInterface other) const {
+      if (!other || !$_type.hasAllocatedSemantics() ||
+          !other.hasAllocatedSemantics())
+        return false;
+      return $_type.getAsRange().overlaps(other.getAsRange());
+    }
+
+    /// Expands composite types and register ranges into constituent single-register
+    /// types. Returns failure if a composite part cannot be split further.
+    ::mlir::LogicalResult getUnderlyingRegisterTypes(
+        ::llvm::SmallVectorImpl<::mlir::aster::RegisterTypeInterface> &regs)
+        const {
+      if ($_type.isRegisterRange()) {
+        ::mlir::aster::RegisterRange range = $_type.getAsRange();
+        regs.reserve(regs.size() + range.size());
+        for (int16_t i = 0; i < range.size(); ++i)
+          regs.push_back(
+              $_type.cloneRegisterType(range.begin().getWithOffset(i)));
+        return ::mlir::success();
+      }
+      ::llvm::SmallVector<::mlir::aster::RegisterTypeInterface, 4> parts;
+      if (::mlir::succeeded($_type.getSplitType(parts, nullptr))) {
+        for (::mlir::aster::RegisterTypeInterface part : parts)
+          if (::mlir::failed(part.getUnderlyingRegisterTypes(regs)))
+            return ::mlir::failure();
+        return ::mlir::success();
+      }
+      regs.push_back($_type);
+      return ::mlir::success();
+    }
   }];
 }
 

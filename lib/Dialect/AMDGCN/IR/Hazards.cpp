@@ -40,26 +40,6 @@ static MutableArrayRef<OpOperand> getOpOperands(OperandRange operands) {
   return MutableArrayRef<OpOperand>(operands.getBase(), operands.size());
 }
 
-/// Check if two register types overlap.
-static bool checkOverlap(AMDGCNRegisterTypeInterface lhs,
-                         AMDGCNRegisterTypeInterface rhs) {
-  if (!lhs || !rhs || !lhs.hasAllocatedSemantics() ||
-      !rhs.hasAllocatedSemantics())
-    return false;
-
-  // If the register kinds are different, they cannot overlap.
-  if (lhs.getRegisterKind() != rhs.getRegisterKind())
-    return false;
-
-  int16_t lhsBegin = lhs.getAsRange().begin().getRegister();
-  int16_t lhsEnd = lhsBegin + lhs.getAsRange().size();
-  int16_t rhsBegin = rhs.getAsRange().begin().getRegister();
-  int16_t rhsEnd = rhsBegin + rhs.getAsRange().size();
-
-  // Check if the ranges overlap.
-  return lhsEnd > rhsBegin && rhsEnd > lhsBegin;
-}
-
 static int16_t getMfmaPassCase(OpCode op) {
   switch (op) {
   // 16 cycles -> 4 passes (case 1), per Table 37: 16x16x16, 16x16x32.
@@ -368,7 +348,8 @@ bool CDNA3StoreWriteDataHazardAttr::isHazardTriggered(
     return false;
 
   return llvm::any_of(TypeRange(instOp.getInstOuts()), [&](Type out) {
-    return checkOverlap(dyn_cast<AMDGCNRegisterTypeInterface>(out), writeRegTy);
+    auto outRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(out);
+    return outRegTy && outRegTy.overlaps(writeRegTy);
   });
 }
 
@@ -441,7 +422,8 @@ bool CDNA3StoreHazardAttr::isHazardTriggered(
 
   // Check if the VALU instruction writes to the same register as the store.
   return llvm::any_of(TypeRange(instOp.getInstOuts()), [&](Type out) {
-    return checkOverlap(dyn_cast<AMDGCNRegisterTypeInterface>(out), writeRegTy);
+    auto outRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(out);
+    return outRegTy && outRegTy.overlaps(writeRegTy);
   });
 }
 
@@ -487,7 +469,7 @@ bool CDNA3ValuSgprVmemHazardAttr::isHazardTriggered(
   for (Value input : instOp.getInstIns()) {
     auto inputRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
     if (inputRegTy && inputRegTy.getRegisterKind() == RegisterKind::SGPR &&
-        checkOverlap(inputRegTy, sgprRegTy))
+        inputRegTy.overlaps(sgprRegTy))
       return true;
   }
   return false;
@@ -664,7 +646,7 @@ bool CDNA3ValuVgprReadlaneHazardAttr::isHazardTriggered(
   for (Value input : instOp.getInstIns()) {
     auto inputRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
     if (inputRegTy && inputRegTy.getRegisterKind() == RegisterKind::VGPR &&
-        checkOverlap(inputRegTy, vgprRegTy))
+        inputRegTy.overlaps(vgprRegTy))
       return true;
   }
   return false;
@@ -753,7 +735,7 @@ bool CDNA3NonDLOpsValuMfmaHazardAttr::isHazardTriggered(
   // V_MFMA*/V_SMFMA* read VGPR as SrcC (or SrcA/B). Check inputs.
   return llvm::any_of(instOp.getInstIns(), [&](Value input) {
     auto inputRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
-    return inputRegTy && checkOverlap(inputRegTy, vgprRegTy);
+    return inputRegTy && inputRegTy.overlaps(vgprRegTy);
   });
 }
 
@@ -928,8 +910,8 @@ bool CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::isHazardTriggered(
   // Check if SrcA or SrcB overlaps with the raiser's vdst.
   auto srcARegTy = dyn_cast<AMDGCNRegisterTypeInterface>(srcA.getType());
   auto srcBRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(srcB.getType());
-  bool hasSrcABOverlap = (srcARegTy && checkOverlap(srcARegTy, raiserRegTy)) ||
-                         (srcBRegTy && checkOverlap(srcBRegTy, raiserRegTy));
+  bool hasSrcABOverlap = (srcARegTy && srcARegTy.overlaps(raiserRegTy)) ||
+                         (srcBRegTy && srcBRegTy.overlaps(raiserRegTy));
   if (!hasSrcABOverlap)
     return false;
 
@@ -1001,8 +983,8 @@ bool CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::isHazardTriggered(
 
   auto srcARegTy = dyn_cast<AMDGCNRegisterTypeInterface>(srcA.getType());
   auto srcBRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(srcB.getType());
-  bool hasSrcABOverlap = (srcARegTy && checkOverlap(srcARegTy, raiserRegTy)) ||
-                         (srcBRegTy && checkOverlap(srcBRegTy, raiserRegTy));
+  bool hasSrcABOverlap = (srcARegTy && srcARegTy.overlaps(raiserRegTy)) ||
+                         (srcBRegTy && srcBRegTy.overlaps(raiserRegTy));
   if (!hasSrcABOverlap)
     return false;
 
@@ -1079,7 +1061,7 @@ bool CDNA3XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
   for (Value input : instOp.getInstIns()) {
     auto inputRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
     if (inputRegTy && inputRegTy.getRegisterKind() == dstKind &&
-        checkOverlap(inputRegTy, raiserRegTy)) {
+        inputRegTy.overlaps(raiserRegTy)) {
       hasConflict = true;
       break;
     }
@@ -1089,7 +1071,7 @@ bool CDNA3XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
       auto outputRegTy =
           dyn_cast<AMDGCNRegisterTypeInterface>(output.getType());
       if (outputRegTy && outputRegTy.getRegisterKind() == dstKind &&
-          checkOverlap(outputRegTy, raiserRegTy)) {
+          outputRegTy.overlaps(raiserRegTy)) {
         hasConflict = true;
         break;
       }
@@ -1172,7 +1154,7 @@ bool CDNA4XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
   for (Value input : instOp.getInstIns()) {
     auto inputRegTy = dyn_cast<AMDGCNRegisterTypeInterface>(input.getType());
     if (inputRegTy && inputRegTy.getRegisterKind() == dstKind &&
-        checkOverlap(inputRegTy, raiserRegTy)) {
+        inputRegTy.overlaps(raiserRegTy)) {
       hasConflict = true;
       break;
     }
@@ -1182,7 +1164,7 @@ bool CDNA4XdlWriteVgprVmemValuHazardAttr::isHazardTriggered(
       auto outputRegTy =
           dyn_cast<AMDGCNRegisterTypeInterface>(output.getType());
       if (outputRegTy && outputRegTy.getRegisterKind() == dstKind &&
-          checkOverlap(outputRegTy, raiserRegTy)) {
+          outputRegTy.overlaps(raiserRegTy)) {
         hasConflict = true;
         break;
       }

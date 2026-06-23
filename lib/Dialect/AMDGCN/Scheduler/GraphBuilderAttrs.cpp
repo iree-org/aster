@@ -18,6 +18,7 @@
 #include "aster/Interfaces/SchedInterfaces.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/SliceAnalysis.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/DebugLog.h"
@@ -81,15 +82,8 @@ LogicalResult GraphBuilder::run(SchedGraph &graph) {
   return success();
 }
 
+// Build the memory dependence edges for the graph.
 void GraphBuilder::buildMemDepEdges(SchedGraph &graph) {
-  // The scheduler enforces ordering only WITHIN this block. Build the
-  // cross-block analysis (which verifies the flat-CFG normal form), then add
-  // only the LDS dependences whose producer is earlier in THIS block.
-  // Cross-block producers are structural (CFG edges + waits) and a loop-carried
-  // back edge (producer not before the consumer in program order) would be a
-  // cycle in this block's graph. Scope to LDS: same-buffer DS RAW/WAR/WAW is a
-  // correctness constraint the scheduler must respect; distinct buffers carry
-  // no edge; global ordering stays with the token/wait machinery.
   auto mdaOr = MemoryDependenceAnalysis::create(
       block->getParentOp(),
       {GlobalMemoryResource::get(), LDSMemoryResource::get()});
@@ -122,15 +116,16 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
     //
     // Exclude SOP1 mov ops and SOP2 SALU arithmetic ops (s_add_*, ...) from
     // sync points. The implicit read/write effects on architectural registers
-    // SCC are captured by the RAW/WAR edges added in buildNonSSADeps. Treating
-    // as fences would serialize independent arithmetic chains.
+    // SCC are captured by the register effect edges added in buildNonSSADeps.
+    // Treating as fences would serialize independent arithmetic chains.
     bool isReorderableArith = false;
     if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op))
       isReorderableArith = instOp.hasAnyProps(
           {InstProp::Sop1, InstProp::Sop2, InstProp::IsValu});
     if ((!hasEffects || !mlir::isPure(op)) && !isReorderableArith &&
         !isa<LoadOpInterface, StoreOpInterface, AllocaOpInterface>(op)) {
-      LDBG() << "Adding sync point: " << i;
+      LDBG() << "Adding sync point: " << i
+             << " op: " << OpWithFlags(op, OpPrintingFlags().skipRegions());
       syncPoints.push_back(i);
     }
 
@@ -145,173 +140,102 @@ void GraphBuilder::buildSSADeps(SchedGraph &graph) {
   }
 }
 
-template <typename RegType>
-struct IsModeledArchReg : std::false_type {};
-template <>
-struct IsModeledArchReg<SCCType> : std::true_type {};
-template <>
-struct IsModeledArchReg<VCCType> : std::true_type {};
-template <>
-struct IsModeledArchReg<M0Type> : std::true_type {};
-
-/// Returns the read/write effects of `op` on the architectural register
-/// `RegType` (currently SCC, VCC, or M0). The register is referenced as a DPS
-/// alloca operand: an outs operand of `RegType` means the op writes the
-/// register; an ins operand of `RegType` means the op reads it. Ops without
-/// AMDGCNInstOpInterface have no architectural-register effects modeled here.
-template <typename RegType>
-static void getArchRegEffects(Operation *op, bool &reads, bool &writes) {
-  static_assert(IsModeledArchReg<RegType>::value,
-                "getArchRegEffects only supports modeled architectural "
-                "registers (SCC, VCC, M0)");
-  reads = false;
-  writes = false;
-  auto instOp = dyn_cast<AMDGCNInstOpInterface>(op);
-  if (!instOp)
-    return;
-  for (Value v : instOp.getInstOuts()) {
-    if (isa<RegType>(v.getType())) {
-      writes = true;
-      break;
-    }
-  }
-  for (Value v : instOp.getInstIns()) {
-    if (isa<RegType>(v.getType())) {
-      reads = true;
-      break;
-    }
-  }
+static bool archRegTypesOverlap(Type a, Type b) {
+  if (isa<SCCType>(a))
+    return isa<SCCType>(b);
+  if (isa<SCCType>(b))
+    return false;
+  if (isa<M0Type>(a))
+    return isa<M0Type>(b);
+  if (isa<M0Type>(b))
+    return false;
+  // 0, 1, 2, 3 -> none, lo, hi, full.
+  int ma = isa<VCCType>(a)     ? 3
+           : isa<VCCLoType>(a) ? 1
+           : isa<VCCHiType>(a) ? 2
+                               : 0;
+  int mb = isa<VCCType>(b)     ? 3
+           : isa<VCCLoType>(b) ? 1
+           : isa<VCCHiType>(b) ? 2
+                               : 0;
+  return ma && mb && (ma & mb);
 }
 
-/// Add scheduling edges for the read/write effects on a single architectural
-/// register (`RegType`). The register is shared by every op that touches it
-/// but flows through DPS alloca operands rather than SSA results, so no SSA
-/// def-use chain captures the dependence.
-template <typename RegType>
-static void addArchRegEffectEdges(SchedGraph &graph, Block *block) {
-  static_assert(IsModeledArchReg<RegType>::value,
-                "addArchRegEffectEdges only supports modeled architectural "
-                "registers (SCC, VCC, M0)");
-  SmallVector<Operation *> writers;
-  SmallVector<Operation *> readers;
-  for (Operation &op : *block) {
-    bool reads = false;
-    bool writes = false;
-    getArchRegEffects<RegType>(&op, reads, writes);
-    if (!reads && !writes)
-      continue;
-    if (reads) {
-      // RAW: pin every prior writer before this reader.
-      for (Operation *w : writers)
-        graph.addEdge(w, &op);
-    }
-    if (writes) {
-      // WAR: pin every prior reader before this writer.
-      for (Operation *r : readers)
-        graph.addEdge(r, &op);
-    }
-    if (reads)
-      readers.push_back(&op);
-    if (writes)
-      writers.push_back(&op);
-  }
+/// True when two register resource types alias (arch half intersection or
+/// allocated physical range overlap). Architectural and physical never overlap.
+static bool regTypesOverlap(Type a, Type b) {
+  if (archRegTypesOverlap(a, b))
+    return true;
+  auto regA = dyn_cast<AMDGCNRegisterTypeInterface>(a);
+  auto regB = dyn_cast<AMDGCNRegisterTypeInterface>(b);
+  if (!regA || !regB)
+    return false;
+  return regA.overlaps(regB);
 }
 
-/// Resolve a register operand to preallocated VGPR/SGPR/AGPR, recursively
-/// through make_register_range / split_register_range.
-static void
-collectAllocatedRegistersForValue(Value v,
-                                  SmallVectorImpl<RegisterTypeInterface> &out) {
+static void appendRegTypesFromOperand(Value v, llvm::DenseSet<Type> &types) {
   auto regTy = dyn_cast<RegisterTypeInterface>(v.getType());
   if (!regTy || !regTy.hasAllocatedSemantics())
     return;
-  if (auto bundle = v.getDefiningOp<OperandBundleOpInterface>()) {
-    for (Value c : bundle.unpackBundle())
-      collectAllocatedRegistersForValue(c, out);
-    return;
-  }
-  if (auto split = v.getDefiningOp<SplitRegisterRangeOp>()) {
-    collectAllocatedRegistersForValue(split.getInput(), out);
-    return;
-  }
-  std::optional<RegisterKind> kind = getRegKind(regTy);
-  if (kind != RegisterKind::VGPR && kind != RegisterKind::SGPR &&
-      kind != RegisterKind::AGPR)
-    return;
-  out.push_back(regTy);
-}
-
-/// Expand an allocated range into per-word keys (kind << 32 | index) so
-/// vgpr<32>:2 overlaps vgpr<33> but not sgpr<33>.
-static void appendRegWords(RegisterTypeInterface regTy,
-                           llvm::DenseSet<int64_t> &words) {
-  std::optional<RegisterKind> kind = getRegKind(regTy);
-  assert(kind && "expected an AMD register kind on an allocated register");
-  RegisterRange range = regTy.getAsRange();
-  int16_t base = range.begin().getRegister();
-  for (int16_t i = 0, e = range.size(); i < e; ++i)
-    words.insert((int64_t(*kind) << 32) | uint32_t(base + i));
-}
-
-static void addOperandRegWords(Value v, llvm::DenseSet<int64_t> &words) {
   SmallVector<RegisterTypeInterface> regs;
-  collectAllocatedRegistersForValue(v, regs);
+  if (failed(regTy.getUnderlyingRegisterTypes(regs)))
+    return;
   for (RegisterTypeInterface r : regs)
-    appendRegWords(r, words);
+    types.insert(r);
 }
 
-struct OpPhysRegUse {
-  Operation *op;
-  llvm::DenseSet<int64_t> readWords;
-  llvm::DenseSet<int64_t> writeWords;
+struct RegResourceState {
+  SmallVector<std::pair<Operation *, Type>> writers;
+  SmallVector<std::pair<Operation *, Type>> readers;
 };
 
-/// Add scheduling edges between ops whose preallocated register ranges overlap.
-/// One op must write the overlapping word (no RAR). Edges follow program order
-/// for now; last-writer / first-reader refinement is left for later.
-///
-///   %a = ... : !amdgcn.vgpr<33>              // W
-///   %b = ... : !amdgcn.vgpr<33>              // unrelated SSA, same phys reg
-///   ... = v_mov_b32 ... ins(%b)              // R
-///   => writer -> reader (program order).
-static bool allocatedRegWordsOverlap(const OpPhysRegUse &a,
-                                     const OpPhysRegUse &b) {
-  for (int64_t word : a.writeWords)
-    if (b.readWords.contains(word) || b.writeWords.contains(word))
-      return true;
-  for (int64_t word : a.readWords)
-    if (b.writeWords.contains(word))
-      return true;
-  return false;
-}
-
-/// Conservative modeling of edges for preallocated physical registers,
-/// with at least one op writing the overlapping word (no RAR).
-// TODO: firstRead / lastWrite refinement.
-static void addPhysicalRegisterEffectEdges(SchedGraph &graph, Block *block) {
-  SmallVector<OpPhysRegUse> uses;
+/// Add scheduling edges for read/write effects on register resources:
+///   - architectural registers (SCC, VCC and their lo/hi halves, M0)
+///   - preallocated physical registers (VGPR / SGPR / AGPR and ranges thereof)
+// TODO: limit to last/observable writes
+static void addRegisterEffectEdges(SchedGraph &graph, Block *block) {
+  RegResourceState state;
   for (Operation &op : *block) {
     auto instOp = dyn_cast<AMDGCNInstOpInterface>(&op);
     if (!instOp)
       continue;
-    OpPhysRegUse use{&op, {}, {}};
-    for (Value in : instOp.getInstIns())
-      addOperandRegWords(in, use.readWords);
-    for (Value out : instOp.getInstOuts())
-      addOperandRegWords(out, use.writeWords);
-    if (use.readWords.empty() && use.writeWords.empty())
-      continue;
-    uses.push_back(std::move(use));
-  }
 
-  for (size_t i = 0; i < uses.size(); ++i)
-    for (size_t j = i + 1; j < uses.size(); ++j)
-      if (allocatedRegWordsOverlap(uses[i], uses[j]) &&
-          !graph.hasEdge(uses[i].op, uses[j].op))
-        graph.addEdge(uses[i].op, uses[j].op);
+    llvm::DenseSet<Type> readTypes, writeTypes;
+    for (Value v : instOp.getInstOuts())
+      appendRegTypesFromOperand(v, writeTypes);
+    for (Value v : instOp.getInstIns())
+      appendRegTypesFromOperand(v, readTypes);
+    if (readTypes.empty() && writeTypes.empty())
+      continue;
+
+    llvm::DenseSet<Type> allTypes = readTypes;
+    allTypes.insert(writeTypes.begin(), writeTypes.end());
+    for (Type ty : allTypes) {
+      bool reads = readTypes.contains(ty);
+      bool writes = writeTypes.contains(ty);
+      if (reads) {
+        for (auto [w, wt] : state.writers)
+          if (w != &op && regTypesOverlap(ty, wt))
+            graph.addEdge(w, &op);
+      }
+      if (writes) {
+        for (auto [r, rt] : state.readers)
+          if (r != &op && regTypesOverlap(ty, rt))
+            graph.addEdge(r, &op);
+        for (auto [w, wt] : state.writers)
+          if (w != &op && regTypesOverlap(ty, wt))
+            graph.addEdge(w, &op);
+      }
+      if (reads)
+        state.readers.emplace_back(&op, ty);
+      if (writes)
+        state.writers.emplace_back(&op, ty);
+    }
+  }
 }
 
 void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
+  // Preprocess and erase synchronization points.
   ArrayRef<Operation *> ops = graph.getOps();
   for (int64_t &i : syncPoints) {
     Operation *op = ops[i];
@@ -355,18 +279,8 @@ void GraphBuilder::buildNonSSADeps(SchedGraph &graph) {
   }
 
   // RAW / WAR / WAW edges for read/write effects on architectural registers
-  // SCC, VCC, and M0.
-  addArchRegEffectEdges<SCCType>(graph, block);
-  addArchRegEffectEdges<VCCType>(graph, block);
-  // Note: M0 flows through DPS alloca operands (an ins on !amdgcn.m0 ins for
-  // buffer_load_lds / ds ops, an outs on s_mov_b32), so no SSA chain captures
-  // the ordering between an M0 writer and its readers.
-  // Modeling M0 here lets the s_mov M0 setup drop out of the conservative
-  // sync-point fence set (see buildSSADeps) without losing M0 ordering.
-  addArchRegEffectEdges<M0Type>(graph, block);
-  // Edges for preallocated physical registers, with at least one op writing the
-  // overlapping word (no RAR).
-  addPhysicalRegisterEffectEdges(graph, block);
+  // (SCC, VCC, M0) and preallocated physical registers (VGPR/SGPR/AGPR).
+  addRegisterEffectEdges(graph, block);
 }
 
 static bool isTokenOfKind(Type type, MemoryInstructionKind kind) {

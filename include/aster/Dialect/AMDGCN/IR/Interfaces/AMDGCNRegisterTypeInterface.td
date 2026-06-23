@@ -28,6 +28,18 @@ def AMDGCNRegisterTypeInterface : TypeInterface<"AMDGCNRegisterTypeInterface", [
       "::mlir::aster::amdgcn::RegisterKind", "getRegisterKind"
     >
   ];
+  let extraSharedClassDeclaration = [{
+    /// Returns true if two allocated AMDGCN register types alias (same kind
+    /// and overlapping index ranges).
+    bool overlaps(AMDGCNRegisterTypeInterface other) const {
+      if (!other || !$_type.hasAllocatedSemantics() ||
+          !other.hasAllocatedSemantics())
+        return false;
+      if ($_type.getRegisterKind() != other.getRegisterKind())
+        return false;
+      return $_type.allocatedRangesOverlap(other);
+    }
+  }];
 }
 
 #endif // ASTER_AMDGCN_AMDGCNREGISTERTYPEINTERFACE_TD

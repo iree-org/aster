@@ -45,13 +45,13 @@ amdgcn.module @vcc_raw target = #amdgcn.target<gfx942> {
 
 // -----
 
-amdgcn.module @scc_waw_relaxed target = #amdgcn.target<gfx942> {
-  // CHECK-LABEL: Kernel: @scc_waw_relaxed
+amdgcn.module @scc_waw target = #amdgcn.target<gfx942> {
+  // CHECK-LABEL: Kernel: @scc_waw
   // CHECK:       digraph SchedGraph
-  // CHECK-NOT:     label = "s_add_u32 -> s_and_b32"
+  // CHECK-DAG:     label = "s_add_u32 -> s_and_b32"
   // CHECK-NOT:     label = "s_and_b32 -> s_add_u32"
   // CHECK:       }
-  amdgcn.kernel @scc_waw_relaxed {
+  amdgcn.kernel @scc_waw {
     %s_a   = amdgcn.alloca : !s
     %s_b   = amdgcn.alloca : !s
     %s_d1  = amdgcn.alloca : !s
