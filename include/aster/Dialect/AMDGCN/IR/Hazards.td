@@ -318,15 +318,12 @@ def CDNA3_SetRegTrapstsRfeHazard : HazardAttr<"CDNA3SetRegTrapstsRfeHazard",
   ];
 }
 
-//--- Case 16: SALU writes M0 -> LDS add-TID, buffer_store_LDS, scratch/global LDS=1 (1 S_NOP) ---
-// TODO: LDS add-TID, buffer_store_LDS_dword not implemented in AMDGCN.
+//--- Case 16: SALU writes M0 -> M0-consuming instruction (1 S_NOP) ---
 def CDNA3_SaluM0LdsHazard : HazardAttr<"CDNA3SaluM0LdsHazard",
     "cdna3_salu_m0_lds_hazard"> {
-  let summary = "CDNA3 SALU writes M0 followed by LDS add-TID or buffer_store_LDS";
+  let summary = "SALU writes M0 followed by an instruction that reads M0";
   let description = [{
-    SALU writes M0 followed by LDS add-TID instruction, buffer_store_LDS_dword,
-    or scratch/global with LDS=1 requires 1 wait state.
-    TODO: LDS add-TID, buffer_store_LDS_dword not implemented in AMDGCN.
+    SALU writes M0 followed by any instruction that reads M0 requires 1 wait state.
   }];
   let hazardCases = [
     HazardCase</*v_nops=*/0, /*s_nops=*/1, /*ds_nops=*/0>
