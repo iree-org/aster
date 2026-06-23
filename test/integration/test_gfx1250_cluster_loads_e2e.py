@@ -14,7 +14,17 @@ SENTINEL = -1  # host pre-fill; phase 1 must overwrite it
 
 
 @pytest.mark.parametrize("target", ["gfx1250", "gfx1251"])
-def test_gfx1250_cluster_loads_e2e(target):
+@pytest.mark.parametrize(
+    ("mlir_file", "kernel"),
+    [
+        # Sync multicast: cluster_load_b32 -> VGPR.
+        ("../Target/ASM/gfx1250-cluster-loads-asm.mlir", "cload"),
+        # Async multicast: cluster_load_async_to_lds_b32 -> LDS, s_wait_asynccnt,
+        # ds_load_b32 back. Same numeric result as the sync variant.
+        ("../Target/ASM/gfx1250-cluster-async-loads-asm.mlir", "cload_async"),
+    ],
+)
+def test_gfx1250_cluster_loads_e2e(mlir_file, kernel, target):
     # scratch[wg_id][tid] pre-filled with the -1 sentinel.
     # with the global id; an un-drained read (no barrier) would still see -1.
     scratch_buf = np.full((N_WG, THREADS_PER_WG), SENTINEL, dtype=np.int32)
@@ -40,8 +50,8 @@ def test_gfx1250_cluster_loads_e2e(target):
                 )
 
     compile_and_run(
-        "../Target/ASM/gfx1250-cluster-loads-asm.mlir",
-        "cload",
+        mlir_file,
+        kernel,
         input_data=[scratch_buf.reshape(-1)],
         output_data=[output_buf.reshape(-1)],
         pass_pipeline=TEST_GFX1250_CLUSTER_ASM_PASS_PIPELINE,

@@ -172,7 +172,8 @@ void WaitCntGfx1250::print(llvm::raw_ostream &os) const {
   printCount(os, "store_cnt", storecnt, true);
   printCount(os, "ds_cnt", dscnt, true);
   printCount(os, "km_cnt", kmcnt, true);
-  printCount(os, "tensor_cnt", tensorcnt, false);
+  printCount(os, "tensor_cnt", tensorcnt, true);
+  printCount(os, "async_cnt", asynccnt, false);
   os << "}";
 }
 

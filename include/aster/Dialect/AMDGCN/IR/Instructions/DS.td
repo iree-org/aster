@@ -247,6 +247,20 @@ def DsLoadB128 : DSLoadInst<"ds_load_b128",
 }
 #endif // DSLOADB128_DEF
 
+#ifndef DSLOADB32_DEF
+#define DSLOADB32_DEF
+def DsLoadB32 : DSLoadInst<"ds_load_b32",
+    /*dest=*/[VGPROf<1>]
+  > {
+  let description = [{
+    Load 32 bits of data from LDS into a vector register (gfx1250/gfx1251).
+    M0-based addressing; opcode 0x036. The same opcode is spelled ds_read_b32
+    on CDNA3/CDNA4 (see DsReadB32).
+  }];
+  let encodings = [InstEnc<[ENC_DS_GFX12_50], 0b00110110>];
+}
+#endif // DSLOADB32_DEF
+
 #ifndef DSREADB32_DEF
 #define DSREADB32_DEF
 def DsReadB32 : DSReadInst<"ds_read_b32",
