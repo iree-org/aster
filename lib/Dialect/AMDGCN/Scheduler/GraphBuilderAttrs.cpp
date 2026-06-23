@@ -171,7 +171,7 @@ struct RegResourceState {
   SmallVector<std::pair<Operation *, Type>> readers;
 };
 
-/// Add scheduling edges for read/write effects on register resources:
+/// Add scheduling edges for read/write effects on fixed register resources:
 ///   - architectural registers (SCC, VCC and their lo/hi halves, M0)
 ///   - preallocated physical registers (VGPR / SGPR / AGPR and ranges thereof)
 // TODO: limit to last/observable writes

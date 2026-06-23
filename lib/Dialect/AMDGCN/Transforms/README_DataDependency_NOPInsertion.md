@@ -107,7 +107,7 @@ v_div_scale (writes vcc),VALU which reads VCC as a constant (not as a carry-in w
 
 ❌ Case 15, S_SETREG TRAPSTS,RFE, RFE_restore,1,
 
-❌ Case 16, SALU writes M0,LDS "add-TID" instruction, buffer_store_LDS_dword, scratch or global with LDS=1,1,
+✅ Case 16, SALU writes M0, LDS "add-TID" instruction,  buffer_store_LDS_dword, scratch or global with LDS=1,1,
 
 ❌ Case 17, SALU writes M0,S_MOVEREL,1,
 

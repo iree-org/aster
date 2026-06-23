@@ -75,17 +75,69 @@ static OpOperand *getMmaVdst(AMDGCNInstOpInterface instOp) {
   return &mmaOp.getVdst();
 }
 
-/// Check if a register kind is VCC or EXEC (written by first instruction).
-static bool isVccOrExecKind(RegisterKind kind) {
-  return llvm::is_contained({RegisterKind::VCC, RegisterKind::VCC_LO,
-                             RegisterKind::VCC_HI, RegisterKind::EXEC,
-                             RegisterKind::EXEC_LO, RegisterKind::EXEC_HI},
-                            kind);
+template <RegisterKind... Kinds>
+static bool isAnyRegisterKind(RegisterKind kind) {
+  return ((kind == Kinds) || ...);
+}
+
+template <RegisterKind... Kinds>
+static bool isAnyRegisterKindType(Type type) {
+  auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(type);
+  return regTy && isAnyRegisterKind<Kinds...>(regTy.getRegisterKind());
+}
+
+template <RegisterKind Kind>
+static bool isRegisterKindType(Type type) {
+  return isAnyRegisterKindType<Kind>(type);
 }
 
 /// Check if a register kind is VCCZ or EXECZ (read by second instruction).
 static bool isVcczOrExeczKind(RegisterKind kind) {
   return kind == RegisterKind::VCCZ || kind == RegisterKind::EXECZ;
+}
+
+/// Raise hazards for output operands (or the whole op) that write `Kinds`.
+/// PerOperand: one hazard per matching output operand.
+/// PerOperation: one hazard if any output matches.
+template <bool PerOperation, RegisterKind... Kinds>
+static void populateRegisterWriteHazards(HazardCheckerAttrInterface hazard,
+                                         AMDGCNInstOpInterface instOp,
+                                         SmallVectorImpl<Hazard> &hazards,
+                                         InstCounts instCounts) {
+  if constexpr (PerOperation) {
+    if (!llvm::any_of(instOp.getInstOuts(), [](Value out) {
+          return isAnyRegisterKindType<Kinds...>(out.getType());
+        }))
+      return;
+    hazards.push_back(Hazard(hazard, instOp.getOperation(), instCounts));
+    return;
+  }
+
+  for (OpOperand &operand : getOpOperands(instOp.getInstOuts())) {
+    if (!isAnyRegisterKindType<Kinds...>(operand.get().getType()))
+      continue;
+    hazards.push_back(Hazard(hazard, operand, instCounts));
+  }
+}
+
+/// Trigger when `instOp` reads a register of `Kind` that overlaps the hazard
+/// operand written by the producer.
+template <RegisterKind Kind>
+static bool isRegisterReadOverlapTriggered(const Hazard &hazard,
+                                           AMDGCNInstOpInterface instOp) {
+  OpOperand *writtenOperand = hazard.getOperand();
+  if (!writtenOperand ||
+      !isRegisterKindType<Kind>(writtenOperand->get().getType()))
+    return false;
+
+  auto writtenTy =
+      cast<AMDGCNRegisterTypeInterface>(writtenOperand->get().getType());
+  return llvm::any_of(instOp.getInstIns(), [&](Value input) {
+    if (!isRegisterKindType<Kind>(input.getType()))
+      return false;
+    return cast<AMDGCNRegisterTypeInterface>(input.getType())
+        .overlaps(writtenTy);
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -231,15 +283,12 @@ void CDNA3VccExecVcczExeczHazardAttr::populateHazardsFor(
   if (!instOp.hasProp(InstProp::IsValu))
     return;
 
-  bool writesVccOrExec = llvm::any_of(instOp.getInstOuts(), [](Value out) {
-    auto regTy = dyn_cast<AMDGCNRegisterTypeInterface>(out.getType());
-    return regTy && isVccOrExecKind(regTy.getRegisterKind());
-  });
-  if (!writesVccOrExec)
-    return;
-
-  hazards.push_back(Hazard(cast<HazardCheckerAttrInterface>(*this),
-                           instOp.getOperation(), getInstCounts(0)));
+  populateRegisterWriteHazards</*PerOperation=*/true, RegisterKind::VCC,
+                               RegisterKind::VCC_LO, RegisterKind::VCC_HI,
+                               RegisterKind::EXEC, RegisterKind::EXEC_LO,
+                               RegisterKind::EXEC_HI>(
+      cast<HazardCheckerAttrInterface>(*this), instOp, hazards,
+      getInstCounts(0));
 }
 bool CDNA3VccExecVcczExeczHazardAttr::isHazardTriggered(
     const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
@@ -558,17 +607,31 @@ bool CDNA3SetRegTrapstsRfeHazardAttr::isHazardTriggered(
 //===----------------------------------------------------------------------===//
 // Case 16: SaluM0LdsHazard
 //===----------------------------------------------------------------------===//
-bool CDNA3SaluM0LdsHazardAttr::matchInst(AMDGCNInstOpInterface,
-                                         ISAVersion) const {
-  return false; // TODO: LDS add-TID, buffer_store_LDS not implemented.
+bool CDNA3SaluM0LdsHazardAttr::matchInst(AMDGCNInstOpInterface instOp,
+                                         ISAVersion isaVer) const {
+  return instOp.supportsISA(isaVer) && instOp.hasProp(InstProp::Salu);
 }
 
 void CDNA3SaluM0LdsHazardAttr::populateHazardsFor(
-    AMDGCNInstOpInterface, SmallVectorImpl<Hazard> &) const {}
+    AMDGCNInstOpInterface instOp, SmallVectorImpl<Hazard> &hazards) const {
+  if (!instOp.hasProp(InstProp::Salu))
+    return;
 
-bool CDNA3SaluM0LdsHazardAttr::isHazardTriggered(const Hazard &,
-                                                 AMDGCNInstOpInterface) const {
-  return false;
+  populateRegisterWriteHazards</*PerOperation=*/false, RegisterKind::M0>(
+      cast<HazardCheckerAttrInterface>(*this), instOp, hazards,
+      CDNA3SaluM0LdsHazardAttr::getInstCounts(0));
+}
+
+bool CDNA3SaluM0LdsHazardAttr::isHazardTriggered(
+    const Hazard &hazard, AMDGCNInstOpInterface instOp) const {
+  assert(hazard.getHazard() == *this && "Hazard mismatch");
+  // Case 16 fires for M0 consumers that use M0 as the LDS-destination offset /
+  // broadcast mask:
+  //   - VMem ops with LDS=1 (buffer/global/scratch _lds
+  //   - gfx1250 cluster_load family and DS add-TID ops
+  if (!instOp.hasAnyProps({InstProp::IsVmem, InstProp::Ds}))
+    return false;
+  return isRegisterReadOverlapTriggered<RegisterKind::M0>(hazard, instOp);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1346,9 +1409,15 @@ void HazardManager::getHazardRaisersFor(
     ISAVersion version,
     SmallVectorImpl<HazardRaiserAttrInterface> &hazardRaisers) {
   hazardRaisers.clear();
-  if (version == ISAVersion::CDNA3 || version == ISAVersion::CDNA4) {
-    MLIRContext *ctx = getTopOp()->getContext();
-    // Hazards with identical NOP counts on CDNA3 and CDNA4.
+  MLIRContext *ctx = getTopOp()->getContext();
+
+  // For now pretend GFX12_50 has same hazards as CDNA3 and CDNA4.
+  // TODO: Look at SoT numbers in LLVM when we need something less coarse.
+  if (version == ISAVersion::CDNA3 || version == ISAVersion::CDNA4 ||
+      version == ISAVersion::GFX12_50) {
+    // Hazards with identical NOP counts on all architectures (in the absence of
+    // full per-arch hazards implementation).
+    hazardRaisers.push_back(CDNA3SaluM0LdsHazardAttr::get(ctx));
     hazardRaisers.push_back(CDNA3StoreHazardAttr::get(ctx));
     hazardRaisers.push_back(CDNA3StoreWriteDataHazardAttr::get(ctx));
     hazardRaisers.push_back(CDNA3VccExecVcczExeczHazardAttr::get(ctx));
@@ -1363,11 +1432,14 @@ void HazardManager::getHazardRaisersFor(
       hazardRaisers.push_back(
           CDNA4XdlWriteVgprMfmaReadSrcABHazardAttr::get(ctx));
       hazardRaisers.push_back(CDNA4XdlWriteVgprVmemValuHazardAttr::get(ctx));
-    } else {
-      assert(version == ISAVersion::CDNA3 && "unexpected ISA version");
+    } else if (version == ISAVersion::CDNA3) {
       hazardRaisers.push_back(
           CDNA3XdlWriteVgprMfmaReadSrcABHazardAttr::get(ctx));
       hazardRaisers.push_back(CDNA3XdlWriteVgprVmemValuHazardAttr::get(ctx));
+    } else if (version == ISAVersion::GFX12_50) {
+      ; // TODO: GFX12_50-specific hazards.
+    } else {
+      llvm_unreachable("unsupported ISA version");
     }
   }
 }
