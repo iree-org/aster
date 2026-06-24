@@ -282,12 +282,12 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
         with b.stage(STG_A_LDS_READ):
             if mapping.use_conservative_barriers:
                 b.wait_deps(*g2s_toks_a)
-                b.s_barrier()
+                b.barrier()
                 sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
                 a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
             else:
                 wfence = b.wait_deps(*g2s_toks_a)
-                bfence = b.cross_wave_token_barrier(wfence)
+                bfence = b.token_barrier(wfence)
                 sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
                 a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence)
             b.dealloc_lds(lds_a_h)
@@ -307,7 +307,7 @@ def _build_cdna4_gemm(cfg: "Cdna4GemmInstance") -> ir.Module:
 
             # WAR sync: without this, a fast wave's next-iter G2S can
             # overwrite LDS offsets that a slow wave is still ds_read'ing.
-            b.s_barrier()
+            b.barrier()
 
     # Store C tiles.
     for mi, ni in enumerate_flat_coords((m_per_wave, n_per_wave)):

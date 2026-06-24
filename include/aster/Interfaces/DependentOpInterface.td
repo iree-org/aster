@@ -60,7 +60,7 @@ def FenceOpInterface : OpInterface<"FenceOpInterface"> {
   let cppNamespace = "::mlir::aster";
   let description = [{
     Interface for operations that produce fence tokens. Wait ops and
-    cross_wave_token_barrier implement this; consumers take fence_token via
+    token_barrier implement this; consumers take fence_token via
     `FenceableOpInterface` to express single-thread operation
     ordering and enforce multi-thread synchronization.
   }];

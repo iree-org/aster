@@ -281,8 +281,8 @@ static LogicalResult analyzeLoop(scf::ForOp originalForOp,
   for (Operation *op : info.opOrder) {
     if (op->hasAttr(kSchedStageAttr))
       continue;
-    if (isa<amdgcn::SBarrier>(op))
-      return op->emitError("amdgcn.s_barrier in a pipelined loop body "
+    if (isa<amdgcn::BarrierOp>(op))
+      return op->emitError("amdgcn.barrier in a pipelined loop body "
                            "requires an explicit sched.stage attribute");
   }
 

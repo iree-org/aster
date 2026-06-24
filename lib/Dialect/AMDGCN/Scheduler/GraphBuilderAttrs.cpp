@@ -360,21 +360,26 @@ void GraphBuilder::handleWaitOp(SchedGraph &graph, int64_t pos,
 void GraphBuilder::handleConservativeFenceBarriers(SchedGraph &graph) {
   // Helper: direction depends on relative position of op and barrier.
   auto addEdge = [&](std::pair<Operation *, int64_t> opWithPos,
-                     std::pair<SBarrier, int64_t> barrierWithPos) {
+                     std::pair<Operation *, int64_t> barrierWithPos) {
     if (opWithPos.second < barrierWithPos.second)
       graph.addEdge(opWithPos.first, barrierWithPos.first);
     if (opWithPos.second > barrierWithPos.second)
       graph.addEdge(barrierWithPos.first, opWithPos.first);
   };
 
-  // Barriers that require conservative fences.
+  // The hard workgroup barrier (amdgcn.barrier) requires conservative fences.
+  // s_barrier is the lowered form created later in convert-waits and must not
+  // appear in the scheduler graph -- assert that. token_barrier is the relaxed
+  // sibling that orders via its SSA fence tokens (the FenceOpInterface branch
+  // below), so it is not collected here.
   // TODO: ConservativeFenceOpInterface.
-  SmallVector<std::pair<SBarrier, int64_t>> barriers;
+  SmallVector<std::pair<Operation *, int64_t>> barriers;
   for (auto opIndex : llvm::enumerate(graph.getOps())) {
-    auto barrier = dyn_cast<SBarrier>(opIndex.value());
-    if (!barrier)
+    Operation *op = opIndex.value();
+    assert(!isa<SBarrier>(op) && "unexpected target-specific SBarrier");
+    if (!isa<BarrierOp>(op))
       continue;
-    barriers.push_back({barrier, opIndex.index()});
+    barriers.push_back({op, opIndex.index()});
   }
 
   // Iterate over all the operations in the graph and set conservative fences
@@ -384,7 +389,7 @@ void GraphBuilder::handleConservativeFenceBarriers(SchedGraph &graph) {
     int64_t i = opIndex.index();
 
     // All BarrierOpInterface, FenceOpInterface and FenceableOpInterface (with
-    // an SSA fence token) fence against SBarrier.
+    // an SSA fence token) fence against Barrier.
     if (isa<BarrierOpInterface, FenceOpInterface>(op) ||
         (isa<FenceableOpInterface>(op) &&
          cast<FenceableOpInterface>(op).hasFenceToken())) {
@@ -394,8 +399,8 @@ void GraphBuilder::handleConservativeFenceBarriers(SchedGraph &graph) {
     }
 
     // Ops with effects visible to other threads/waves (memory writes and VCC
-    // writes), are not allowed to execute past the SBarrier immediately
-    // following them.
+    // writes), are not allowed to execute past the Barrier / SBarrier
+    // immediately following them.
     bool hasCrossThreadVisibleWrite = isa<StoreOpInterface>(op);
     if (!hasCrossThreadVisibleWrite) {
       if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op)) {
@@ -421,7 +426,7 @@ void GraphBuilder::handleConservativeFenceBarriers(SchedGraph &graph) {
 
     // Similarly, ops that depend on operations with effects visible to other
     // threads/waves (memory and VCC reads), are not allowed to execute prior to
-    // the SBarrier immediately preceding them.
+    // the Barrier / SBarrier immediately preceding them.
     bool needsFence = isa<LoadOpInterface>(op);
     if (auto instOp = dyn_cast<AMDGCNInstOpInterface>(op)) {
       llvm::DenseSet<Type> readTypes;

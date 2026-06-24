@@ -270,7 +270,7 @@ LogicalResult MakeBufferRsrcOp::verify() {
 // MakeRegisterRangeOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult CrossWaveTokenBarrierOp::inferReturnTypes(
+LogicalResult TokenBarrierOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> location, ValueRange operands,
     DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &inferredReturnTypes) {

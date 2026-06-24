@@ -4,18 +4,18 @@
 
 // Prologue: stage 0 store only -- NO barrier here
 // CHECK:       %[[P_WTOK:.*]] = amdgcn.ds_write_b32
-// CHECK-NOT:   amdgcn.s_barrier
+// CHECK-NOT:   amdgcn.barrier
 
 // Kernel: store, barrier, wait+read present in every iteration
 // CHECK:       %[[KER:.*]]:5 = scf.for {{.*}} iter_args(%[[A_WTOK:.*]] = %[[P_WTOK]]
 // CHECK:         amdgcn.ds_write_b32
-// CHECK:         amdgcn.s_barrier
+// CHECK:         amdgcn.barrier
 // CHECK:         amdgcn.wait deps %[[A_WTOK]] : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // CHECK:         amdgcn.ds_read_b32
 // CHECK:         scf.yield
 
 // Epilogue: barrier present, before the wait+read drain
-// CHECK:       amdgcn.s_barrier
+// CHECK:       amdgcn.barrier
 // CHECK:       amdgcn.wait deps %[[KER]]#0 : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // CHECK:       amdgcn.ds_read_b32
 // CHECK:       return
@@ -32,7 +32,7 @@ func.func @barrier_at_stage1(%data_in: !amdgcn.vgpr) {
     %lds_addr = lsir.to_reg %lds_off {sched.stage = 0 : i32} : i32 -> !amdgcn.vgpr
     %wtok = amdgcn.ds_write_b32 data %data_in addr %lds_addr offset c(%c0_i32) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 
-    amdgcn.s_barrier {sched.stage = 1 : i32}
+    amdgcn.barrier {sched.stage = 1 : i32}
 
     %wf0 = amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %dest = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.vgpr
@@ -59,8 +59,8 @@ func.func @barrier_missing_stage(%data_in: !amdgcn.vgpr) {
     %lds_addr = lsir.to_reg %lds_off {sched.stage = 0 : i32} : i32 -> !amdgcn.vgpr
     %wtok = amdgcn.ds_write_b32 data %data_in addr %lds_addr offset c(%c0_i32) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 
-    // expected-error @below {{amdgcn.s_barrier in a pipelined loop body requires an explicit sched.stage attribute}}
-    amdgcn.s_barrier
+    // expected-error @below {{amdgcn.barrier in a pipelined loop body requires an explicit sched.stage attribute}}
+    amdgcn.barrier
 
     %wf2 = amdgcn.wait deps %wtok {sched.stage = 1 : i32} : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %dest = amdgcn.alloca {sched.stage = 1 : i32} : !amdgcn.vgpr

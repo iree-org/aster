@@ -871,7 +871,7 @@ def AMDGCN_WaitOp : AMDGCN_Op<"wait", [
 
     Always produces an ordering-only fence_token (via FenceOpInterface) that
     may be passed to FenceableOpInterface consumers or
-    `cross_wave_token_barrier`.
+    `token_barrier`.
 
     NOTE: This operations is compatible only with CDNA3 and CDNA4 targets.
     For gfx1250/gfx1251 use amdgcn.wait_gfx1250 (separate per-counter waits).
@@ -974,7 +974,7 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
 
     Always produces an ordering-only fence_token (via FenceOpInterface) that
     may be passed to FenceableOpInterface consumers or
-    `cross_wave_token_barrier`.
+    `token_barrier`.
 
     Example:
     ```mlir
@@ -1051,23 +1051,39 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
 }
 
 //===----------------------------------------------------------------------===//
-// CrossWaveTokenBarrierOp
+// BarrierOp
 //===----------------------------------------------------------------------===//
 
-def AMDGCN_CrossWaveTokenBarrierOp : AMDGCN_Op<"cross_wave_token_barrier", [
+def AMDGCN_BarrierOp : AMDGCN_Op<"barrier", [BarrierOpInterface]> {
+  let summary = "Target-neutral workgroup synchronization barrier";
+  let description = [{
+    Synchronize all waves in a workgroup at this program point.
+    Lowered to various legal hardware forms:
+      - s_barrier on CDNA3/CDNA4 (and earlier)
+      - split s_barrier_signal -1 / s_barrier_wait -1 pair on gfx1250+
+
+    This is a conservative form that fences all writes before and all reads
+    after the barrier.
+  }];
+  let arguments = (ins);
+  let results = (outs);
+  let assemblyFormat = [{ attr-dict }];
+}
+
+//===----------------------------------------------------------------------===//
+// TokenBarrierOp
+//===----------------------------------------------------------------------===//
+
+def AMDGCN_TokenBarrierOp : AMDGCN_Op<"token_barrier", [
     DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>,
     BarrierOpInterface,
     FenceOpInterface,
   ]> {
-  let summary = "Cross-wave scheduling barrier carrying scheduling dependency tokens";
+  let summary = "Workgroup-scope barrier carrying dependency tokens";
   let description = [{
-    A cross-wave synchronization barrier that:
-      - synchronizes waves program points like a regular barrier and
-      - orders memory operations across a program point entirely through SSA
-        dependency tokens.
-
-    This operation is a relaxed synchronization mechanism that allows for
-    finer-grained barrier scheduling.
+    Token-form variant of `barrier`, with relaxed fencing semantics. Does not
+    carry any implicit fence semantics / all fence semantics must be carried
+    through SSA dependency tokens.
 
     Operands: the variadic input dependency tokens name what must precede the
     barrier. Typically this is the fence token produced by an `amdgcn.wait` so
@@ -1088,7 +1104,7 @@ def AMDGCN_CrossWaveTokenBarrierOp : AMDGCN_Op<"cross_wave_token_barrier", [
 
     // The wait drains the write and produces a fence the barrier follows.
     %wf = amdgcn.wait deps %wt : !amdgcn.write_token<shared> -> !amdgcn.fence_token
-    %bf = amdgcn.cross_wave_token_barrier deps %wf : !amdgcn.fence_token
+    %bf = amdgcn.token_barrier deps %wf : !amdgcn.fence_token
 
     // A consumer pins after the barrier via the optional fence_token operand.
     %r, %t = amdgcn.ds_read_b32 dest %rd addr %a offset c(%c0)

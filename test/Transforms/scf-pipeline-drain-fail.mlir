@@ -215,7 +215,7 @@ module {
         %wf0 = amdgcn.wait deps %68 {sched.stage = 2 : i32} : !amdgcn.read_token<flat> -> !amdgcn.fence_token
         %69 = memref.load %alloca_1[%c0] {sched.stage = 2 : i32} : memref<1x!amdgcn.read_token<flat>>
         %wf1 = amdgcn.wait deps %69 {sched.stage = 2 : i32} : !amdgcn.read_token<flat> -> !amdgcn.fence_token
-        amdgcn.s_barrier {sched.stage = 2 : i32}
+        amdgcn.barrier {sched.stage = 2 : i32}
         %alloca_2 = memref.alloca() : memref<2x!aster_utils.any>
         %alloca_3 = memref.alloca() : memref<2x!amdgcn.read_token<shared>>
         %70:4 = func.call @_read_a(%50) {sched.stage = 2 : i32} : (index) -> (!aster_utils.any, !aster_utils.any, !amdgcn.read_token<shared>, !amdgcn.read_token<shared>)
@@ -254,7 +254,7 @@ module {
         %90 = amdgcn.make_register_range %88#0, %88#1, %89#0, %89#1 {sched.stage = 3 : i32} : !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr, !amdgcn.vgpr
         %91 = amdgcn.v_mfma_f32_16x16x32_f16 outs(%76) ins(%83, %90, %76) {sched.stage = 3 : i32} : outs(!amdgcn.agpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.vgpr<[? + 4]>, !amdgcn.agpr<[? + 4]>)
         memref.store %91, %alloca[%c0] {sched.stage = 3 : i32} : memref<1x!amdgcn.agpr<[? + 4]>>
-        amdgcn.s_barrier {sched.stage = 3 : i32}
+        amdgcn.barrier {sched.stage = 3 : i32}
       }
       %30 = memref.load %alloca[%c0] : memref<1x!amdgcn.agpr<[? + 4]>>
       %31:4 = split_register_range %30 : !amdgcn.agpr<[? + 4]>

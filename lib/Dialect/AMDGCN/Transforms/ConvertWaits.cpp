@@ -108,6 +108,20 @@ static void rewriteCdnaWait(IRRewriter &rewriter, Operation *waitOpOp,
   toErase.push_back(waitOpOp);
 }
 
+/// Emit the hardware workgroup barrier for `isaVersion`: the split
+/// s_barrier_signal -1 / s_barrier_wait -1 pair on gfx1250+, and a single
+/// s_barrier on CDNA3/CDNA4 (and earlier). Shared by the token_barrier and
+/// barrier lowerings so the per-target policy lives in one place.
+static void emitHardwareBarrier(IRRewriter &rewriter, Location loc,
+                                ISAVersion isaVersion) {
+  if (needsSplitBarriers(isaVersion)) {
+    SBarrierSignal::create(rewriter, loc, static_cast<uint16_t>(-1));
+    SBarrierWait::create(rewriter, loc, static_cast<uint16_t>(-1));
+  } else {
+    SBarrier::create(rewriter, loc);
+  }
+}
+
 /// Run the wait analysis on `root` with `model`, then rewrite every wait op
 /// inside it to its hardware form.
 static LogicalResult convertWaitsOn(Operation *root, ISAVersion isaVersion,
@@ -136,16 +150,16 @@ static LogicalResult convertWaitsOn(Operation *root, ISAVersion isaVersion,
     else
       rewriteCdnaWait(rewriter, waitOp, counts, toErase);
   });
-  root->walk([&](CrossWaveTokenBarrierOp barrier) {
+  root->walk([&](TokenBarrierOp barrier) {
+    OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(barrier);
-    if (needsSplitBarriers(isaVersion)) {
-      SBarrierSignal::create(rewriter, barrier.getLoc(),
-                             static_cast<uint16_t>(-1));
-      SBarrierWait::create(rewriter, barrier.getLoc(),
-                           static_cast<uint16_t>(-1));
-    } else {
-      SBarrier::create(rewriter, barrier.getLoc());
-    }
+    emitHardwareBarrier(rewriter, barrier.getLoc(), isaVersion);
+    toErase.push_back(barrier);
+  });
+  root->walk([&](BarrierOp barrier) {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(barrier);
+    emitHardwareBarrier(rewriter, barrier.getLoc(), isaVersion);
     toErase.push_back(barrier);
   });
   root->walk([&](FenceableOpInterface fenceable) {

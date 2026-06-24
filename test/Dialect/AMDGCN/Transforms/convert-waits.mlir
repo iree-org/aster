@@ -382,27 +382,27 @@ func.func @test_wait_canonicalization(%addr: !amdgcn.vgpr) {
   return
 }
 
-// CHECK-LABEL:   func.func @test_cross_wave_token_barrier_legalized(
+// CHECK-LABEL:   func.func @test_token_barrier_legalized(
 // CHECK:           amdgcn.s_waitcnt lgkmcnt = 0
 // CHECK-NEXT:      amdgcn.s_barrier
-// CHECK-NOT:       cross_wave_token_barrier
-func.func @test_cross_wave_token_barrier_legalized(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
+// CHECK-NOT:       token_barrier
+func.func @test_token_barrier_legalized(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
   %c0_i32_mig7 = arith.constant 0 : i32
   %token = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0_i32_mig7) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf30 = amdgcn.wait deps %token : !amdgcn.write_token<shared> -> !amdgcn.fence_token
-  %fence = amdgcn.cross_wave_token_barrier deps %wf30 : !amdgcn.fence_token
+  %fence = amdgcn.token_barrier deps %wf30 : !amdgcn.fence_token
   return
 }
 
-// CHECK-LABEL:   func.func @test_cross_wave_token_barrier_after_legalized(
+// CHECK-LABEL:   func.func @test_token_barrier_after_legalized(
 // CHECK:           amdgcn.s_barrier
 // CHECK:           amdgcn.ds_read_b32
 // CHECK-NOT:       fence_token
-// CHECK-NOT:       cross_wave_token_barrier
-func.func @test_cross_wave_token_barrier_after_legalized(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
+// CHECK-NOT:       token_barrier
+func.func @test_token_barrier_after_legalized(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
   %c0 = arith.constant 0 : i32
   %token = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
-  %fence = amdgcn.cross_wave_token_barrier deps %token : !amdgcn.write_token<shared>
+  %fence = amdgcn.token_barrier deps %token : !amdgcn.write_token<shared>
   %r, %t = amdgcn.ds_read_b32 dest %dst addr %addr offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared> fence_token %fence : !amdgcn.fence_token
   return
 }
@@ -412,12 +412,12 @@ func.func @test_cross_wave_token_barrier_after_legalized(%dst: !amdgcn.vgpr, %ad
 // CHECK:           amdgcn.s_barrier
 // CHECK:           amdgcn.ds_read_b32
 // CHECK-NOT:       fence_token
-// CHECK-NOT:       cross_wave_token_barrier
+// CHECK-NOT:       token_barrier
 func.func @test_wait_fence_to_barrier_legalized(%dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
   %c0 = arith.constant 0 : i32
   %token = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wfence = amdgcn.wait deps %token : !amdgcn.write_token<shared> -> !amdgcn.fence_token
-  %bfence = amdgcn.cross_wave_token_barrier deps %wfence : !amdgcn.fence_token
+  %bfence = amdgcn.token_barrier deps %wfence : !amdgcn.fence_token
   %r, %t = amdgcn.ds_read_b32 dest %dst addr %addr offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared> fence_token %bfence : !amdgcn.fence_token
   return
 }

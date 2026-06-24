@@ -252,13 +252,13 @@ def _build_gemm(num_workgroups, num_waves_per_wg, num_tiles_per_wg, K, stride_a,
             # Per operand: wait the A G2S tokens (VM_CNT, not lgkmcnt) then s_barrier
             # so all 4 waves' linear LDS writes are visible before any wave reads A.
             b.wait_deps(*a_toks)
-            b.s_barrier()
+            b.barrier()
             sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
             a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
 
         with b.stage(STG_B_READ):
             b.wait_deps(*b_toks)
-            b.s_barrier()
+            b.barrier()
             sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
             b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile))
 

@@ -270,24 +270,24 @@ def _build_gemm_pipelined(
         with b.stage(STG_A_READ):
             if use_conservative_barriers:
                 b.wait_deps(a_write)
-                b.s_barrier()
+                b.barrier()
                 sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
                 a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
             else:
                 wfence_a = b.wait_deps(a_write)
-                bfence_a = b.cross_wave_token_barrier(wfence_a)
+                bfence_a = b.token_barrier(wfence_a)
                 sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
                 a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence_a)
 
         with b.stage(STG_B_READ):
             if use_conservative_barriers:
                 b.wait_deps(b_write)
-                b.s_barrier()
+                b.barrier()
                 sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
                 b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile))
             else:
                 wfence_b = b.wait_deps(b_write)
-                bfence_b = b.cross_wave_token_barrier(wfence_b)
+                bfence_b = b.token_barrier(wfence_b)
                 sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
                 b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile), fence_token=bfence_b)
 

@@ -112,7 +112,7 @@ static bool processForOp(scf::ForOp forOp) {
   // After hoisting, if all waits that preceded a barrier were moved to the
   // top, the barrier has no waits after it and can follow the hoisted waits.
   for (auto &op : llvm::make_early_inc_range(*body)) {
-    auto barrierOp = dyn_cast<SBarrier>(&op);
+    auto barrierOp = dyn_cast<BarrierOp>(&op);
     if (!barrierOp)
       continue;
     // Already in the hoisted prefix.

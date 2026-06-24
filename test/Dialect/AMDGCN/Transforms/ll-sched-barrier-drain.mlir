@@ -4,10 +4,10 @@
 
 amdgcn.module @test target = #amdgcn.target<gfx942> {
 
-  // s_barrier has no cross-thread visible predecessors; reads and mfma may
+  // barrier has no cross-thread visible predecessors; reads and mfma may
   // reorder freely around it.
   // CHECK-LABEL: kernel @barrier_first_then_mfma
-  // CHECK:         s_barrier
+  // CHECK:         barrier
   // CHECK:         ds_read_b64
   // CHECK:         ds_read_b64
   // CHECK:         v_mfma_f32_16x16x16_f16
@@ -30,14 +30,14 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %r0, %t0 = amdgcn.ds_read_b64 dest %d0 addr %addr0 offset c(%c0) : outs(!amdgcn.vgpr<[? + 2]>) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %r1, %t1 = amdgcn.ds_read_b64 dest %d1 addr %addr1 offset c(%c0) : outs(!amdgcn.vgpr<[? + 2]>) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %res = amdgcn.v_mfma_f32_16x16x16_f16 outs(%acc) ins(%r0, %r1, %acc) : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
-    amdgcn.s_barrier
+    amdgcn.barrier
     amdgcn.end_kernel
   }
 
-  // s_barrier does not pin unrelated ds_reads; mfma still follows its operands.
+  // barrier does not pin unrelated ds_reads; mfma still follows its operands.
   // CHECK-LABEL: kernel @two_barriers
-  // CHECK:         s_barrier
-  // CHECK:         s_barrier
+  // CHECK:         barrier
+  // CHECK:         barrier
   // CHECK:         ds_read_b64
   // CHECK:         v_mfma_f32_16x16x16_f16
   // CHECK:         ds_read_b64
@@ -65,26 +65,26 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
     %r0, %t0 = amdgcn.ds_read_b64 dest %d0 addr %addr0 offset c(%c0) : outs(!amdgcn.vgpr<[? + 2]>) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %resa = amdgcn.v_mfma_f32_16x16x16_f16 outs(%acc_a) ins(%r0, %r0, %acc_a) : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
-    amdgcn.s_barrier
+    amdgcn.barrier
     %r1, %t1 = amdgcn.ds_read_b64 dest %d1 addr %addr1 offset c(%c0) : outs(!amdgcn.vgpr<[? + 2]>) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %resb = amdgcn.v_mfma_f32_16x16x16_f16 outs(%acc_b) ins(%r1, %r1, %acc_b) : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr<[? + 4]>)
-    amdgcn.s_barrier
+    amdgcn.barrier
     amdgcn.end_kernel
   }
 
-  // CHECK-LABEL: kernel @cross_wave_token_barrier_order
+  // CHECK-LABEL: kernel @token_barrier_order
   // CHECK:         ds_write_b32
-  // CHECK:         cross_wave_token_barrier
+  // CHECK:         token_barrier
   // CHECK:         ds_read_b32
   // CHECK:         end_kernel
-  amdgcn.kernel @cross_wave_token_barrier_order {
+  amdgcn.kernel @token_barrier_order {
     %addr = amdgcn.alloca : !v
     %data = amdgcn.alloca : !v
     %rd = amdgcn.alloca : !v
     %c0 = arith.constant 0 : i32
     %wtok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
     // Tokenized barrier with fence token keeps write-before-read ordering.
-    %bar = amdgcn.cross_wave_token_barrier deps %wtok : !amdgcn.write_token<shared>
+    %bar = amdgcn.token_barrier deps %wtok : !amdgcn.write_token<shared>
     %r, %t = amdgcn.ds_read_b32 dest %rd addr %addr offset c(%c0) : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared> fence_token %bar : !amdgcn.fence_token
     amdgcn.end_kernel
   }

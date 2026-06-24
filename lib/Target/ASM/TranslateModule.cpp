@@ -625,7 +625,7 @@ LogicalResult mlir::aster::amdgcn::target::translateModule(
   AllRegistersAllocatedAttr allocated =
       AllRegistersAllocatedAttr::get(module.getContext());
   // Dependency tokens are IR-only scheduling/wait metadata; no token consumer
-  // (amdgcn.wait, amdgcn.cross_wave_token_barrier) may survive to assembly.
+  // (amdgcn.wait, amdgcn.token_barrier) may survive to assembly.
   NoDependencyTokensAttr noTokens =
       NoDependencyTokensAttr::get(module.getContext());
   for (KernelOp kernel : module.getOps<KernelOp>()) {
