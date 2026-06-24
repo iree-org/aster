@@ -9,7 +9,7 @@
 // ASM-NEXT: s_barrier_wait -1
 amdgcn.module @cross_wave_barrier_gfx1250_mod target = #amdgcn.target<gfx1250> {
   amdgcn.kernel @cross_wave_barrier_gfx1250 attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
-    %fence = amdgcn.token_barrier
+    %fence = amdgcn.token_barrier scope(<workgroup>)
     amdgcn.end_kernel
   }
 }

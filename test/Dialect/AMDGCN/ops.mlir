@@ -234,16 +234,16 @@ func.func @test_waits(
 }
 
 func.func @test_barrier() {
-  amdgcn.barrier
+  amdgcn.barrier scope(<workgroup>)
   return
 }
 
 func.func @test_token_barrier(
     %rt1: !amdgcn.read_token<flat>,
     %wt1: !amdgcn.write_token<shared>) {
-  %r0 = amdgcn.token_barrier deps %wt1 : !amdgcn.write_token<shared>
-  %r1 = amdgcn.token_barrier deps %wt1, %rt1 : !amdgcn.write_token<shared>, !amdgcn.read_token<flat>
-  %r2 = amdgcn.token_barrier
+  %r0 = amdgcn.token_barrier scope(<workgroup>) deps %wt1 : !amdgcn.write_token<shared>
+  %r1 = amdgcn.token_barrier scope(<workgroup>) deps %wt1, %rt1 : !amdgcn.write_token<shared>, !amdgcn.read_token<flat>
+  %r2 = amdgcn.token_barrier scope(<workgroup>)
   return
 }
 
@@ -252,7 +252,7 @@ func.func @test_token_barrier_after(
     %addr: !amdgcn.vgpr,
     %wt1: !amdgcn.write_token<shared>) {
   %c0 = arith.constant 0 : i32
-  %fence = amdgcn.token_barrier deps %wt1 : !amdgcn.write_token<shared>
+  %fence = amdgcn.token_barrier scope(<workgroup>) deps %wt1 : !amdgcn.write_token<shared>
   %r, %t = amdgcn.ds_read_b32 dest %dst addr %addr offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared> fence_token %fence : !amdgcn.fence_token
   return
 }

@@ -59,13 +59,9 @@ TEST_LOWER_WAITS_MINIMAL_PASS_PIPELINE = builtin_module(
 
 # Pipeline matching test/Target/ASM/gfx1250-cluster-id-asm.mlir lit RUN lines.
 TEST_GFX1250_CLUSTER_ASM_PASS_PIPELINE = builtin_module(
-    amdgcn_module(
-        amdgcn_kernel(
-            "aster-amdgcn-expand-md-ops",
-            "aster-amdgcn-bufferization",
-            "amdgcn-to-register-semantics",
-        ),
-    ),
+    PHASE_AFFINE_EXPANSION,
+    PHASE_EXPAND_MD_OPS,
+    PHASE_LOWER_TO_AMDGCN,
     PHASE_AMDGCN_BACKEND,
     phase_nop_insertion(delays=0),
 )

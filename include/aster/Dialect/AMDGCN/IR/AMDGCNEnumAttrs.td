@@ -27,6 +27,11 @@ def RegisterKindAttr : AMDGCN_EnumAttr<"RegisterKind", "reg_kind", RegisterKind>
   let summary = "AMDGCN register kind attribute";
 }
 
+def BarrierScopeAttr : AMDGCN_EnumAttr<"BarrierScope", "barrier_scope", BarrierScope> {
+  let summary = "AMDGCN barrier synchronization scope attribute";
+  let defaultValue = "BarrierScope::Workgroup";
+}
+
 def WorkitemIDModeAttr : AMDGCN_EnumAttr<"WorkitemIDMode", "workitem_id_mode", WorkitemIDMode> {
   let summary = "AMDGCN VGPR workitem ID mode attribute";
   let defaultValue = "WorkitemIDMode::X";

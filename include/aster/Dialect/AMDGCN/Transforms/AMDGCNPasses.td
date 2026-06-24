@@ -25,7 +25,10 @@ def AMDGCNConvertWaits : Pass<"amdgcn-convert-waits",
     hardware wait instructions (s_waitcnt) based on the types of dependencies
     being waited on.
   }];
-  let dependentDialects = ["mlir::ub::UBDialect"];
+  let dependentDialects = [
+    "mlir::ub::UBDialect",
+    "mlir::aster::lsir::LSIRDialect"
+  ];
   let options = [
     Option<"removeTokenArgs", "remove-cf-args", "bool", "true",
            "If true, remove token arguments from control-flow arguments">,
@@ -222,7 +225,8 @@ def ExpandMetadataOps : Pass<"aster-amdgcn-expand-md-ops", "::mlir::aster::amdgc
     re-introduces metadata ops)
   }];
   let dependentDialects = [
-    "mlir::arith::ArithDialect"
+    "mlir::arith::ArithDialect",
+    "mlir::aster::lsir::LSIRDialect"
   ];
   let options = [
     Option<"forceUnpackedTID",

@@ -61,7 +61,7 @@ func.func @amdgcn_mixed_memory_spaces(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdg
 
 // CHECK-LABEL:   func.func @amdgcn_barrier(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.sgpr, %[[ARG1:.*]]: !amdgcn.sgpr, %[[ARG2:.*]]: !amdgcn.sgpr, %[[ARG3:.*]]: !amdgcn.sgpr) -> !amdgcn.sgpr {
-// CHECK:           amdgcn.barrier {sched.stage = 0 : i32}
+// CHECK:           amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
 // CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
 // CHECK:           %[[VAL_0:.*]] = amdgcn.s_add_u32 outs(%[[ARG2]], %[[SCC_ALLOCA_0]]) ins(%[[ARG0]], %[[ARG1]]) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, !amdgcn.sgpr)
 // CHECK:           %[[VAL_1:.*]] = amdgcn.s_mul_i32 outs(%[[ARG3]]) ins(%[[VAL_0]], %[[ARG0]]) {sched.stage = 2 : i32} : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr, !amdgcn.sgpr)
@@ -70,14 +70,14 @@ func.func @amdgcn_mixed_memory_spaces(%arg0: !amdgcn.sgpr<[? + 2]>, %arg1: !amdg
 func.func @amdgcn_barrier(%arg0: !amdgcn.sgpr, %arg1: !amdgcn.sgpr, %arg2: !amdgcn.sgpr, %arg3: !amdgcn.sgpr) -> !amdgcn.sgpr attributes {sched = #sched} {
   %_scc_dst_add_u32 = amdgcn.alloca : !amdgcn.scc<0>
   %0 = amdgcn.s_add_u32 outs(%arg2, %_scc_dst_add_u32) ins(%arg0, %arg1) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, !amdgcn.sgpr)
-  amdgcn.barrier {sched.stage = 0 : i32}
+  amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
   %1 = amdgcn.s_mul_i32 outs(%arg3) ins(%0, %arg0) {sched.stage = 2 : i32} : outs(!amdgcn.sgpr) ins(!amdgcn.sgpr, !amdgcn.sgpr)
   return %1 : !amdgcn.sgpr
 }
 
 // CHECK-LABEL:   func.func @amdgcn_vop2_salu_barrier(
 // CHECK-SAME:      %[[ARG0:.*]]: !amdgcn.vgpr, %[[ARG1:.*]]: !amdgcn.vgpr, %[[ARG2:.*]]: !amdgcn.sgpr, %[[ARG3:.*]]: !amdgcn.sgpr, %[[ARG4:.*]]: !amdgcn.vgpr, %[[ARG5:.*]]: !amdgcn.sgpr) -> (!amdgcn.vgpr, !amdgcn.sgpr) {
-// CHECK:           amdgcn.barrier {sched.stage = 0 : i32}
+// CHECK:           amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
 // CHECK:           %[[VAL_0:.*]] = amdgcn.v_add_u32 outs(%[[ARG4]]) ins(%[[ARG0]], %[[ARG1]]) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:           %[[SCC_ALLOCA_0:.*]] = amdgcn.alloca : !amdgcn.scc<0>
 // CHECK:           %[[VAL_1:.*]] = amdgcn.s_add_u32 outs(%[[ARG5]], %[[SCC_ALLOCA_0]]) ins(%[[ARG2]], %[[ARG3]]) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, !amdgcn.sgpr)
@@ -87,7 +87,7 @@ func.func @amdgcn_vop2_salu_barrier(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr, %a
   %vdst0_res = amdgcn.v_add_u32 outs(%arg4) ins(%arg0, %arg1) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   %_scc_dst_add_u32 = amdgcn.alloca : !amdgcn.scc<0>
   %0 = amdgcn.s_add_u32 outs(%arg5, %_scc_dst_add_u32) ins(%arg2, %arg3) {sched.stage = 1 : i32} : outs(!amdgcn.sgpr, !amdgcn.scc<0>) ins(!amdgcn.sgpr, !amdgcn.sgpr)
-  amdgcn.barrier {sched.stage = 0 : i32}
+  amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
   return %vdst0_res, %0 : !amdgcn.vgpr, !amdgcn.sgpr
 }
 
@@ -99,7 +99,7 @@ func.func @amdgcn_vop2_salu_barrier(%arg0: !amdgcn.vgpr, %arg1: !amdgcn.vgpr, %a
 // CHECK:           %[[VAL_2:.*]], %[[LOAD_2:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] offset c(%{{.*}}) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           amdgcn.wait lgkm_cnt 0 {sched.stage = 0 : i32} -> !amdgcn.fence_token
-// CHECK:           amdgcn.barrier {sched.stage = 0 : i32}
+// CHECK:           amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
 // CHECK:           %[[VAL_1:.*]], %[[LOAD_1:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_2]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return
 // CHECK:         }
@@ -114,7 +114,7 @@ func.func @promote_vmem_forward() attributes {sched = #sched} {
   %c0_i32_mig1 = arith.constant 0 : i32
   %3 = amdgcn.ds_write_b32 data %dest_res addr %1 offset c(%c0_i32_mig1) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf5 = amdgcn.wait lgkm_cnt 0 {sched.stage = 0 : i32} -> !amdgcn.fence_token
-  amdgcn.barrier {sched.stage = 0 : i32}
+  amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
   %c0_i32_mig2 = arith.constant 0 : i32
   %dest_res_2, %token_3 = amdgcn.ds_read_b32 dest %2 addr %1 offset c(%c0_i32_mig2) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   return
@@ -127,7 +127,7 @@ func.func @promote_vmem_forward() attributes {sched = #sched} {
 // CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] offset c(%{{.*}}) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           amdgcn.wait lgkm_cnt 0 {sched.stage = 1 : i32} -> !amdgcn.fence_token
-// CHECK:           amdgcn.barrier {sched.stage = 1 : i32}
+// CHECK:           amdgcn.barrier scope(<workgroup>) {sched.stage = 1 : i32}
 // CHECK:           %[[VAL_2:.*]], %[[LOAD_2:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_2]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           %[[VAL_1:.*]], %[[LOAD_1:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] offset c(%{{.*}}) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return
@@ -141,7 +141,7 @@ func.func @promote_vmem_backward() attributes {sched = #sched} {
   %c0_i32_mig2 = arith.constant 0 : i32
   %3 = amdgcn.ds_write_b32 data %dest_res addr %1 offset c(%c0_i32_mig2) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf6 = amdgcn.wait lgkm_cnt 0 {sched.stage = 1 : i32} -> !amdgcn.fence_token
-  amdgcn.barrier {sched.stage = 1 : i32}
+  amdgcn.barrier scope(<workgroup>) {sched.stage = 1 : i32}
   %c0_i32_mig3 = arith.constant 0 : i32
   %dest_res_0, %token_1 = amdgcn.ds_read_b32 dest %2 addr %1 offset c(%c0_i32_mig3) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   %c0_i32_mig9 = arith.constant 0 : i32
@@ -157,7 +157,7 @@ func.func @promote_vmem_backward() attributes {sched = #sched} {
 // CHECK:           %[[VAL_1:.*]], %[[LOAD_1:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] offset c(%{{.*}}) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           amdgcn.wait vm_cnt 0 lgkm_cnt 0 {sched.stage = 0 : i32} -> !amdgcn.fence_token
-// CHECK:           amdgcn.barrier {sched.stage = 0 : i32}
+// CHECK:           amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
 // CHECK:           %[[VAL_2:.*]], %[[LOAD_2:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_2]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return
 // CHECK:         }
@@ -172,7 +172,7 @@ func.func @cant_promote_vmem_forward() attributes {sched = #sched} {
   %c0_i32_mig3 = arith.constant 0 : i32
   %3 = amdgcn.ds_write_b32 data %dest_res addr %1 offset c(%c0_i32_mig3) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf7 = amdgcn.wait vm_cnt 0 lgkm_cnt 0 {sched.stage = 0 : i32} -> !amdgcn.fence_token
-  amdgcn.barrier {sched.stage = 0 : i32}
+  amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
   %c0_i32_mig4 = arith.constant 0 : i32
   %dest_res_2, %token_3 = amdgcn.ds_read_b32 dest %2 addr %1 offset c(%c0_i32_mig4) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   return
@@ -185,7 +185,7 @@ func.func @cant_promote_vmem_forward() attributes {sched = #sched} {
 // CHECK:           %[[VAL_0:.*]], %[[LOAD_0:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] offset c(%{{.*}}) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           amdgcn.wait vm_cnt 0 lgkm_cnt 0 {sched.stage = 1 : i32} -> !amdgcn.fence_token
-// CHECK:           amdgcn.barrier {sched.stage = 1 : i32}
+// CHECK:           amdgcn.barrier scope(<workgroup>) {sched.stage = 1 : i32}
 // CHECK:           %[[VAL_2:.*]], %[[LOAD_2:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_2]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           %[[VAL_1:.*]], %[[LOAD_1:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] offset c(%{{.*}}) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           return
@@ -199,7 +199,7 @@ func.func @cant_promote_vmem_backward() attributes {sched = #sched} {
   %c0_i32_mig4 = arith.constant 0 : i32
   %3 = amdgcn.ds_write_b32 data %dest_res addr %1 offset c(%c0_i32_mig4) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf8 = amdgcn.wait vm_cnt 0 lgkm_cnt 0 {sched.stage = 1 : i32} -> !amdgcn.fence_token
-  amdgcn.barrier {sched.stage = 1 : i32}
+  amdgcn.barrier scope(<workgroup>) {sched.stage = 1 : i32}
   %c0_i32_mig5 = arith.constant 0 : i32
   %dest_res_0, %token_1 = amdgcn.ds_read_b32 dest %2 addr %1 offset c(%c0_i32_mig5) {sched.stage = 2 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   %c0_i32_mig13 = arith.constant 0 : i32
@@ -243,7 +243,7 @@ func.func @cant_promote_across_unknown_op() attributes {sched = #sched} {
 // CHECK:           %[[VAL_2:.*]], %[[LOAD_2:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] offset c(%{{.*}}) {sched.stage = 1 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
 // CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           amdgcn.wait lgkm_cnt 0 {sched.stage = 0 : i32} -> !amdgcn.fence_token
-// CHECK:           amdgcn.barrier {sched.stage = 0 : i32}
+// CHECK:           amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
 // CHECK:           %[[VAL_1:.*]], %[[LOAD_1:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_2]] addr %[[ALLOCA_1]] offset c(%{{.*}}) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           return
 // CHECK:         }
@@ -259,7 +259,7 @@ func.func @promote_pure_op_forward() attributes {sched = #sched} {
   %c0_i32_mig6 = arith.constant 0 : i32
   %3 = amdgcn.ds_write_b32 data %dest_res addr %1 offset c(%c0_i32_mig6) {sched.stage = 0 : i32} : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf9 = amdgcn.wait lgkm_cnt 0 {sched.stage = 0 : i32} -> !amdgcn.fence_token
-  amdgcn.barrier {sched.stage = 0 : i32}
+  amdgcn.barrier scope(<workgroup>) {sched.stage = 0 : i32}
   %c0_i32_mig7 = arith.constant 0 : i32
   %dest_res_2, %token_3 = amdgcn.ds_read_b32 dest %2 addr %1 offset c(%c0_i32_mig7) {sched.stage = 0 : i32} : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
   return
@@ -274,7 +274,7 @@ func.func @promote_pure_op_forward() attributes {sched = #sched} {
 // CHECK:           %[[VAL_4:.*]] = amdgcn.v_add_i32 outs(%[[ALLOCA_1]]) ins(%[[VAL_0]], %[[VAL_0]]) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
 // CHECK:           %[[STORE_0:.*]] = amdgcn.ds_write_b32 data %[[VAL_0]] addr %[[ALLOCA_1]] offset c(%{{.*}}) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
 // CHECK:           amdgcn.wait lgkm_cnt 0 -> !amdgcn.fence_token
-// CHECK:           amdgcn.barrier
+// CHECK:           amdgcn.barrier scope(<workgroup>)
 // CHECK:           %[[VAL_3:.*]], %[[LOAD_2:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_2]] addr %[[VAL_1]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           %[[VAL_5:.*]], %[[LOAD_3:.*]] = amdgcn.ds_read_b32 dest %[[ALLOCA_2]] addr %[[VAL_4]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
 // CHECK:           %[[VAL_2:.*]], %[[LOAD_1:.*]] = amdgcn.global_load_dword dest %[[ALLOCA_2]] addr %[[ALLOCA_0]] offset c(%{{.*}}) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>) mods(i32) -> !amdgcn.read_token<flat>
@@ -283,7 +283,7 @@ func.func @promote_pure_op_forward() attributes {sched = #sched} {
 func.func @advanced_sched() attributes {
     sched = #aster_utils.generic_scheduler<#amdgcn.value_scheduler,
       #aster_utils.sched_list_labeler<[
-        #aster_utils.op_name_labeler<["amdgcn.barrier"], 0>,
+        #aster_utils.op_name_labeler<["amdgcn.barrier scope(<workgroup>)"], 0>,
         #aster_utils.op_name_labeler<["arith.constant"], 4>,
         #amdgcn.opcode_labeler<[v_add_i32], 3>,
         #amdgcn.inst_prop_labeler<[is_vmem, is_valu], 1>,
@@ -301,7 +301,7 @@ func.func @advanced_sched() attributes {
   %c0_i32_mig7 = arith.constant 0 : i32
   %3 = amdgcn.ds_write_b32 data %dest_res addr %1 offset c(%c0_i32_mig7) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf10 = amdgcn.wait lgkm_cnt 0 -> !amdgcn.fence_token
-  amdgcn.barrier
+  amdgcn.barrier scope(<workgroup>)
   %vdst0_res_0 = amdgcn.v_add_u32 outs(%1) ins(%dest_res, %dest_res) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr, !amdgcn.vgpr)
   %c0_i32_mig8 = arith.constant 0 : i32
   %dest_res_1, %token_2 = amdgcn.ds_read_b32 dest %2 addr %vdst0_res_0 offset c(%c0_i32_mig8) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>

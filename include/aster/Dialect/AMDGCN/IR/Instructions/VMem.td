@@ -793,14 +793,27 @@ class GlobalLoadBInst<string mnemonic, list<Type> dst0Type>
 }
 #endif // GLOBALLOADB_INST_DEF
 
+#ifndef GLOBALLOADB32_DEF
+#define GLOBALLOADB32_DEF
+def GlobalLoadB32 : GlobalLoadBInst<"global_load_b32",
+    /*dest=*/[VGPROf<1>]
+  > {
+  let description = [{
+    Load 32 bits from global memory into a vector register.
+    Counterpart to global_load_dword on CDNA3/CDNA4 (and earlier).
+  }];
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b0010100>];
+}
+#endif // GLOBALLOADB32_DEF
+
 #ifndef GLOBALLOADB128_DEF
 #define GLOBALLOADB128_DEF
 def GlobalLoadB128 : GlobalLoadBInst<"global_load_b128",
     /*dest=*/[VGPROf<4>]
   > {
   let description = [{
-    Load 128 bits from global memory into a vector register (gfx1250/gfx1251).
-    Same operation as global_load_dwordx4 on CDNA3/CDNA4.
+    Load 128 bits from global memory into a vector register.
+    Counterpart to global_load_dwordx4 on CDNA3/CDNA4 (and earlier).
   }];
   let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b0010111>];
 }
@@ -863,10 +876,23 @@ def GlobalStoreB32 : GlobalStoreBInst<"global_store_b32",
   > {
   let description = [{
     Store 32 bits from a vector register into global memory (gfx1250/gfx1251).
-    Same operation as global_store_dword on CDNA3/CDNA4.
+    Counterpart to global_store_dword on CDNA3/CDNA4.
   }];
   let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b0011100>];
 }
 #endif // GLOBALSTOREB32_DEF
+
+#ifndef GLOBALSTOREB128_DEF
+#define GLOBALSTOREB128_DEF
+def GlobalStoreB128 : GlobalStoreBInst<"global_store_b128",
+    /*data=*/[VGPROf<4>]
+  > {
+  let description = [{
+    Store 128 bits from a vector register into global memory (gfx1250/gfx1251).
+    Counterpart to global_store_dwordx4 on CDNA3/CDNA4.
+  }];
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b0011111>];
+}
+#endif // GLOBALSTOREB128_DEF
 
 #endif // AMDGCN_VMEM_TD

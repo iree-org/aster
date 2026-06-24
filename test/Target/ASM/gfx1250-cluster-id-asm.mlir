@@ -1,21 +1,7 @@
-// RUN: aster-opt %s \
-// RUN:   --pass-pipeline='builtin.module(amdgcn.module(amdgcn.kernel( \
-// RUN:     aster-amdgcn-expand-md-ops, \
-// RUN:     aster-amdgcn-bufferization, \
-// RUN:     amdgcn-to-register-semantics)), \
-// RUN:   amdgcn-backend, \
-// RUN:   amdgcn-remove-test-inst, \
-// RUN:   amdgcn-hazards{v_nops=0 s_nops=0})' \
+// RUN: aster-opt %s %GFX1250_CLUSTER_ASM_PIPELINE% \
 // RUN: | aster-translate --mlir-to-asm | FileCheck %s
 //
-// RUN: aster-opt %s \
-// RUN:   --pass-pipeline='builtin.module(amdgcn.module(amdgcn.kernel( \
-// RUN:     aster-amdgcn-expand-md-ops, \
-// RUN:     aster-amdgcn-bufferization, \
-// RUN:     amdgcn-to-register-semantics)), \
-// RUN:   amdgcn-backend, \
-// RUN:   amdgcn-remove-test-inst, \
-// RUN:   amdgcn-hazards{v_nops=0 s_nops=0})' \
+// RUN: aster-opt %s %GFX1250_CLUSTER_ASM_PIPELINE% \
 // RUN: | aster-translate --mlir-to-asm \
 // RUN:   | llvm-mc -triple=amdgcn-amd-amdhsa -mcpu=gfx1250 -mattr=+wavefrontsize32 -filetype=obj -o %t.o
 

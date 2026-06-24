@@ -15,6 +15,38 @@ func.func @test_ds_load_b128(%addr: !amdgcn.vgpr, %dst4: !amdgcn.vgpr<[? + 4]>) 
 }
 
 //===----------------------------------------------------------------------===//
+// Global memory loads/stores (global_load_b32/b128, global_store_b32)
+//===----------------------------------------------------------------------===//
+
+func.func @test_global_load_b32(%addr: !amdgcn.sgpr<[? + 2]>, %voff: !amdgcn.vgpr,
+    %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %c0 = arith.constant 0 : i32
+  %result, %tok = amdgcn.global_load_b32 dest %dst addr %addr offset d(%voff) + c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  return %result : !amdgcn.vgpr
+}
+
+func.func @test_global_load_b128(%addr: !amdgcn.sgpr<[? + 2]>, %voff: !amdgcn.vgpr,
+    %dst4: !amdgcn.vgpr<[? + 4]>) -> !amdgcn.vgpr<[? + 4]> {
+  %c0 = arith.constant 0 : i32
+  %result, %tok = amdgcn.global_load_b128 dest %dst4 addr %addr offset d(%voff) + c(%c0) : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  return %result : !amdgcn.vgpr<[? + 4]>
+}
+
+func.func @test_global_store_b32(%data: !amdgcn.vgpr, %addr: !amdgcn.sgpr<[? + 2]>,
+    %voff: !amdgcn.vgpr) -> !amdgcn.write_token<flat> {
+  %c0 = arith.constant 0 : i32
+  %tok = amdgcn.global_store_b32 data %data addr %addr offset d(%voff) + c(%c0) : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  return %tok : !amdgcn.write_token<flat>
+}
+
+func.func @test_global_store_b128(%data: !amdgcn.vgpr<[? + 4]>, %addr: !amdgcn.sgpr<[? + 2]>,
+    %voff: !amdgcn.vgpr) -> !amdgcn.write_token<flat> {
+  %c0 = arith.constant 0 : i32
+  %tok = amdgcn.global_store_b128 data %data addr %addr offset d(%voff) + c(%c0) : ins(!amdgcn.vgpr<[? + 4]>, !amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<flat>
+  return %tok : !amdgcn.write_token<flat>
+}
+
+//===----------------------------------------------------------------------===//
 // VIMAGE tensor load (tensor_load_to_lds -- 4 SGPR descriptors, dest-less)
 //===----------------------------------------------------------------------===//
 
@@ -87,6 +119,30 @@ func.func @test_cluster_workgroup_max_id_dims() -> !amdgcn.sgpr {
 //===----------------------------------------------------------------------===//
 // gfx1250 split wait op (amdgcn.wait_gfx1250; disjoint from the CDNA amdgcn.wait)
 //===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
+// Cluster barrier (s_barrier_signal_isfirst + high-level cluster_barrier)
+//===----------------------------------------------------------------------===//
+
+func.func @test_s_barrier_signal_isfirst() {
+  %scc = amdgcn.alloca : !amdgcn.scc<0>
+  amdgcn.s_barrier_signal_isfirst outs(%scc) id(-1 : i16) : outs(!amdgcn.scc<0>)
+  return
+}
+
+func.func @test_cluster_barrier() {
+  amdgcn.barrier scope(#amdgcn.barrier_scope<cluster>)
+  return
+}
+
+func.func @test_cluster_token_barrier(
+    %rt1: !amdgcn.read_token<flat>,
+    %wt1: !amdgcn.write_token<shared>) {
+  %r0 = amdgcn.token_barrier scope(#amdgcn.barrier_scope<cluster>) deps %wt1 : !amdgcn.write_token<shared>
+  %r1 = amdgcn.token_barrier scope(#amdgcn.barrier_scope<cluster>) deps %wt1, %rt1 : !amdgcn.write_token<shared>, !amdgcn.read_token<flat>
+  %r2 = amdgcn.token_barrier scope(#amdgcn.barrier_scope<cluster>)
+  return
+}
 
 func.func @test_s_wait_fused_counters() {
   amdgcn.s_wait_loadcnt_dscnt 259

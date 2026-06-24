@@ -1054,20 +1054,26 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
 // BarrierOp
 //===----------------------------------------------------------------------===//
 
-def AMDGCN_BarrierOp : AMDGCN_Op<"barrier", [BarrierOpInterface]> {
-  let summary = "Target-neutral workgroup synchronization barrier";
+def AMDGCN_BarrierOp : AMDGCN_Op<"barrier",
+    [DeclareOpInterfaceMethods<ISACompatibleOpInterface>, BarrierOpInterface]> {
+  let summary = "Synchronization barrier with configurable hardware scope";
   let description = [{
-    Synchronize all waves in a workgroup at this program point.
-    Lowered to various legal hardware forms:
-      - s_barrier on CDNA3/CDNA4 (and earlier)
-      - split s_barrier_signal -1 / s_barrier_wait -1 pair on gfx1250+
+    Synchronize all participating threads at this program point. The `scope`
+    attribute selects the synchronization scope:
+      - `workgroup` (default): all waves in the workgroup. Valid on every
+        target and futher lowered to:
+          * s_barrier on CDNA3/CDNA4 and earlier
+          * split s_barrier_signal -1 / s_barrier_wait -1 pair on gfx1250+.
+      - `cluster`: all workgroups in the workgroup cluster (gfx1250+)
 
     This is a conservative form that fences all writes before and all reads
     after the barrier.
   }];
-  let arguments = (ins);
+  let arguments = (ins
+    DefaultValuedAttr<BarrierScopeAttr, "BarrierScope::Workgroup">:$scope
+  );
   let results = (outs);
-  let assemblyFormat = [{ attr-dict }];
+  let assemblyFormat = [{ `scope` `(` $scope `)` attr-dict }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1076,14 +1082,17 @@ def AMDGCN_BarrierOp : AMDGCN_Op<"barrier", [BarrierOpInterface]> {
 
 def AMDGCN_TokenBarrierOp : AMDGCN_Op<"token_barrier", [
     DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>,
+    DeclareOpInterfaceMethods<ISACompatibleOpInterface>,
     BarrierOpInterface,
     FenceOpInterface,
   ]> {
-  let summary = "Workgroup-scope barrier carrying dependency tokens";
+  let summary = "Workgroup- or cluster-scope barrier carrying dependency tokens";
   let description = [{
     Token-form variant of `barrier`, with relaxed fencing semantics. Does not
     carry any implicit fence semantics / all fence semantics must be carried
-    through SSA dependency tokens.
+    through SSA dependency tokens. The `scope` attribute (`workgroup` default,
+    or `cluster` on gfx1250+) selects the synchronization scope exactly as on
+    `barrier`.
 
     Operands: the variadic input dependency tokens name what must precede the
     barrier. Typically this is the fence token produced by an `amdgcn.wait` so
@@ -1104,7 +1113,7 @@ def AMDGCN_TokenBarrierOp : AMDGCN_Op<"token_barrier", [
 
     // The wait drains the write and produces a fence the barrier follows.
     %wf = amdgcn.wait deps %wt : !amdgcn.write_token<shared> -> !amdgcn.fence_token
-    %bf = amdgcn.token_barrier deps %wf : !amdgcn.fence_token
+    %bf = amdgcn.token_barrier scope(#amdgcn.barrier_scope<workgroup>) deps %wf : !amdgcn.fence_token
 
     // A consumer pins after the barrier via the optional fence_token operand.
     %r, %t = amdgcn.ds_read_b32 dest %rd addr %a offset c(%c0)
@@ -1112,10 +1121,13 @@ def AMDGCN_TokenBarrierOp : AMDGCN_Op<"token_barrier", [
         -> !amdgcn.read_token<shared> fence_token %bf : !amdgcn.fence_token
     ```
   }];
-  let arguments = (ins Variadic<TokenDependencyTypeInterface>:$dependencies);
+  let arguments = (ins
+    Variadic<TokenDependencyTypeInterface>:$dependencies,
+    DefaultValuedAttr<BarrierScopeAttr, "BarrierScope::Workgroup">:$scope
+  );
   let results = (outs FenceToken:$fence_token);
   let assemblyFormat = [{
-    (`deps` $dependencies^ `:` type($dependencies))? attr-dict
+    `scope` `(` $scope `)` (`deps` $dependencies^ `:` type($dependencies))? attr-dict
   }];
   let extraClassDeclaration = [{
     // The fence token produced by this op. Implements FenceOpInterface.

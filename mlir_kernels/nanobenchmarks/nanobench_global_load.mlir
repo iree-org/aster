@@ -81,7 +81,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
           amdgcn.test_inst ins %result_vx1 : (!vx1) -> ()
         } {aster.constexpr}
         amdgcn.s_waitcnt vmcnt = 0
-        amdgcn.barrier
+        amdgcn.barrier scope(<workgroup>)
       } {aster.constexpr}
     }
 
@@ -103,7 +103,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
           amdgcn.test_inst ins %result_vx2 : (!vx2) -> ()
         } {aster.constexpr}
         amdgcn.s_waitcnt vmcnt = 0
-        amdgcn.barrier
+        amdgcn.barrier scope(<workgroup>)
       } {aster.constexpr}
     }
 
@@ -125,7 +125,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
           amdgcn.test_inst ins %result_vx3 : (!vx3) -> ()
         } {aster.constexpr}
         amdgcn.s_waitcnt vmcnt = 0
-        amdgcn.barrier
+        amdgcn.barrier scope(<workgroup>)
       } {aster.constexpr}
     }
 
@@ -147,7 +147,7 @@ amdgcn.module @nanobench_module target = #amdgcn.target<gfx942> {
           amdgcn.test_inst ins %result_vx4 : (!vx4) -> ()
         } {aster.constexpr}
         amdgcn.s_waitcnt vmcnt = 0
-        amdgcn.barrier
+        amdgcn.barrier scope(<workgroup>)
       } {aster.constexpr}
     }
 

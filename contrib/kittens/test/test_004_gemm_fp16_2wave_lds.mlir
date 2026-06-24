@@ -112,7 +112,7 @@ amdgcn.module @kittens_gemm_2wave_lds target = #amdgcn.target<gfx942> {
       %wf1 = amdgcn.wait deps %tok_A1 : !lds_write_token -> !amdgcn.fence_token
       %wf2 = amdgcn.wait deps %tok_B0 : !lds_write_token -> !amdgcn.fence_token
       %wf3 = amdgcn.wait deps %tok_B1 : !lds_write_token -> !amdgcn.fence_token
-      amdgcn.barrier
+      amdgcn.barrier scope(<workgroup>)
 
       // === Step 4: K0 sub-tile (byte offset 0 within LDS row) ===
       %A0_future = func.call @load_lds_A_swizzled(%lds_A, %c0, %c2) : (index, index, index) -> !future_lds_read

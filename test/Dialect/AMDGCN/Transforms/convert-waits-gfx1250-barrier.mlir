@@ -12,7 +12,7 @@ func.func @gfx1250_cross_wave_barrier(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) 
   %c0 = arith.constant 0 : i32
   %token = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf = amdgcn.wait_gfx1250 deps %token : !amdgcn.write_token<shared> -> !amdgcn.fence_token
-  %fence = amdgcn.token_barrier deps %wf : !amdgcn.fence_token
+  %fence = amdgcn.token_barrier scope(<workgroup>) deps %wf : !amdgcn.fence_token
   return
 }
 }
@@ -27,7 +27,7 @@ func.func @cdna3_cross_wave_barrier(%addr: !amdgcn.vgpr, %data: !amdgcn.vgpr) {
   %c0 = arith.constant 0 : i32
   %token = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
   %wf = amdgcn.wait deps %token : !amdgcn.write_token<shared> -> !amdgcn.fence_token
-  %fence = amdgcn.token_barrier deps %wf : !amdgcn.fence_token
+  %fence = amdgcn.token_barrier scope(<workgroup>) deps %wf : !amdgcn.fence_token
   return
 }
 }
