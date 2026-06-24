@@ -89,12 +89,12 @@ from aster._mlir_libs._amdgcn import (
 )
 from aster.dialects import _amdgcn_ops_gen as _ops_gen
 from aster.dialects._amdgcn_ops_gen import (
-    s_barrier,
+    barrier,
     s_barrier_signal,
     s_barrier_wait,
     s_mov_b32,
     s_nop,
-    cross_wave_token_barrier as _CrossWaveTokenBarrierOp,
+    token_barrier as _TokenBarrierOp,
     v_accvgpr_write,
 )
 from aster.dialects import lsir as lsird
@@ -107,7 +107,7 @@ from aster.dialects.amdgcn import (
 )
 from aster.dialects import ptr as ptrd
 
-# Wait arguments to wait_deps / cross_wave_token_barrier:
+# Wait arguments to wait_deps / token_barrier:
 #   - a LayoutValues with flattened token_values(), or
 #   - a list/tuple of tokens, or
 #   - a bare ir.Value token.
@@ -1213,8 +1213,7 @@ class KernelBuilder:
     def _ds_read(self, opcode, dest, addr, const_offset=None, fence_token=None):
         """DS read operation.
 
-        fence_token optionally pins this read after a
-        cross_wave_token_barrier.
+        fence_token optionally pins this read after a token_barrier.
         """
         if const_offset is None:
             const_offset = self.constant_i32(0)
@@ -1550,16 +1549,16 @@ class KernelBuilder:
         """Insert s_waitcnt lgkmcnt=count."""
         SWaitcnt(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
-    def s_barrier(self) -> None:
+    def barrier(self) -> None:
         """Insert a workgroup synchronization barrier."""
-        s_barrier(loc=self._loc, ip=self._kip)
+        barrier(loc=self._loc, ip=self._kip)
 
-    def cross_wave_token_barrier(self, *deps: WaitArg) -> ir.Value:
-        """Emit amdgcn.cross_wave_token_barrier with flattened deps.
+    def token_barrier(self, *deps: WaitArg) -> ir.Value:
+        """Emit amdgcn.token_barrier with flattened deps.
 
         Returns a fence_token on which later memory ops can pin.
         """
-        op = _CrossWaveTokenBarrierOp(
+        op = _TokenBarrierOp(
             dependencies=self._flatten_wait_args(deps),
             loc=self._loc,
             ip=self._kip,
@@ -1793,7 +1792,7 @@ class KernelBuilder:
 
             @b.scf_if(cond)
             def _():
-                b.s_barrier()
+                b.barrier()
         """
 
         def decorator(body_fn):
@@ -1833,7 +1832,7 @@ class KernelBuilder:
 
             @b.thread_uniform_if("ult", wave_id, b.constant_index(4))
             def _():
-                b.s_barrier()
+                b.barrier()
         """
 
         def decorator(body_fn):

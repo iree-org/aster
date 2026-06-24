@@ -358,7 +358,7 @@ def FenceTokenType : AMDGCN_Type<"FenceToken", "fence_token",
   let summary = "Fence token type";
   let description = [{
     Ordering-only SSA token for workgroup barrier synchronization, produced by
-    FenceOpInterface (e.g. cross_wave_token_barrier) and consumed by
+    FenceOpInterface (e.g. token_barrier) and consumed by
     FenceableOpInterface (e.g. LDS read).
   }];
   let assemblyFormat = "";

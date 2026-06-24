@@ -190,12 +190,12 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     amdgcn.end_kernel
   }
 
-  // s_barrier is a workgroup sync point. GraphBuilder treats it as
+  // barrier is a workgroup sync point. GraphBuilder treats it as
   // a sync point and forces LDS ordering within a wavefront.
   // CHECK-LABEL: kernel @barrier_separates_lds
   // CHECK:         ds_write_b64
   // CHECK:         ds_write_b64
-  // CHECK:         s_barrier
+  // CHECK:         barrier
   // CHECK:         ds_read_b64
   // CHECK:         ds_read_b64
   // CHECK:         end_kernel
@@ -218,7 +218,7 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     %c8 = arith.constant 8 : i32
     %wt0 = amdgcn.ds_write_b64 data %data0 addr %addr0 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     %wt1 = amdgcn.ds_write_b64 data %data1 addr %addr1 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
-    amdgcn.s_barrier
+    amdgcn.barrier
     %rr0, %rt0 = amdgcn.ds_read_b64 dest %dst0 addr %addr0 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %rr1, %rt1 = amdgcn.ds_read_b64 dest %dst1 addr %addr1 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     amdgcn.end_kernel
@@ -227,7 +227,7 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
   // CHECK-LABEL: kernel @cross_wave_barrier_separates_lds
   // CHECK:         ds_write_b64
   // CHECK:         ds_write_b64
-  // CHECK:         cross_wave_token_barrier
+  // CHECK:         token_barrier
   // CHECK:         ds_read_b64
   // CHECK:         ds_read_b64
   // CHECK:         end_kernel
@@ -251,7 +251,7 @@ amdgcn.module @test target = #amdgcn.target<gfx942> {
     // Cross-wave token barrier with fence tokens orders LDS write-then-read.
     %wt0 = amdgcn.ds_write_b64 data %data0 addr %addr0 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
     %wt1 = amdgcn.ds_write_b64 data %data1 addr %addr1 offset c(%c0) : ins(!vx2, !v) mods(i32) -> !amdgcn.write_token<shared>
-    %bar = amdgcn.cross_wave_token_barrier deps %wt0, %wt1 : !amdgcn.write_token<shared>, !amdgcn.write_token<shared>
+    %bar = amdgcn.token_barrier deps %wt0, %wt1 : !amdgcn.write_token<shared>, !amdgcn.write_token<shared>
     %rr0, %rt0 = amdgcn.ds_read_b64 dest %dst0 addr %addr0 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared> fence_token %bar : !amdgcn.fence_token
     %rr1, %rt1 = amdgcn.ds_read_b64 dest %dst1 addr %addr1 offset c(%c8) : outs(!vx2) ins(!v) mods(i32) -> !amdgcn.read_token<shared> fence_token %bar : !amdgcn.fence_token
     amdgcn.end_kernel

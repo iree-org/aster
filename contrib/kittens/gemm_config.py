@@ -256,7 +256,7 @@ class GemmMappingSpec(PipelineConfigProtocol):
     hoist_wait: bool = False  # hoist iter-arg waits
     set_mfma_priority: bool = False  # insert s_setprio around MFMA groups
     rotate_compute_stage: bool = False  # enable compute-stage rotation in pass pipeline
-    # False = cross_wave_token_barrier + fence_token on LDS reads; True = s_barrier.
+    # False = token_barrier + fence_token on LDS reads; True = barrier.
     use_conservative_barriers: bool = False
 
     # --- Atomic transfer sizes (bytes per lane per memory operation) ---

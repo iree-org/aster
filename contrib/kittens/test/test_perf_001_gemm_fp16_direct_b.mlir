@@ -146,7 +146,7 @@ amdgcn.module @kittens_gemm_f16_direct_b target = #amdgcn.target<gfx942> {
       // --- Wait A LDS writes then barrier (waitcnt before barrier for visibility) ---
       func.call @k_wait_lds_writes(%tok_a)
           : (memref<?x!lds_write_token>) -> ()
-      amdgcn.s_barrier {sched.stage = {{A_STAGE_READ}} : i32}
+      amdgcn.barrier {sched.stage = {{A_STAGE_READ}} : i32}
       %a_fut = func.call @k_read_lds_at_addrs_a(%lds_r_addrs_a)
           : (memref<?xindex>) -> !fut_a_buf
 

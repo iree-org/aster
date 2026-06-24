@@ -306,12 +306,12 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
         with b.stage(STG_A_LDS_READ):
             if mapping.use_conservative_barriers:
                 b.wait_deps(a_write)
-                b.s_barrier()
+                b.barrier()
                 sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
                 a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile))
             else:
                 wfence = b.wait_deps(a_write)
-                bfence = b.cross_wave_token_barrier(wfence)
+                bfence = b.token_barrier(wfence)
                 sA_read = b.slice(sA_full, {wave_m: wave_m_idx})
                 a_frags = b.transfer_tiles(sA_read, tc_dsr_a, unroll_axes=(m, k_tile), fence_token=bfence)
             b.dealloc_lds(lds_a_h)
@@ -319,12 +319,12 @@ def _build_multitile_gemm(cfg: "MultitileGemmInstance") -> ir.Module:
         with b.stage(STG_B_LDS_READ):
             if mapping.use_conservative_barriers:
                 b.wait_deps(b_write)
-                b.s_barrier()
+                b.barrier()
                 sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
                 b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile))
             else:
                 wfence = b.wait_deps(b_write)
-                bfence = b.cross_wave_token_barrier(wfence)
+                bfence = b.token_barrier(wfence)
                 sB_read = b.slice(sB_full, {wave_n: wave_n_idx})
                 b_frags = b.transfer_tiles(sB_read, tc_dsr_b, unroll_axes=(n, k_tile), fence_token=bfence)
             b.dealloc_lds(lds_b_h)

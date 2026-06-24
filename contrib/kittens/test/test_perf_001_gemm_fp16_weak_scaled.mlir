@@ -176,7 +176,7 @@ amdgcn.module @kittens_gemm_f16_weak_scaled target = #amdgcn.target<gfx942> {
           : (memref<?x!lds_write_token>) -> ()
       func.call @k_wait_lds_writes(%tok_b)
           : (memref<?x!lds_write_token>) -> ()
-      amdgcn.s_barrier {sched.stage = {{A_STAGE_READ}} : i32}
+      amdgcn.barrier {sched.stage = {{A_STAGE_READ}} : i32}
 
       // --- Issue LDS reads at pre-computed addresses ---
       %a_fut = func.call @k_read_lds_at_addrs_a(%lds_r_addrs_a)

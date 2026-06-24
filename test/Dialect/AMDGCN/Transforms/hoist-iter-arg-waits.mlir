@@ -182,7 +182,7 @@ func.func @no_hoist_across_nested_loops(%addr: !amdgcn.vgpr<[? + 2]>, %lds_addr:
 // HOIST-LABEL: func.func @hoist_barrier_after_waits
 // HOIST:       scf.for {{.*}} iter_args(%[[TOK:.*]] = %{{.*}}, %[[DATA:.*]] = %{{.*}})
 // HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %[[TOK]] : !amdgcn.write_token<shared> -> !amdgcn.fence_token
-// HOIST-NEXT:    amdgcn.s_barrier
+// HOIST-NEXT:    amdgcn.barrier
 // HOIST:         %{{.*}}, %{{.*}} = amdgcn.ds_read_b32
 // HOIST:         amdgcn.ds_write_b32
 // HOIST:         scf.yield
@@ -200,7 +200,7 @@ func.func @hoist_barrier_after_waits(%data_in: !amdgcn.vgpr, %lds_addr: !amdgcn.
       iter_args(%iter_wtok = %init_wtok, %iter_data = %init_data)
       -> (!amdgcn.write_token<shared>, !amdgcn.vgpr) {
     %wf12 = amdgcn.wait deps %iter_wtok : !amdgcn.write_token<shared> -> !amdgcn.fence_token
-    amdgcn.s_barrier
+    amdgcn.barrier
     %c0_i32_mig3 = arith.constant 0 : i32
     %read_data, %rtok = amdgcn.ds_read_b32 dest %s_read addr %lds_addr offset c(%c0_i32_mig3) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
     %new_wtok = amdgcn.ds_write_b32 data %data_in addr %lds_addr offset c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
@@ -216,7 +216,7 @@ func.func @hoist_barrier_after_waits(%data_in: !amdgcn.vgpr, %lds_addr: !amdgcn.
 // HOIST:       scf.for {{.*}} iter_args(%[[TOK:.*]] = %{{.*}}, %[[DATA:.*]] = %{{.*}})
 // HOIST-NEXT:    %{{.*}} = amdgcn.wait deps %[[TOK]] : !amdgcn.write_token<shared> -> !amdgcn.fence_token
 // HOIST:         amdgcn.ds_write_b32
-// HOIST-NEXT:    amdgcn.s_barrier
+// HOIST-NEXT:    amdgcn.barrier
 // HOIST:         %{{.*}} = amdgcn.wait deps %{{.*}} : !amdgcn.read_token<shared> -> !amdgcn.fence_token
 // HOIST:         scf.yield
 
@@ -234,7 +234,7 @@ func.func @no_move_barrier_with_wait_after(%data_in: !amdgcn.vgpr, %lds_addr: !a
       -> (!amdgcn.write_token<shared>, !amdgcn.vgpr) {
     %wf14 = amdgcn.wait deps %iter_wtok : !amdgcn.write_token<shared> -> !amdgcn.fence_token
     %new_wtok = amdgcn.ds_write_b32 data %data_in addr %lds_addr offset c(%c0_i32) : ins(!amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.write_token<shared>
-    amdgcn.s_barrier
+    amdgcn.barrier
     %c0_i32_mig5 = arith.constant 0 : i32
     %read_data, %rtok = amdgcn.ds_read_b32 dest %s_read addr %lds_addr offset c(%c0_i32_mig5) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
     %wf15 = amdgcn.wait deps %rtok : !amdgcn.read_token<shared> -> !amdgcn.fence_token
