@@ -116,7 +116,7 @@ amdgcn.module @kittens_gemm_4wave_lds_pipelined target = #amdgcn.target<gfx942> 
       %wf1 = amdgcn.wait deps %tok_A1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
       %wf2 = amdgcn.wait deps %tok_B0 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
       %wf3 = amdgcn.wait deps %tok_B1 {sched.stage = {{A_STAGE_READ}} : i32} : !lds_write_token -> !amdgcn.fence_token
-      amdgcn.barrier {sched.stage = {{A_STAGE_READ}} : i32}
+      amdgcn.barrier scope(<workgroup>) {sched.stage = {{A_STAGE_READ}} : i32}
 
       // K0 sub-tiles (byte offset 0 within LDS row)
       %A0_fut = func.call @load_lds_A_swizzled(%lds_A, %c0, %c2)

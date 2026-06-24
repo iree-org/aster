@@ -13,6 +13,7 @@
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
 
 #include "aster/Dialect/AMDGCN/IR/AMDGCNOps.h"
+#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
 #include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/RegisterType.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"

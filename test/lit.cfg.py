@@ -70,3 +70,14 @@ tools = ["aster-opt", "aster-translate"]
 llvm_config.add_tool_substitutions(tools, tool_dirs)
 
 sys.path.append(config.aster_python_root)
+
+from aster.test_pass_pipelines import (  # noqa: E402
+    TEST_GFX1250_CLUSTER_ASM_PASS_PIPELINE,
+)
+
+config.substitutions.append(
+    (
+        "%GFX1250_CLUSTER_ASM_PIPELINE%",
+        f"--pass-pipeline='{TEST_GFX1250_CLUSTER_ASM_PASS_PIPELINE}'",
+    )
+)

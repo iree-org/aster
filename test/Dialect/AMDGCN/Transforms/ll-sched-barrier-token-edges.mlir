@@ -19,7 +19,7 @@ amdgcn.module @token_barrier_deps target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
     %c7 = arith.constant 7 : i32
     %tok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
-    %bar = amdgcn.token_barrier deps %tok : !amdgcn.write_token<shared>
+    %bar = amdgcn.token_barrier scope(<workgroup>) deps %tok : !amdgcn.write_token<shared>
     %r, %t = amdgcn.ds_read_b32 dest %rd addr %addr offset c(%c0) : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %m = amdgcn.s_mov_b32 outs(%s0) ins(%c7) : outs(!s) ins(i32)
     amdgcn.end_kernel
@@ -43,7 +43,7 @@ amdgcn.module @token_barrier_after target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
     %c7 = arith.constant 7 : i32
     %tok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
-    %bar = amdgcn.token_barrier deps %tok : !amdgcn.write_token<shared>
+    %bar = amdgcn.token_barrier scope(<workgroup>) deps %tok : !amdgcn.write_token<shared>
     %r, %t = amdgcn.ds_read_b32 dest %rd addr %addr offset c(%c0) : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared> fence_token %bar : !amdgcn.fence_token
     %m = amdgcn.s_mov_b32 outs(%s0) ins(%c7) : outs(!s) ins(i32)
     amdgcn.end_kernel
@@ -68,7 +68,7 @@ amdgcn.module @plain_barrier target = #amdgcn.target<gfx942> {
     %c0 = arith.constant 0 : i32
     %c7 = arith.constant 7 : i32
     %tok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
-    amdgcn.barrier
+    amdgcn.barrier scope(<workgroup>)
     %r, %t = amdgcn.ds_read_b32 dest %rd addr %addr offset c(%c0) : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     %m = amdgcn.s_mov_b32 outs(%s0) ins(%c7) : outs(!s) ins(i32)
     amdgcn.end_kernel
@@ -89,9 +89,9 @@ amdgcn.module @barrier_serialization target = #amdgcn.target<gfx942> {
     %data = amdgcn.alloca : !v
     %c0 = arith.constant 0 : i32
     %tok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
-    amdgcn.barrier
-    amdgcn.barrier
-    %bar = amdgcn.token_barrier deps %tok : !amdgcn.write_token<shared>
+    amdgcn.barrier scope(<workgroup>)
+    amdgcn.barrier scope(<workgroup>)
+    %bar = amdgcn.token_barrier scope(<workgroup>) deps %tok : !amdgcn.write_token<shared>
     amdgcn.end_kernel
   }
 }
@@ -116,7 +116,7 @@ amdgcn.module @token_barrier_acquire_precise target = #amdgcn.target<gfx942> {
     %rd64 = amdgcn.make_register_range %rd0, %rd1 : !v, !v
     %c0 = arith.constant 0 : i32
     %wtok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!v, !v) mods(i32) -> !amdgcn.write_token<shared>
-    %bar = amdgcn.token_barrier deps %wtok : !amdgcn.write_token<shared>
+    %bar = amdgcn.token_barrier scope(<workgroup>) deps %wtok : !amdgcn.write_token<shared>
     %r32, %t32 = amdgcn.ds_read_b32 dest %rd32 addr %addr offset c(%c0) : outs(!v) ins(!v) mods(i32) -> !amdgcn.read_token<shared> fence_token %bar : !amdgcn.fence_token
     %r64, %t64 = amdgcn.ds_read_b64 dest %rd64 addr %addr2 offset c(%c0) : outs(!amdgcn.vgpr<[? + 2]>) ins(!v) mods(i32) -> !amdgcn.read_token<shared>
     amdgcn.end_kernel

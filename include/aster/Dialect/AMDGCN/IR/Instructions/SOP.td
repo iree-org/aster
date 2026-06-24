@@ -645,6 +645,31 @@ def SBarrierWait : AMDISAInstruction<"s_barrier_wait"> {
 }
 #endif // SBARRIERWAIT_DEF
 
+#ifndef SBARRIERSIGNALISFIRST_DEF
+#define SBARRIERSIGNALISFIRST_DEF
+def SBarrierSignalIsfirst : AMDISAInstruction<"s_barrier_signal_isfirst"> {
+  let props = [IsSALU, IsSOP1];
+  let archs = [GFX12_50Isa];
+  let description = [{
+    Signal arrival on a workgroup barrier object and set SCC to 1 iff this wave
+    is the first to arrive. Used to elect one wave per workgroup to signal a
+    cluster-scope barrier.
+  }];
+  // LLVM opcode: SOP1 0x04f.
+  let encodings = [InstEnc<[ENC_SOP1_GFX12_50], 0b1001111>];
+  let outputs = (ins
+    SCCType:$scc_dst
+  );
+  let inputs = (ins);
+  let trailingArgs = (ins
+    SignedImm16Attr:$id
+  );
+  let asm_syntax = [
+    ASMString<[ENC_SOP1_GFX12_50], "${mnemonic} $id">
+  ];
+}
+#endif // SBARRIERSIGNALISFIRST_DEF
+
 #ifndef SOP2OUT1IN2INST_DEF
 #define SOP2OUT1IN2INST_DEF
 class SOP2Out1In2Inst<string mnemonic> : AMDISAInstruction<mnemonic> {

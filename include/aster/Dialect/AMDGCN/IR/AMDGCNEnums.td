@@ -63,6 +63,18 @@ def AccessKind : AutoI32EnumCases<"AccessKind",
 }
 
 //===----------------------------------------------------------------------===//
+// AMDGCN barrier synchronization scope.
+//===----------------------------------------------------------------------===//
+
+def BarrierScope : AutoI32EnumCases<"BarrierScope",
+  "AMDGCN barrier synchronization scope", [
+    PrettyEnumCaseInfo<"workgroup">,
+    PrettyEnumCaseInfo<"cluster">,
+  ]> {
+  let cppNamespace = "::mlir::aster::amdgcn";
+}
+
+//===----------------------------------------------------------------------===//
 // AMDGCN ptr addr space kinds.
 //===----------------------------------------------------------------------===//
 

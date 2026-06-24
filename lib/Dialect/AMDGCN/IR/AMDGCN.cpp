@@ -907,6 +907,22 @@ static ArrayRef<ISAVersion> clusterOpsISAVersions() {
   static ISAVersion versions[] = {ISAVersion::GFX12_50};
   return versions;
 }
+// Every real hardware target (excludes the InvalidCase sentinel). A
+// workgroup-scope barrier is legal everywhere; a cluster-scope barrier is
+// restricted to clusterOpsISAVersions().
+static ArrayRef<ISAVersion> allISAVersions() {
+  static ISAVersion versions[] = {ISAVersion::CDNA3, ISAVersion::CDNA4,
+                                  ISAVersion::RDNA4, ISAVersion::GFX12_50};
+  return versions;
+}
+ArrayRef<ISAVersion> BarrierOp::getCompatibleISAVersions() {
+  return getScope() == BarrierScope::Cluster ? clusterOpsISAVersions()
+                                             : allISAVersions();
+}
+ArrayRef<ISAVersion> TokenBarrierOp::getCompatibleISAVersions() {
+  return getScope() == BarrierScope::Cluster ? clusterOpsISAVersions()
+                                             : allISAVersions();
+}
 ArrayRef<ISAVersion> ClusterIdOp::getCompatibleISAVersions() {
   return clusterOpsISAVersions();
 }

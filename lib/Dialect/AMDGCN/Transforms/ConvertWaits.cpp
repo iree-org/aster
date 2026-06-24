@@ -13,7 +13,10 @@
 #include "aster/Dialect/AMDGCN/IR/AMDGCNTypes.h"
 #include "aster/Dialect/AMDGCN/IR/Utils.h"
 #include "aster/Dialect/AMDGCN/Transforms/Passes.h"
+#include "aster/Dialect/LSIR/IR/LSIRDialect.h"
+#include "aster/Dialect/LSIR/IR/LSIROps.h"
 #include "aster/Interfaces/DependentOpInterface.h"
+#include "aster/Interfaces/RegisterType.h"
 #include "mlir/Analysis/DataFlow/Utils.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
@@ -122,8 +125,52 @@ static void emitHardwareBarrier(IRRewriter &rewriter, Location loc,
   }
 }
 
-/// Run the wait analysis on `root` with `model`, then rewrite every wait op
-/// inside it to its hardware form.
+/// Materialize a cluster-scope barrier:
+///   - one wave per workgroup is elected by s_barrier_signal_isfirst
+///     (writes SCC = is-first),
+///   - that wave signals the cluster split barrier (id -3),
+///   - all waves wait on it.
+static void materializeClusterBarrier(IRRewriter &rewriter,
+                                      Operation *barrierOp) {
+  OpBuilder::InsertionGuard guard(rewriter);
+  Location loc = barrierOp->getLoc();
+  IntegerType i16 = rewriter.getI16Type();
+  auto id = [&](int16_t v) { return rewriter.getIntegerAttr(i16, v); };
+  Block *curBlock = barrierOp->getBlock();
+
+  // Split the continuation (from the op onward) into joinBlock.
+  Block *joinBlock = rewriter.splitBlock(curBlock, Block::iterator(barrierOp));
+
+  // signalBlock sits between curBlock and joinBlock so the cond_br true
+  // successor is the next physical block (legalize-cf -> s_cbranch_scc0).
+  Block *signalBlock = rewriter.createBlock(joinBlock);
+
+  // curBlock: workgroup barrier (elect first wave) + gate.
+  rewriter.setInsertionPointToEnd(curBlock);
+
+  // `s_barrier_signal_isfirst` writes preallocated SCC.
+  // `lsir.cond_br` reads that storage directly and later legalize-cf kicks in.
+  Value scc = AllocaOp::create(
+      rewriter, loc, SCCType::get(rewriter.getContext(), Register(0)));
+  SBarrierSignalIsfirst::create(rewriter, loc, scc, id(-1));
+  SBarrierWait::create(rewriter, loc, id(-1));
+  // SCC nonzero (first wave) -> signalBlock, others fall through to joinBlock.
+  lsir::CondBranchOp::create(rewriter, loc, scc, signalBlock,
+                             /*trueOperands=*/ValueRange{}, joinBlock,
+                             /*falseOperands=*/ValueRange{});
+
+  // signalBlock: elected wave signals the cluster barrier.
+  rewriter.setInsertionPointToEnd(signalBlock);
+  SBarrierSignal::create(rewriter, loc, id(-3));
+  lsir::BranchOp::create(rewriter, loc, joinBlock);
+
+  // joinBlock: all waves wait on the cluster barrier, then continuation runs.
+  rewriter.setInsertionPointToStart(joinBlock);
+  SBarrierWait::create(rewriter, loc, id(-3));
+}
+
+/// Run the wait analysis on `root`, then rewrite every wait op inside it to its
+/// hardware form, and lower high-level barriers (token / barrier / cluster).
 static LogicalResult convertWaitsOn(Operation *root, ISAVersion isaVersion,
                                     DominanceInfo &domInfo) {
   DataFlowSolver solver(DataFlowConfig().setInterprocedural(false));
@@ -150,18 +197,37 @@ static LogicalResult convertWaitsOn(Operation *root, ISAVersion isaVersion,
     else
       rewriteCdnaWait(rewriter, waitOp, counts, toErase);
   });
+  // Workgroup-scope barriers lower in place to the hardware barrier.
+  // Cluster-scope barriers materialize a cf block split, so collect them first.
+  SmallVector<Operation *> clusterBarriers;
   root->walk([&](TokenBarrierOp barrier) {
+    if (barrier.getScope() == BarrierScope::Cluster) {
+      clusterBarriers.push_back(barrier);
+      return;
+    }
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(barrier);
     emitHardwareBarrier(rewriter, barrier.getLoc(), isaVersion);
     toErase.push_back(barrier);
   });
   root->walk([&](BarrierOp barrier) {
+    if (barrier.getScope() == BarrierScope::Cluster) {
+      clusterBarriers.push_back(barrier);
+      return;
+    }
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(barrier);
     emitHardwareBarrier(rewriter, barrier.getLoc(), isaVersion);
     toErase.push_back(barrier);
   });
+  for (Operation *barrier : clusterBarriers) {
+    assert(needsSplitBarriers(isaVersion) &&
+           "cluster scope requires gfx1250 split-barrier instructions");
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(barrier);
+    materializeClusterBarrier(rewriter, barrier);
+    toErase.push_back(barrier);
+  }
   root->walk([&](FenceableOpInterface fenceable) {
     if (!fenceable.hasFenceToken())
       return;

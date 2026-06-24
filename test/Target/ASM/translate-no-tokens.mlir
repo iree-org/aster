@@ -9,7 +9,7 @@ amdgcn.module @mod target = #amdgcn.target<gfx942> {
     %addr = amdgcn.alloca : !amdgcn.vgpr<0>
     %data = amdgcn.alloca : !amdgcn.vgpr<1>
     %tok = amdgcn.ds_write_b32 data %data addr %addr offset c(%c0) : ins(!amdgcn.vgpr<1>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.write_token<shared>
-    %fence = amdgcn.token_barrier deps %tok : !amdgcn.write_token<shared>
+    %fence = amdgcn.token_barrier scope(<workgroup>) deps %tok : !amdgcn.write_token<shared>
     amdgcn.end_kernel
   }
 }

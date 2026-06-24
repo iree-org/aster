@@ -59,3 +59,25 @@ amdgcn.module @cdna4_cluster_id target = #amdgcn.target<gfx950> {
     return
   }
 }
+
+// -----
+
+// cluster-scope amdgcn.barrier is incompatible with gfx942.
+amdgcn.module @cdna3_cluster_barrier target = #amdgcn.target<gfx942> {
+  func.func @f() {
+    // expected-error @below {{'amdgcn.barrier' op is not compatible with module target gfx942}}
+    amdgcn.barrier scope(#amdgcn.barrier_scope<cluster>)
+    return
+  }
+}
+
+// -----
+
+// cluster-scope amdgcn.token_barrier is incompatible with gfx942.
+amdgcn.module @cdna3_cluster_token_barrier target = #amdgcn.target<gfx942> {
+  func.func @f() {
+    // expected-error @below {{'amdgcn.token_barrier' op is not compatible with module target gfx942}}
+    %t = amdgcn.token_barrier scope(#amdgcn.barrier_scope<cluster>)
+    return
+  }
+}

@@ -63,6 +63,7 @@ def compile_and_run(
     library_paths: Optional[List[str]] = None,
     preprocess: Optional[Callable[[str], str]] = None,
     print_ir_after_all: bool = False,
+    print_asm: bool = False,
     pass_pipeline: Optional[str] = None,
     verify_fn: Optional[Callable] = None,
     mcpu: str = MCPU,
@@ -90,6 +91,7 @@ def compile_and_run(
         library_paths: Library paths for preload. If None, auto-detected.
         preprocess: Optional preprocessing function for MLIR content.
         print_ir_after_all: Whether to print IR after all passes.
+        print_asm: Whether to print generated assembly.
         pass_pipeline: Pass pipeline string. Defaults to TEST_SYNCHRONOUS_PASS_PIPELINE.
         verify_fn: Optional verification function(input_args, output_args).
         mcpu: Target GPU architecture (default: "gfx942").
@@ -158,6 +160,7 @@ def compile_and_run(
             preprocess=preprocess,
             print_opts=PrintOptions.from_flags(
                 print_ir_after_all=print_ir_after_all,
+                print_asm=print_asm,
                 print_timings=print_timings,
                 print_preprocessed_ir=print_preprocessed_ir,
             ),
