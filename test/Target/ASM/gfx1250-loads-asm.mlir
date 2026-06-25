@@ -48,6 +48,20 @@
 //  CHECK-NEXT: global_load_async_to_lds_b128 v2, v0, s[0:1] offset: 16
 //  CHECK-NEXT: s_endpgm
 
+// Oversized wait counts saturate to fieldMax-1.
+// CHECK-LABEL: wait_saturate:
+//  CHECK-NEXT: s_wait_loadcnt 63
+//  CHECK-NEXT: s_wait_kmcnt 31
+//  CHECK-NEXT: s_wait_tensorcnt 63
+//  CHECK-NEXT: s_wait_asynccnt 63
+//  CHECK-NEXT: s_endpgm
+
+// In the fused form each 6-bit subfield saturates before packing:
+// (63 << 8) | 63 = 16191.
+// CHECK-LABEL: wait_saturate_fused:
+//  CHECK-NEXT: s_wait_loadcnt_dscnt 16191
+//  CHECK-NEXT: s_endpgm
+
 amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
 
   amdgcn.kernel @ds_load_b128 attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
@@ -126,6 +140,16 @@ amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
     %offset = arith.constant 16 : i32
     %tok = amdgcn.global_load_async_to_lds_b128 addr %saddr lds_addr %lds_addr offset d(%voff) + c(%offset)
         : ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<async>
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @wait_saturate attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %wf = amdgcn.wait_gfx1250 load_cnt 100 km_cnt 100 tensor_cnt 100 async_cnt 100 -> !amdgcn.fence_token
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @wait_saturate_fused attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %wf = amdgcn.wait_gfx1250 load_cnt 100 ds_cnt 100 -> !amdgcn.fence_token
     amdgcn.end_kernel
   }
 

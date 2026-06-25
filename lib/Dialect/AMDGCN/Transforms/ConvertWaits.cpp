@@ -58,33 +58,59 @@ static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
                                SmallVectorImpl<Operation *> &toErase) {
   Location loc = waitOpOp->getLoc();
   const WaitCntGfx1250 &c = std::get<WaitCntGfx1250>(counts);
+  // Helper lambdas.
   auto get = [&](WaitCounterKind s) { return c.getCount(s); };
   auto present = [](int32_t c) { return c < TokenState::kMaxPosition; };
+  auto sat = [](int32_t fieldMax, int32_t v) {
+    return std::min(static_cast<int32_t>(fieldMax) - 1, v);
+  };
+
   int32_t load = get(WaitCounterKind::Load);
   int32_t store = get(WaitCounterKind::Store);
   int32_t ds = get(WaitCounterKind::Ds);
   bool loadDone = false, storeDone = false, dsDone = false;
   if (present(load) && present(ds)) {
-    SWaitLoadcntDscnt::create(rewriter, loc).setCount((load << 8) | ds);
+    // Read each 6-bit subfield max off its per-counter op default, then pack.
+    auto l = SWaitLoadcnt::create(rewriter, loc);
+    auto d = SWaitDscnt::create(rewriter, loc);
+    SWaitLoadcntDscnt::create(rewriter, loc)
+        .setCount((sat(l.getCount(), load) << 8) | sat(d.getCount(), ds));
+    rewriter.eraseOp(l);
+    rewriter.eraseOp(d);
     loadDone = dsDone = true;
   } else if (present(store) && present(ds)) {
-    SWaitStorecntDscnt::create(rewriter, loc).setCount((store << 8) | ds);
+    auto s = SWaitStorecnt::create(rewriter, loc);
+    auto d = SWaitDscnt::create(rewriter, loc);
+    SWaitStorecntDscnt::create(rewriter, loc)
+        .setCount((sat(s.getCount(), store) << 8) | sat(d.getCount(), ds));
+    rewriter.eraseOp(s);
+    rewriter.eraseOp(d);
     storeDone = dsDone = true;
   }
-  if (present(load) && !loadDone)
-    SWaitLoadcnt::create(rewriter, loc).setCount(load);
-  if (present(store) && !storeDone)
-    SWaitStorecnt::create(rewriter, loc).setCount(store);
-  if (present(ds) && !dsDone)
-    SWaitDscnt::create(rewriter, loc).setCount(ds);
-  if (present(get(WaitCounterKind::ScalarRead)))
-    SWaitKmcnt::create(rewriter, loc)
-        .setCount(get(WaitCounterKind::ScalarRead));
-  if (present(get(WaitCounterKind::Tensor)))
-    SWaitTensorcnt::create(rewriter, loc)
-        .setCount(get(WaitCounterKind::Tensor));
-  if (present(get(WaitCounterKind::Async)))
-    SWaitAsynccnt::create(rewriter, loc).setCount(get(WaitCounterKind::Async));
+  if (present(load) && !loadDone) {
+    auto op = SWaitLoadcnt::create(rewriter, loc);
+    op.setCount(sat(op.getCount(), load));
+  }
+  if (present(store) && !storeDone) {
+    auto op = SWaitStorecnt::create(rewriter, loc);
+    op.setCount(sat(op.getCount(), store));
+  }
+  if (present(ds) && !dsDone) {
+    auto op = SWaitDscnt::create(rewriter, loc);
+    op.setCount(sat(op.getCount(), ds));
+  }
+  if (present(get(WaitCounterKind::ScalarRead))) {
+    auto op = SWaitKmcnt::create(rewriter, loc);
+    op.setCount(sat(op.getCount(), get(WaitCounterKind::ScalarRead)));
+  }
+  if (present(get(WaitCounterKind::Tensor))) {
+    auto op = SWaitTensorcnt::create(rewriter, loc);
+    op.setCount(sat(op.getCount(), get(WaitCounterKind::Tensor)));
+  }
+  if (present(get(WaitCounterKind::Async))) {
+    auto op = SWaitAsynccnt::create(rewriter, loc);
+    op.setCount(sat(op.getCount(), get(WaitCounterKind::Async)));
+  }
   toErase.push_back(waitOpOp);
 }
 
@@ -92,24 +118,24 @@ static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
 static void rewriteCdnaWait(IRRewriter &rewriter, Operation *waitOpOp,
                             const WaitCnt &counts,
                             SmallVectorImpl<Operation *> &toErase) {
-  auto present = [](int32_t c) { return c < TokenState::kMaxPosition; };
+  Location loc = waitOpOp->getLoc();
   const WaitCntCdna3 &c = std::get<WaitCntCdna3>(counts);
-  int32_t vm = c.vmcnt;
-  int32_t lgkm = c.lgkmcnt;
-  bool hasVm = present(vm), hasLgkm = present(lgkm);
-  // Create the s_waitcnt without optional fence_token then mark the wait for
-  // erasure.
-  if (!hasVm && !hasLgkm) {
-    toErase.push_back(waitOpOp);
-    return;
+  // Helper lambdas.
+  auto get = [&](WaitCounterKind k) { return c.getCount(k); };
+  auto present = [](int32_t cnt) { return cnt < TokenState::kMaxPosition; };
+  auto sat = [](int32_t fieldMax, int32_t v) {
+    return std::min(static_cast<int32_t>(fieldMax) - 1, v);
+  };
+
+  int32_t vm = get(WaitCounterKind::Vm);
+  int32_t lgkm = get(WaitCounterKind::Lgkm);
+  if (present(vm) || present(lgkm)) {
+    auto op = SWaitcnt::create(rewriter, loc);
+    if (present(vm))
+      op.setVmcnt(sat(op.getVmcnt(), vm));
+    if (present(lgkm))
+      op.setLgkmcnt(sat(op.getLgkmcnt(), lgkm));
   }
-  auto newWait = SWaitcnt::create(rewriter, waitOpOp->getLoc());
-  if (hasVm)
-    newWait.setVmcnt(
-        std::min(static_cast<int32_t>(newWait.getVmcnt()) - 1, vm));
-  if (hasLgkm)
-    newWait.setLgkmcnt(
-        std::min(static_cast<int32_t>(newWait.getLgkmcnt()) - 1, lgkm));
   toErase.push_back(waitOpOp);
 }
 

@@ -141,6 +141,7 @@ def SignedImm16Attr : DefaultValuedAttr<I16Attr, "0">, ASMArgFormat {
   let asmPrinter = "$_printer.printImm16AsSigned($_self);";
 }
 
+// CDNA 3/4 fused wait count modifiers.
 // EXPCNT attribute
 def ExpcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<8>]>, "expcnt", 8> {
   let summary = "EXPCNT wait count modifier";
@@ -154,6 +155,32 @@ def LgkmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxV
 // VMCNT attribute
 def VmcntAttr : ParenIntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<64>]>, "vmcnt", 64> {
   let summary = "VMCNT wait count modifier";
+}
+
+// GFX12.5+ split wait count modifiers.
+def LoadcntAttr : IntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<63>]>, 64> {
+  let summary = "LOAD_CNT wait count";
+}
+
+def StorecntAttr : IntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<63>]>, 64> {
+  let summary = "STORE_CNT wait count";
+}
+
+def DscntAttr : IntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<63>]>, 64> {
+  let summary = "DS_CNT wait count";
+}
+
+def KmcntAttr : IntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<31>]>, 32> {
+  let summary = "KM_CNT wait count";
+}
+
+// Note: this is not documented in LLVM so just use size 63 like siblings for now.
+def TensorcntAttr : IntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<63>]>, 64> {
+  let summary = "TENSOR_CNT wait count";
+}
+
+def AsynccntAttr : IntModifier<ConfinedAttr<I8Attr, [IntMinValue<0>, IntMaxValue<63>]>, 64> {
+  let summary = "ASYNC_CNT wait count";
 }
 
 #endif // ASTER_AMDGCN_AMDGCNMODIFIERS_TD
