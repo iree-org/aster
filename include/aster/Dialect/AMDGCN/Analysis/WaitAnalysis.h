@@ -208,7 +208,7 @@ private:
 };
 
 /// gfx1250 wait counts: one independent counter per kind
-/// {load, store, ds, km, tensor}.
+/// {load, store, ds, km, tensor, async}.
 struct WaitCntGfx1250 {
   using Position = TokenState::Position;
   static constexpr Position kMaxPosition = TokenState::kMaxPosition;

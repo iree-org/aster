@@ -37,8 +37,8 @@ void AMDGCNStripWaits::runOnOperation() {
   SmallVector<Operation *> toErase;
   op->walk([&](Operation *innerOp) {
     if (isa<WaitOp, WaitGfx1250Op, SWaitcnt, SWaitLoadcnt, SWaitStorecnt,
-            SWaitDscnt, SWaitKmcnt, SWaitTensorcnt, SWaitLoadcntDscnt,
-            SWaitStorecntDscnt>(innerOp))
+            SWaitDscnt, SWaitKmcnt, SWaitTensorcnt, SWaitAsynccnt,
+            SWaitLoadcntDscnt, SWaitStorecntDscnt>(innerOp))
       toErase.push_back(innerOp);
   });
   for (Operation *waitOp : toErase)
