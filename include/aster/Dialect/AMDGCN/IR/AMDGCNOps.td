@@ -961,7 +961,7 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
     - `ds_cnt`:     LDS operations       (CDNA lgkmcnt, LDS half)
     - `km_cnt`:     scalar memory loads  (CDNA lgkmcnt, scalar half)
     - `tensor_cnt`: tensor-memory operations (tensor_load_to_lds)
-    - `async_cnt`:  async cluster/global loads to LDS (cluster_load_async_to_lds_*)
+    - `async_cnt`:  async loads to LDS (cluster_load_async_to_lds_*, global_load_async_to_lds_b*)
 
     At lowering, load_cnt + ds_cnt fuse into s_wait_loadcnt_dscnt and
     store_cnt + ds_cnt into s_wait_storecnt_dscnt (load_cnt takes priority for

@@ -32,6 +32,22 @@
 //  CHECK-NEXT: s_wait_loadcnt_dscnt 0
 //  CHECK-NEXT: s_endpgm
 
+// global_load_async_to_lds_b32 emits the VFLAT async-to-LDS load.
+// CHECK-LABEL: async_load_to_lds:
+//  CHECK-NEXT: global_load_async_to_lds_b32 v2, v[0:1], off
+//  CHECK-NEXT: s_endpgm
+
+// global_load_async_to_lds completion is waited via s_wait_asynccnt (ASYNC_CNT).
+// CHECK-LABEL: async_load_wait:
+//  CHECK-NEXT: global_load_async_to_lds_b32 v2, v[0:1], off
+//  CHECK-NEXT: s_wait_asynccnt 0
+//  CHECK-NEXT: s_endpgm
+
+// The SADDR form takes an SGPR base + VGPR voffset and a const byte offset.
+// CHECK-LABEL: async_load_b128_saddr:
+//  CHECK-NEXT: global_load_async_to_lds_b128 v2, v0, s[0:1] offset: 16
+//  CHECK-NEXT: s_endpgm
+
 amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
 
   amdgcn.kernel @ds_load_b128 attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
@@ -83,4 +99,34 @@ amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
     %wf2 = amdgcn.wait_gfx1250 load_cnt 0 ds_cnt 0 -> !amdgcn.fence_token
     amdgcn.end_kernel
   }
+
+  amdgcn.kernel @async_load_to_lds attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %addr = lsir.alloca : !amdgcn.vgpr<[0 : 2]>
+    %lds_addr = lsir.alloca : !amdgcn.vgpr<2>
+    %offset = arith.constant 0 : i32
+    %tok = amdgcn.global_load_async_to_lds_b32 addr %addr lds_addr %lds_addr offset c(%offset)
+        : ins(!amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.read_token<async>
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @async_load_wait attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %addr = lsir.alloca : !amdgcn.vgpr<[0 : 2]>
+    %lds_addr = lsir.alloca : !amdgcn.vgpr<2>
+    %offset = arith.constant 0 : i32
+    %tok = amdgcn.global_load_async_to_lds_b32 addr %addr lds_addr %lds_addr offset c(%offset)
+        : ins(!amdgcn.vgpr<[0 : 2]>, !amdgcn.vgpr<2>) mods(i32) -> !amdgcn.read_token<async>
+    %wf = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<async> -> !amdgcn.fence_token
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @async_load_b128_saddr attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %saddr = lsir.alloca : !amdgcn.sgpr<[0 : 2]>
+    %voff = lsir.alloca : !amdgcn.vgpr<0>
+    %lds_addr = lsir.alloca : !amdgcn.vgpr<2>
+    %offset = arith.constant 16 : i32
+    %tok = amdgcn.global_load_async_to_lds_b128 addr %saddr lds_addr %lds_addr offset d(%voff) + c(%offset)
+        : ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<2>, !amdgcn.vgpr<0>) mods(i32) -> !amdgcn.read_token<async>
+    amdgcn.end_kernel
+  }
+
 }

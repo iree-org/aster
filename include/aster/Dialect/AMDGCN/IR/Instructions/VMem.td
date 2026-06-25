@@ -990,6 +990,93 @@ def ClusterLoadAsyncToLdsB128 : ClusterLoadAsyncToLdsBInst<"cluster_load_async_t
 #endif // CLUSTERLOADASYNCB128_DEF
 
 //===----------------------------------------------------------------------===//
+// gfx1250 async-to-LDS loads (global_load_async_to_lds_b* family).
+//===----------------------------------------------------------------------===//
+
+#ifndef GLOBALLOADASYNCTOLDSINST_DEF
+#define GLOBALLOADASYNCTOLDSINST_DEF
+// Load from global memory directly into LDS asynchronously (gfx1250/gfx1251).
+// lds_addr (the ISA vdst) holds the LDS byte address destination (not M0).
+// Completion is tracked by s_wait_asynccnt via the async token .
+class GlobalLoadAsyncToLdsInst<string mnemonic>
+    : AMDISAInstruction<mnemonic, [GlobalLoadInstOpInterface]> {
+  let props = [IsVMem, IsGlobal];
+  let archs = [GFX12_50Isa];
+  let effects = [GlobalRead, LDSWrite];
+  let outputs = (ins);
+  let inputs = (ins
+    AnyRegOf<[VGPROf<2>, TwoSGPROrVCCType]>:$addr,
+    OptionalReg<VGPROf<1>>:$offset,
+    VGPROf<1>:$lds_addr
+  );
+  let trailingArgs = (ins
+    OffsetType<13, /*signed=*/true>:$const_offset,
+    NT:$nt,
+    SC0:$sc0,
+    SC1:$sc1
+  );
+  let trailingResults = (outs AsyncReadToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `addr` $addr `lds_addr` $lds_addr
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `ins` `(` type($addr) `,` type($lds_addr) (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)` `->`
+    qualified(type($token))
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $lds_addr, $addr, off [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<VGPRType>($_self.getAddr().getType())">>,
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $lds_addr, $offset, $addr [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<SGPRType>($_self.getAddr().getType())">>,
+  ];
+  let hasVerifier = 1;
+  let instExtraClassDeclaration = [{
+    /// Load-to-LDS has no register destination; data goes directly to LDS.
+    /// Callers using GlobalLoadInstOpInterface must check for null before
+    /// accessing getDst() or getDestResult().
+    Operand getDst() {
+      return {};
+    }
+    /// See getDst().
+    OpResult getDestResult() {
+      return {};
+    }
+  }];
+  let extraClassDefinition = [{
+    LogicalResult $cppClass::verify() {
+      if (isa<VGPRType>(getAddr().getType()) && getOffset())
+        return emitError("expects no offset with VGPR address");
+      if (isa<SGPRType>(getAddr().getType()) && !getOffset())
+        return emitError("expects an offset with SGPR address");
+      return success();
+    }
+  }];
+}
+#endif // GLOBALLOADASYNCTOLDSINST_DEF
+
+#ifndef GLOBALLOADASYNCTOLDSB32_DEF
+#define GLOBALLOADASYNCTOLDSB32_DEF
+def GlobalLoadAsyncToLdsB32 : GlobalLoadAsyncToLdsInst<"global_load_async_to_lds_b32"> {
+  let description = [{
+    Load 32 bits from global memory into LDS asynchronously (gfx1250/gfx1251).
+  }];
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0x60>];
+}
+#endif // GLOBALLOADASYNCTOLDSB32_DEF
+
+#ifndef GLOBALLOADASYNCTOLDSB128_DEF
+#define GLOBALLOADASYNCTOLDSB128_DEF
+def GlobalLoadAsyncToLdsB128 : GlobalLoadAsyncToLdsInst<"global_load_async_to_lds_b128"> {
+  let description = [{
+    Load 128 bits from global memory into LDS asynchronously (gfx1250/gfx1251).
+  }];
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0x62>];
+}
+#endif // GLOBALLOADASYNCTOLDSB128_DEF
+
+//===----------------------------------------------------------------------===//
 // gfx1250 global store instructions (global_store_b* family).
 //===----------------------------------------------------------------------===//
 

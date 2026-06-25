@@ -822,8 +822,9 @@ Value WaitGfx1250Op::getOutDependency() { return Value(); }
 // WaitCntOpInterface: amdgcn.wait_gfx1250 carries the gfx1250 load/ds/tensor
 // counters.
 SmallVector<WaitCounterKind> WaitGfx1250Op::getSupportedCounters() {
-  return {WaitCounterKind::Load, WaitCounterKind::Store, WaitCounterKind::Ds,
-          WaitCounterKind::Km, WaitCounterKind::Tensor};
+  return {WaitCounterKind::Load,   WaitCounterKind::Store,
+          WaitCounterKind::Ds,     WaitCounterKind::Km,
+          WaitCounterKind::Tensor, WaitCounterKind::Async};
 }
 
 uint16_t WaitGfx1250Op::getCounterValue(WaitCounterKind kind) {
@@ -973,7 +974,7 @@ static LogicalResult canonicalizeWaitGfx1250Impl(WaitGfx1250Op waitOp,
 
   uint16_t loadCnt = waitOp.getLoadCnt(), storeCnt = waitOp.getStoreCnt(),
            dsCnt = waitOp.getDsCnt(), kmCnt = waitOp.getKmCnt(),
-           tensorCnt = waitOp.getTensorCnt();
+           tensorCnt = waitOp.getTensorCnt(), asyncCnt = waitOp.getAsyncCnt();
   while (start != end) {
     auto wait = cast<WaitGfx1250Op>(*(start++));
     deps.insert_range(wait.getDependencies());
@@ -982,6 +983,7 @@ static LogicalResult canonicalizeWaitGfx1250Impl(WaitGfx1250Op waitOp,
     dsCnt = std::min(dsCnt, wait.getDsCnt());
     kmCnt = std::min(kmCnt, wait.getKmCnt());
     tensorCnt = std::min(tensorCnt, wait.getTensorCnt());
+    asyncCnt = std::min(asyncCnt, wait.getAsyncCnt());
     if (wait != waitOp) {
       wait.getFenceToken().replaceAllUsesWith(waitOp.getFenceToken());
       rewriter.eraseOp(wait);
@@ -1009,6 +1011,10 @@ static LogicalResult canonicalizeWaitGfx1250Impl(WaitGfx1250Op waitOp,
   if (waitOp.getTensorCnt() != tensorCnt) {
     changed = true;
     waitOp.setTensorCnt(tensorCnt);
+  }
+  if (waitOp.getAsyncCnt() != asyncCnt) {
+    changed = true;
+    waitOp.setAsyncCnt(asyncCnt);
   }
   if (changed)
     rewriter.modifyOpInPlace(waitOp, []() {});

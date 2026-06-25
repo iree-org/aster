@@ -67,6 +67,28 @@ func.func @test_tensor_load_to_lds(
 }
 
 //===----------------------------------------------------------------------===//
+// global_load_async_to_lds (gfx1250/gfx1251).
+//===----------------------------------------------------------------------===//
+
+func.func @test_global_load_async_to_lds_b32(%addr: !amdgcn.vgpr<[? + 2]>, %lds_addr: !amdgcn.vgpr) -> !amdgcn.read_token<async> {
+  %offset = arith.constant 0 : i32
+  %tok = amdgcn.global_load_async_to_lds_b32 addr %addr lds_addr %lds_addr offset c(%offset) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<async>
+  return %tok : !amdgcn.read_token<async>
+}
+
+func.func @test_global_load_async_to_lds_b128(%addr: !amdgcn.vgpr<[? + 2]>, %lds_addr: !amdgcn.vgpr) -> !amdgcn.read_token<async> {
+  %offset = arith.constant 0 : i32
+  %tok = amdgcn.global_load_async_to_lds_b128 addr %addr lds_addr %lds_addr offset c(%offset) : ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<async>
+  return %tok : !amdgcn.read_token<async>
+}
+
+func.func @test_global_load_async_to_lds_b32_saddr(%saddr: !amdgcn.sgpr<[? + 2]>, %voff: !amdgcn.vgpr, %lds_addr: !amdgcn.vgpr) -> !amdgcn.read_token<async> {
+  %offset = arith.constant 16 : i32
+  %tok = amdgcn.global_load_async_to_lds_b32 addr %saddr lds_addr %lds_addr offset d(%voff) + c(%offset) : ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<async>
+  return %tok : !amdgcn.read_token<async>
+}
+
+//===----------------------------------------------------------------------===//
 // SOPP control + wait ops (s_set_vgpr_msb, s_setprio_inc_wg, s_wait_*cnt)
 //===----------------------------------------------------------------------===//
 
