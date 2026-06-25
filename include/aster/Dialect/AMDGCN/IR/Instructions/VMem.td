@@ -900,6 +900,96 @@ def ClusterLoadB128 : ClusterLoadBInst<"cluster_load_b128", /*dest=*/[VGPROf<4>]
 #endif // CLUSTERLOADB128_DEF
 
 //===----------------------------------------------------------------------===//
+// gfx1250 async cluster multicast loads to LDS (cluster_load_async_to_lds_b*).
+//===----------------------------------------------------------------------===//
+
+#ifndef CLUSTERLOADASYNCBINST_DEF
+#define CLUSTERLOADASYNCBINST_DEF
+// Async multicast load: global -> LDS, broadcast to the workgroups selected by
+// the M0 mask within the cluster.
+// LDS byte offset comes from the VGPR $lds_dest.
+//
+// Key differences vs sync ClusterLoadBInst:
+//   - $lds_dest is a VGPR holding the LDS byte offset, not the data destination.
+//   - Completion is tracked by ASYNC_CNT / s_wait_asynccnt (AsyncReadToken),
+//     not by loadcnt (FlatReadToken).
+//   - No data output VGPR (LDSWrite effect; data lands in LDS).
+class ClusterLoadAsyncToLdsBInst<string mnemonic>
+    : AMDISAInstruction<mnemonic, []> {
+  let props = [IsVMem, IsGlobal];
+  let archs = [GFX12_50Isa];
+  let effects = [GlobalRead, LDSWrite];
+  // $lds_dest: VGPR holding the LDS byte offset of the destination.
+  let outputs = (ins);
+  let inputs = (ins
+    VGPROf<1>:$lds_dest,
+    AnyRegOf<[VGPROf<2>, TwoSGPROrVCCType]>:$addr,
+    OptionalReg<VGPROf<1>>:$offset,
+    M0Type:$m0_src
+  );
+  let trailingArgs = (ins
+    OffsetType<13, /*signed=*/true>:$const_offset,
+    NT:$nt,
+    SC0:$sc0,
+    SC1:$sc1
+  );
+  // Completion tracked by ASYNC_CNT (s_wait_asynccnt).
+  let trailingResults = (outs AsyncReadToken:$token);
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `lds_dest` $lds_dest `addr` $addr `m0` $m0_src
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `ins` `(` type($lds_dest) `,` type($addr) `,` type($m0_src)
+    (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)` `->`
+    qualified(type($token))
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $lds_dest, $addr, off [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<VGPRType>($_self.getAddr().getType())">>,
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $lds_dest, $offset, $addr [const_offset] [sc0] [sc1] [nt]",
+      CPred<"isa<SGPRType>($_self.getAddr().getType())">>,
+  ];
+  let hasVerifier = 1;
+  let extraClassDefinition = [{
+    LogicalResult $cppClass::verify() {
+      if (isa<VGPRType>(getAddr().getType()) && getOffset())
+        return emitError("expects no offset with VGPR address");
+      if (isa<SGPRType>(getAddr().getType()) && !getOffset())
+        return emitError("expects an offset with SGPR address");
+      return success();
+    }
+  }];
+}
+#endif // CLUSTERLOADASYNCBINST_DEF
+
+#ifndef CLUSTERLOADASYNCB32_DEF
+#define CLUSTERLOADASYNCB32_DEF
+def ClusterLoadAsyncToLdsB32 : ClusterLoadAsyncToLdsBInst<"cluster_load_async_to_lds_b32"> {
+  let description = [{
+    Async multicast load 32 bits from global memory into LDS, broadcasting to
+    the cluster workgroups selected by the M0 mask. $lds_dest holds the LDS
+    byte offset. Completion tracked by ASYNC_CNT (s_wait_asynccnt).
+  }];
+  // LLVM: CLUSTER_LOAD_ASYNC_TO_LDS_B32, VFLAT_Real_AllAddr_gfx1250<0x6b>.
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b1101011>];
+}
+#endif // CLUSTERLOADASYNCB32_DEF
+
+#ifndef CLUSTERLOADASYNCB128_DEF
+#define CLUSTERLOADASYNCB128_DEF
+def ClusterLoadAsyncToLdsB128 : ClusterLoadAsyncToLdsBInst<"cluster_load_async_to_lds_b128"> {
+  let description = [{
+    Async multicast load 128 bits from global memory into LDS. Same semantics
+    as cluster_load_async_to_lds_b32 but transfers 128 bits per lane.
+  }];
+  // LLVM: CLUSTER_LOAD_ASYNC_TO_LDS_B128, VFLAT_Real_AllAddr_gfx1250<0x6d>.
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0b1101101>];
+}
+#endif // CLUSTERLOADASYNCB128_DEF
+
+//===----------------------------------------------------------------------===//
 // gfx1250 global store instructions (global_store_b* family).
 //===----------------------------------------------------------------------===//
 

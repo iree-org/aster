@@ -838,6 +838,8 @@ uint16_t WaitGfx1250Op::getCounterValue(WaitCounterKind kind) {
     return getKmCnt();
   case WaitCounterKind::Tensor:
     return getTensorCnt();
+  case WaitCounterKind::Async:
+    return getAsyncCnt();
   default:
     return kNoWaitCount;
   }
@@ -859,6 +861,9 @@ void WaitGfx1250Op::setCounterValue(WaitCounterKind kind, uint16_t value) {
     return;
   case WaitCounterKind::Tensor:
     setTensorCnt(value);
+    return;
+  case WaitCounterKind::Async:
+    setAsyncCnt(value);
     return;
   default:
     llvm_unreachable("amdgcn.wait_gfx1250 does not carry this counter");

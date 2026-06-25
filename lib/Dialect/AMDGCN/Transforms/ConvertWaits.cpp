@@ -83,6 +83,8 @@ static void rewriteGfx1250Wait(IRRewriter &rewriter, Operation *waitOpOp,
   if (present(get(WaitCounterKind::Tensor)))
     SWaitTensorcnt::create(rewriter, loc)
         .setCount(get(WaitCounterKind::Tensor));
+  if (present(get(WaitCounterKind::Async)))
+    SWaitAsynccnt::create(rewriter, loc).setCount(get(WaitCounterKind::Async));
   toErase.push_back(waitOpOp);
 }
 

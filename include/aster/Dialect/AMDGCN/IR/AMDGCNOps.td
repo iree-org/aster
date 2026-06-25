@@ -961,6 +961,7 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
     - `ds_cnt`:     LDS operations       (CDNA lgkmcnt, LDS half)
     - `km_cnt`:     scalar memory loads  (CDNA lgkmcnt, scalar half)
     - `tensor_cnt`: tensor-memory operations (tensor_load_to_lds)
+    - `async_cnt`:  async cluster/global loads to LDS (cluster_load_async_to_lds_*)
 
     At lowering, load_cnt + ds_cnt fuse into s_wait_loadcnt_dscnt and
     store_cnt + ds_cnt into s_wait_storecnt_dscnt (load_cnt takes priority for
@@ -971,6 +972,7 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
     - s_wait_dscnt
     - s_wait_kmcnt
     - s_wait_tensorcnt
+    - s_wait_asynccnt
 
     Always produces an ordering-only fence_token (via FenceOpInterface) that
     may be passed to FenceableOpInterface consumers or
@@ -987,7 +989,7 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
   let arguments = (ins
     Variadic<TokenDependencyTypeInterface>:$dependencies,
     WaitCountAttr:$load_cnt, WaitCountAttr:$store_cnt, WaitCountAttr:$ds_cnt,
-    WaitCountAttr:$km_cnt, WaitCountAttr:$tensor_cnt
+    WaitCountAttr:$km_cnt, WaitCountAttr:$tensor_cnt, WaitCountAttr:$async_cnt
   );
   let results = (outs FenceToken:$fence_token);
   let assemblyFormat = [{
@@ -996,7 +998,8 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
       `store_cnt` $store_cnt |
       `ds_cnt` $ds_cnt |
       `km_cnt` $km_cnt |
-      `tensor_cnt` $tensor_cnt
+      `tensor_cnt` $tensor_cnt |
+      `async_cnt` $async_cnt
     )
     (`deps` $dependencies^)?
     attr-dict (`:` type($dependencies)^)? `->` type($fence_token)
@@ -1004,14 +1007,14 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
   let builders = [
     OpBuilder<(ins "::mlir::ValueRange":$dependencies,
                    "uint16_t":$loadCnt, "uint16_t":$storeCnt, "uint16_t":$dsCnt,
-                   "uint16_t":$kmCnt, "uint16_t":$tensorCnt), [{
+                   "uint16_t":$kmCnt, "uint16_t":$tensorCnt, "uint16_t":$asyncCnt), [{
       build($_builder, $_state, $_builder.getType<FenceTokenType>(),
-            dependencies, loadCnt, storeCnt, dsCnt, kmCnt, tensorCnt);
+            dependencies, loadCnt, storeCnt, dsCnt, kmCnt, tensorCnt, asyncCnt);
     }]>,
     OpBuilder<(ins "::mlir::ValueRange":$dependencies), [{
       build($_builder, $_state, $_builder.getType<FenceTokenType>(),
             dependencies, kNoWaitCount, kNoWaitCount, kNoWaitCount,
-            kNoWaitCount, kNoWaitCount);
+            kNoWaitCount, kNoWaitCount, kNoWaitCount);
     }]>
   ];
   let extraClassDeclaration = [{
@@ -1038,7 +1041,7 @@ def AMDGCN_WaitGfx1250Op : AMDGCN_Op<"wait_gfx1250", [
     bool hasAnyCount() {
       return getLoadCnt() != kNoWaitCount || getStoreCnt() != kNoWaitCount ||
              getDsCnt() != kNoWaitCount || getKmCnt() != kNoWaitCount ||
-             getTensorCnt() != kNoWaitCount;
+             getTensorCnt() != kNoWaitCount || getAsyncCnt() != kNoWaitCount;
     }
 
     /// Check if the wait operation is a no-wait (has no dependencies).

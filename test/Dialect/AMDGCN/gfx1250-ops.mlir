@@ -14,6 +14,12 @@ func.func @test_ds_load_b128(%addr: !amdgcn.vgpr, %dst4: !amdgcn.vgpr<[? + 4]>) 
   return %result : !amdgcn.vgpr<[? + 4]>
 }
 
+func.func @test_ds_load_b32(%addr: !amdgcn.vgpr, %dst: !amdgcn.vgpr) -> !amdgcn.vgpr {
+  %offset = arith.constant 0 : i32
+  %result, %tok = amdgcn.ds_load_b32 dest %dst addr %addr offset c(%offset) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<shared>
+  return %result : !amdgcn.vgpr
+}
+
 //===----------------------------------------------------------------------===//
 // Global memory loads/stores (global_load_b32/b128, global_store_b32)
 //===----------------------------------------------------------------------===//
@@ -127,6 +133,37 @@ func.func @test_cluster_load_b(%addr: !amdgcn.vgpr<[? + 2]>, %m0: !amdgcn.m0<0>,
   %r1, %t1 = amdgcn.cluster_load_b32 dest %d1 addr %addr m0 %m0 offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.m0<0>) mods(i32) -> !amdgcn.read_token<flat>
 
   %r4, %t4 = amdgcn.cluster_load_b128 dest %d4 addr %addr m0 %m0 offset c(%c0) : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.m0<0>) mods(i32) -> !amdgcn.read_token<flat>
+  return
+}
+
+//===----------------------------------------------------------------------===//
+// Async cluster multicast loads to LDS
+//===----------------------------------------------------------------------===//
+
+func.func @test_cluster_load_async_to_lds_b(
+    %lds_dst: !amdgcn.vgpr, %addr: !amdgcn.vgpr<[? + 2]>, %m0: !amdgcn.m0<0>,
+    %saddr: !amdgcn.sgpr<[? + 2]>, %voff: !amdgcn.vgpr) {
+  %c0 = arith.constant 0 : i32
+
+  // VGPR address form: no dynamic offset.
+  %t32 = amdgcn.cluster_load_async_to_lds_b32 lds_dest %lds_dst addr %addr m0 %m0
+      offset c(%c0) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, !amdgcn.m0<0>)
+      mods(i32) -> !amdgcn.read_token<async>
+
+  %t128 = amdgcn.cluster_load_async_to_lds_b128 lds_dest %lds_dst addr %addr m0 %m0
+      offset c(%c0) : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, !amdgcn.m0<0>)
+      mods(i32) -> !amdgcn.read_token<async>
+
+  // SGPR address form: requires a dynamic VGPR offset.
+  %ts32 = amdgcn.cluster_load_async_to_lds_b32 lds_dest %lds_dst addr %saddr m0 %m0
+      offset d(%voff) + c(%c0)
+      : ins(!amdgcn.vgpr, !amdgcn.sgpr<[? + 2]>, !amdgcn.m0<0>, !amdgcn.vgpr)
+      mods(i32) -> !amdgcn.read_token<async>
+
+  // wait_gfx1250 async drain
+  %wf = amdgcn.wait_gfx1250 deps %t32, %t128, %ts32
+      : !amdgcn.read_token<async>, !amdgcn.read_token<async>,
+        !amdgcn.read_token<async> -> !amdgcn.fence_token
   return
 }
 

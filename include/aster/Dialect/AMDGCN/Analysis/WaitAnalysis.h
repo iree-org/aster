@@ -214,15 +214,16 @@ struct WaitCntGfx1250 {
   static constexpr Position kMaxPosition = TokenState::kMaxPosition;
 
   /// The counter kinds gfx1250 tracks, in print/iteration order.
-  static constexpr std::array<WaitCounterKind, 5> kKinds = {
-      WaitCounterKind::Load, WaitCounterKind::Store, WaitCounterKind::Ds,
-      WaitCounterKind::Km, WaitCounterKind::Tensor};
+  static constexpr std::array<WaitCounterKind, 6> kKinds = {
+      WaitCounterKind::Load, WaitCounterKind::Store,  WaitCounterKind::Ds,
+      WaitCounterKind::Km,   WaitCounterKind::Tensor, WaitCounterKind::Async};
 
   Position loadcnt = kMaxPosition;
   Position storecnt = kMaxPosition;
   Position dscnt = kMaxPosition;
   Position kmcnt = kMaxPosition;
   Position tensorcnt = kMaxPosition;
+  Position asynccnt = kMaxPosition;
 
   int32_t getCount(WaitCounterKind kind) const {
     return const_cast<WaitCntGfx1250 *>(this)->counterFor(kind);
@@ -236,16 +237,18 @@ struct WaitCntGfx1250 {
   bool operator==(const WaitCntGfx1250 &other) const {
     return loadcnt == other.loadcnt && storecnt == other.storecnt &&
            dscnt == other.dscnt && kmcnt == other.kmcnt &&
-           tensorcnt == other.tensorcnt;
+           tensorcnt == other.tensorcnt && asynccnt == other.asynccnt;
   }
 
 private:
   /// Select the field tracking `kind`.
   Position &counterFor(WaitCounterKind kind) {
-    assert(kind == WaitCounterKind::Load || kind == WaitCounterKind::Store ||
-           kind == WaitCounterKind::Ds || kind == WaitCounterKind::Km ||
-           kind == WaitCounterKind::ScalarRead ||
-           kind == WaitCounterKind::Tensor && "expected gfx1250 counter");
+    assert((kind == WaitCounterKind::Load || kind == WaitCounterKind::Store ||
+            kind == WaitCounterKind::Ds || kind == WaitCounterKind::Km ||
+            kind == WaitCounterKind::ScalarRead ||
+            kind == WaitCounterKind::Tensor ||
+            kind == WaitCounterKind::Async) &&
+           "expected gfx1250 counter");
     switch (kind) {
     case WaitCounterKind::Load:
       return loadcnt;
@@ -258,6 +261,8 @@ private:
       return kmcnt;
     case WaitCounterKind::Tensor:
       return tensorcnt;
+    case WaitCounterKind::Async:
+      return asynccnt;
     default:
       llvm_unreachable("counter kind is not a gfx1250 counter");
     }

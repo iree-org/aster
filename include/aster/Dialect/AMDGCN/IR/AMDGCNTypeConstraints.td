@@ -100,6 +100,9 @@ def FlatWriteToken :
 def TensorReadToken :
   CPPType<"::mlir::aster::amdgcn::ReadTokenType", "read token type">,
   InferrableType<"$_builder.getType<ReadTokenType>(MemoryInstructionKind::Tensor)">;
+def AsyncReadToken :
+  CPPType<"::mlir::aster::amdgcn::ReadTokenType", "read token type">,
+  InferrableType<"$_builder.getType<ReadTokenType>(MemoryInstructionKind::Async)">;
 
 // Ordering-only fence token. Produced by FenceOpInterface ops and consumed
 // by FenceableOpInterface ops.
