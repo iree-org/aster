@@ -117,6 +117,20 @@ func.func @test_cluster_workgroup_max_id_dims() -> !amdgcn.sgpr {
 }
 
 //===----------------------------------------------------------------------===//
+// Cluster multicast loads
+//===----------------------------------------------------------------------===//
+
+func.func @test_cluster_load_b(%addr: !amdgcn.vgpr<[? + 2]>, %m0: !amdgcn.m0<0>,
+    %d1: !amdgcn.vgpr, %d2: !amdgcn.vgpr<[? + 2]>, %d4: !amdgcn.vgpr<[? + 4]>) {
+  %c0 = arith.constant 0 : i32
+
+  %r1, %t1 = amdgcn.cluster_load_b32 dest %d1 addr %addr m0 %m0 offset c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.m0<0>) mods(i32) -> !amdgcn.read_token<flat>
+
+  %r4, %t4 = amdgcn.cluster_load_b128 dest %d4 addr %addr m0 %m0 offset c(%c0) : outs(!amdgcn.vgpr<[? + 4]>) ins(!amdgcn.vgpr<[? + 2]>, !amdgcn.m0<0>) mods(i32) -> !amdgcn.read_token<flat>
+  return
+}
+
+//===----------------------------------------------------------------------===//
 // gfx1250 split wait op (amdgcn.wait_gfx1250; disjoint from the CDNA amdgcn.wait)
 //===----------------------------------------------------------------------===//
 
