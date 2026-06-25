@@ -926,7 +926,7 @@ def SWaitTensorcnt : AMDISAInstruction<"s_wait_tensorcnt"> {
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
-    Imm16Attr:$count
+    TensorcntAttr:$count
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -951,7 +951,7 @@ def SWaitLoadcnt : AMDISAInstruction<"s_wait_loadcnt"> {
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
-    Imm16Attr:$count
+    LoadcntAttr:$count
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -976,7 +976,7 @@ def SWaitDscnt : AMDISAInstruction<"s_wait_dscnt"> {
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
-    Imm16Attr:$count
+    DscntAttr:$count
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -1001,7 +1001,7 @@ def SWaitStorecnt : AMDISAInstruction<"s_wait_storecnt"> {
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
-    Imm16Attr:$count
+    StorecntAttr:$count
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -1026,7 +1026,7 @@ def SWaitKmcnt : AMDISAInstruction<"s_wait_kmcnt"> {
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
-    Imm16Attr:$count
+    KmcntAttr:$count
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
@@ -1105,7 +1105,7 @@ def SWaitAsynccnt : AMDISAInstruction<"s_wait_asynccnt"> {
   let outputs = (ins);
   let inputs = (ins);
   let trailingArgs = (ins
-    Imm16Attr:$count
+    AsynccntAttr:$count
   );
   let genInstAssemblyFormat = 0;
   let assemblyFormat = [{
