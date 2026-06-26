@@ -62,6 +62,27 @@
 //  CHECK-NEXT: s_wait_loadcnt_dscnt 16191
 //  CHECK-NEXT: s_endpgm
 
+// global_prefetch_b8 is a fire-and-forget L2 hint: no dest, no token, no wait.
+// CHECK-LABEL: prefetch_vaddr:
+//  CHECK-NEXT: global_prefetch_b8 v[0:1], off
+//  CHECK-NEXT: s_endpgm
+
+// The SADDR form takes an SGPR base + VGPR voffset and a const byte offset.
+// CHECK-LABEL: prefetch_saddr:
+//  CHECK-NEXT: global_prefetch_b8 v0, s[0:1] offset: 16
+//  CHECK-NEXT: s_endpgm
+
+// SC1 (scope 2 = Device) prefetches into L2; the printer renders it as the
+// gfx12 scope:SCOPE_DEV token (not the bare sc1) so the asm assembles.
+// CHECK-LABEL: prefetch_sc1:
+//  CHECK-NEXT: global_prefetch_b8 v[0:1], off scope:SCOPE_DEV
+//  CHECK-NEXT: s_endpgm
+
+// NT + SC1 render as th:TH_LOAD_NT scope:SCOPE_DEV (th before scope, offset first).
+// CHECK-LABEL: prefetch_nt_sc1:
+//  CHECK-NEXT: global_prefetch_b8 v[0:1], off offset: 32 th:TH_LOAD_NT scope:SCOPE_DEV
+//  CHECK-NEXT: s_endpgm
+
 amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
 
   amdgcn.kernel @ds_load_b128 attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
@@ -150,6 +171,35 @@ amdgcn.module @gfx1250_loads_mod target = #amdgcn.target<gfx1250> {
 
   amdgcn.kernel @wait_saturate_fused attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
     %wf = amdgcn.wait_gfx1250 load_cnt 100 ds_cnt 100 -> !amdgcn.fence_token
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @prefetch_vaddr attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %addr = lsir.alloca : !amdgcn.vgpr<[0 : 2]>
+    %offset = arith.constant 0 : i32
+    amdgcn.global_prefetch_b8 addr %addr offset c(%offset) : ins(!amdgcn.vgpr<[0 : 2]>) mods(i32)
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @prefetch_saddr attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %saddr = lsir.alloca : !amdgcn.sgpr<[0 : 2]>
+    %voff = lsir.alloca : !amdgcn.vgpr<0>
+    %offset = arith.constant 16 : i32
+    amdgcn.global_prefetch_b8 addr %saddr offset d(%voff) + c(%offset) : ins(!amdgcn.sgpr<[0 : 2]>, !amdgcn.vgpr<0>) mods(i32)
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @prefetch_sc1 attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %addr = lsir.alloca : !amdgcn.vgpr<[0 : 2]>
+    %offset = arith.constant 0 : i32
+    amdgcn.global_prefetch_b8 addr %addr offset c(%offset) {sc1} : ins(!amdgcn.vgpr<[0 : 2]>) mods(i32)
+    amdgcn.end_kernel
+  }
+
+  amdgcn.kernel @prefetch_nt_sc1 attributes {normal_forms = [#amdgcn.all_registers_allocated]} {
+    %addr = lsir.alloca : !amdgcn.vgpr<[0 : 2]>
+    %offset = arith.constant 32 : i32
+    amdgcn.global_prefetch_b8 addr %addr offset c(%offset) {nt, sc1} : ins(!amdgcn.vgpr<[0 : 2]>) mods(i32)
     amdgcn.end_kernel
   }
 

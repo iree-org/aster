@@ -55,4 +55,32 @@ static void printCondBr(amdgcn::AsmPrinter &printer, CBranchInstOpInterface op,
   printer.getStream() << "s_branch " << printer.getBranchLabel(falseDest);
 }
 
+/// Print the memory scope the LLVM assembler expects in text.
+static void printScope(amdgcn::AsmPrinter &printer, AMDGCNInstOpInterface op,
+                       bool sc0, bool sc1) {
+  switch ((sc1 ? 2 : 0) | (sc0 ? 1 : 0)) {
+  case 1:
+    printer.getStream() << " scope:SCOPE_SE";
+    break;
+  case 2:
+    printer.getStream() << " scope:SCOPE_DEV";
+    break;
+  case 3:
+    printer.getStream() << " scope:SCOPE_SYS";
+    break;
+  default:
+    break; // SCOPE_CU (0): elided.
+  }
+}
+
+/// Print the load temporal hint the LLVM assembler expects in text.
+// Note: ASTER's single NT bit only spans TH_RT (NT=0, the default, elided) and
+// TH_NT (NT=1).
+// TODO: add the richer hints (HT/LU/WB/compound) when needed
+static void printLoadTemporality(amdgcn::AsmPrinter &printer,
+                                 AMDGCNInstOpInterface op, bool nt) {
+  if (nt)
+    printer.getStream() << " th:TH_LOAD_NT";
+}
+
 #include "AMDGCNInstAsmPrinter.cpp.inc"

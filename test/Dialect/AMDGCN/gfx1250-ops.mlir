@@ -89,6 +89,28 @@ func.func @test_global_load_async_to_lds_b32_saddr(%saddr: !amdgcn.sgpr<[? + 2]>
 }
 
 //===----------------------------------------------------------------------===//
+// global_prefetch_b8 (gfx1250 L2 data prefetch; no result, no token).
+//===----------------------------------------------------------------------===//
+
+func.func @test_global_prefetch_b8(%addr: !amdgcn.vgpr<[? + 2]>) {
+  %c0 = arith.constant 0 : i32
+  amdgcn.global_prefetch_b8 addr %addr offset c(%c0) : ins(!amdgcn.vgpr<[? + 2]>) mods(i32)
+  return
+}
+
+func.func @test_global_prefetch_b8_mods(%addr: !amdgcn.vgpr<[? + 2]>) {
+  %c16 = arith.constant 16 : i32
+  amdgcn.global_prefetch_b8 addr %addr offset c(%c16) {nt, sc1} : ins(!amdgcn.vgpr<[? + 2]>) mods(i32)
+  return
+}
+
+func.func @test_global_prefetch_b8_saddr(%saddr: !amdgcn.sgpr<[? + 2]>, %voff: !amdgcn.vgpr) {
+  %c0 = arith.constant 0 : i32
+  amdgcn.global_prefetch_b8 addr %saddr offset d(%voff) + c(%c0) : ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32)
+  return
+}
+
+//===----------------------------------------------------------------------===//
 // SOPP control + wait ops (s_set_vgpr_msb, s_setprio_inc_wg, s_wait_*cnt)
 //===----------------------------------------------------------------------===//
 
