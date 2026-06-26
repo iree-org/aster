@@ -20,6 +20,7 @@ include "aster/Dialect/AMDGCN/IR/Interfaces/InstOpInterfaces.td"
 class BufferLoadInst<string mnemonic, list<Type> dataType> : AMDISAInstruction<mnemonic, [BufferLoadInstOpInterface]> {
   let props = [IsVMem, IsBuffer];
   let archs = [CDNA3Isa, CDNA4Isa];
+  // TODO: consider other effects once we know how we want this scheduled.
   let effects = [GlobalRead];
   let outputs = (ins
     AnyRegOf<dataType>:$dest
@@ -1075,6 +1076,73 @@ def GlobalLoadAsyncToLdsB128 : GlobalLoadAsyncToLdsInst<"global_load_async_to_ld
   let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0x62>];
 }
 #endif // GLOBALLOADASYNCTOLDSB128_DEF
+
+//===----------------------------------------------------------------------===//
+// gfx1250 global prefetch (global_prefetch_b8).
+//===----------------------------------------------------------------------===//
+
+#ifndef GLOBALPREFETCHB_INST_DEF
+#define GLOBALPREFETCHB_INST_DEF
+// Prefetch from global memory into the cache hierarchy.
+// This is a fire-and-forget cache hint: no destination and no completion token.
+//   Scope  SC1 SC0
+//   Wave     0   0
+//   Group    0   1
+//   Device   1   0
+//   System   1   1
+class GlobalPrefetchBInst<string mnemonic>
+    : AMDISAInstruction<mnemonic, []> {
+  let props = [IsVMem, IsGlobal];
+  let archs = [GFX12_50Isa];
+  let effects = [GlobalRead];
+  let outputs = (ins);
+  let inputs = (ins
+    AnyRegOf<[VGPROf<2>, TwoSGPROrVCCType]>:$addr,
+    OptionalReg<VGPROf<1>>:$offset
+  );
+  let trailingArgs = (ins
+    OffsetType<13, /*signed=*/true>:$const_offset,
+    NT:$nt,
+    SC0:$sc0,
+    SC1:$sc1
+  );
+  let genInstAssemblyFormat = 0;
+  let assemblyFormat = [{
+    `addr` $addr
+    `offset` (`d` `(`$offset^ `)` `+`)? `c` `(`$const_offset`)` attr-dict `:`
+    `ins` `(` type($addr) (`,` type($offset)^)? `)` `mods` `(` type($const_offset) `)`
+  }];
+  let asm_syntax = [
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $addr, off [const_offset] @printLoadTemporality([nt]) @printScope([sc0], [sc1])",
+      CPred<"isa<VGPRType>($_self.getAddr().getType())">>,
+    ASMString<[ENC_FLAT_GLBL_GFX12_50],
+      "${mnemonic} $offset, $addr [const_offset] @printLoadTemporality([nt]) @printScope([sc0], [sc1])",
+      CPred<"isa<SGPRType>($_self.getAddr().getType())">>,
+  ];
+  let hasVerifier = 1;
+  let extraClassDefinition = [{
+    LogicalResult $cppClass::verify() {
+      if (isa<VGPRType>(getAddr().getType()) && getOffset())
+        return emitError("expects no offset with VGPR address");
+      if (isa<SGPRType>(getAddr().getType()) && !getOffset())
+        return emitError("expects an offset with SGPR address");
+      return success();
+    }
+  }];
+}
+#endif // GLOBALPREFETCHB_INST_DEF
+
+#ifndef GLOBALPREFETCHB8_DEF
+#define GLOBALPREFETCHB8_DEF
+def GlobalPrefetchB8 : GlobalPrefetchBInst<"global_prefetch_b8"> {
+  let description = [{
+    Prefetch from global memory into the cache hierarchy.
+  }];
+  // LLVM: GLOBAL_PREFETCH_B8, VFLAT_Real_AllAddr_gfx1250<0x05d>.
+  let encodings = [InstEnc<[ENC_FLAT_GLBL_GFX12_50], 0x5d>];
+}
+#endif // GLOBALPREFETCHB8_DEF
 
 //===----------------------------------------------------------------------===//
 // gfx1250 global store instructions (global_store_b* family).

@@ -202,6 +202,29 @@ def IDXEN : UnitModifier<"idxen", "If set, send VADDR as an index. If unset, tre
 def LDS : UnitModifier<"lds", "If set, data is written to LDS memory. If unset, data is read from/written to a VGPR.">;
 def NT : UnitModifier<"nt", "Non-Temporal: data is streamed or uncached.">;
 def OFFEN : UnitModifier<"offen", "If set, send VADDR as an offset. If unset, send the instruction offset stored in OFFSET. Only one of these offsets may be sent.">;
+// CDNA3 manual: 9.1.10.2. Vector Memory. Cache-policy semantics for SC0/SC1/NT.
+// Reads
+// =====
+// The 2-bit scope = (SC1 << 1) | SC0 is an ordinal (deeper = larger).
+// NT is the orthogonal non-temporal hint.
+// Per-level cache behavior:
+//   Scope  SC1 SC0 NT | CU cache   | L2 cache                                | last-level
+//   Wave   0   0   0  | Hit LRU    | Hit LRU                                 | Hit LRU
+//                  1  | Miss Evict | Hit Stream                              | Hit Evict
+//   Group  0   1   0  | Hit LRU    | Hit LRU                                 | Hit Evict
+//                  1  | Miss Evict | Hit Stream                              | Hit Evict
+//   Device 1   0   0  | Miss Evict | 1 L2: Hit LRU; >1 L2: Coherent Bypass   | Hit LRU
+//                  1  | Miss Evict | 1 L2: Hit Stream; >1 L2: Coherent Bypass| Hit Evict
+//   System 1   1   0  | Miss Evict | Coherent Cache Bypass                   | Hit LRU
+//                  1  | Miss Evict | Coherent Cache Bypass                   | Hit Evict
+//
+// scope -> SCOPE_{CU=0, SE=1(Group), DEV=2(Device), SYS=3(System)}.
+// "Device" (SC1, scope 2) is the L2 / GL2 prefetch target.
+//
+// Writes
+// ======
+// See manual for details.
+//
 def SC0 : UnitModifier<"sc0", "For regular load and store operations, SC0 and SC1 indicate memory scope such as wave, group, device and system. For atomics, SC0 means Atomic with return. 1 = Atomic with return, 0 = Atomic with no return.">;
 def SC1 : UnitModifier<"sc1", "For regular load and store operations, SC0 and SC1 indicate memory scope such as wave, group, device and system.">;
 def MATRIX_A_REUSE : UnitModifier<"matrix_a_reuse", "WMMA operand-reuse hint: reuse the matrix A tiles from the previous WMMA.">;
