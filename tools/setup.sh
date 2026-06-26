@@ -135,6 +135,7 @@ case "${ASTER_ENABLE_CPU:-0}" in
     *) WITH_CPU=false ;;
 esac
 ROCM_TARGET_EXPLICIT=""
+ROCM_USER_CMD=""
 SKIP_ROCM_TEST=true
 PRIMARY_GPU_MCPU=""
 DETECTED_GPU_MCUS=()
@@ -863,6 +864,9 @@ phase3_select_rocm_target() {
         exit 1
     fi
 
+    # The last menu entry is an escape hatch for a user-supplied install command.
+    USER_CMD_CHOICE=$(( ${#ROCM_REQ_FILES[@]} + 1 ))
+
     echo ""
     echo "  Available ROCm SDK targets:"
     for i in "${!ROCM_REQ_FILES[@]}"; do
@@ -870,13 +874,30 @@ phase3_select_rocm_target() {
         TARGET=${BASENAME#requirements-amd-}
         echo "    $((i+1))) $(phase1_rocm_target_label "$TARGET")"
     done
+    echo "    $USER_CMD_CHOICE) User-specified command (i.e. pip install xxx)"
     echo ""
-    echo -n "  Which target? [1-${#ROCM_REQ_FILES[@]}] "
+    echo -n "  Which target? [1-$USER_CMD_CHOICE] "
     read -r ROCM_CHOICE
 
-    if ! [[ "$ROCM_CHOICE" =~ ^[0-9]+$ ]] || [ "$ROCM_CHOICE" -lt 1 ] || [ "$ROCM_CHOICE" -gt ${#ROCM_REQ_FILES[@]} ]; then
+    if ! [[ "$ROCM_CHOICE" =~ ^[0-9]+$ ]] || [ "$ROCM_CHOICE" -lt 1 ] || [ "$ROCM_CHOICE" -gt "$USER_CMD_CHOICE" ]; then
         err "Invalid choice: $ROCM_CHOICE"
         exit 1
+    fi
+
+    if [ "$ROCM_CHOICE" -eq "$USER_CMD_CHOICE" ]; then
+        echo ""
+        echo "  Enter the uv pip install command to run (installs into the ASTER venv):"
+        echo "    e.g. uv pip install --index-url https://rocm.nightlies.amd.com/v2/gfx950-dcgpu/ --prerelease=allow 'rocm[libraries,devel]'"
+        echo ""
+        echo -n "  Command: "
+        read -r ROCM_USER_CMD
+        if [ -z "$ROCM_USER_CMD" ]; then
+            err "No command entered"
+            exit 1
+        fi
+        ROCM_TARGET="user"
+        ROCM_REQ=""
+        return
     fi
 
     ROCM_REQ="${ROCM_REQ_FILES[$((ROCM_CHOICE-1))]}"
@@ -889,6 +910,25 @@ phase3_install_rocm_sdk() {
         ok "ROCm SDK installation skipped (--skip-requirements)"
         return
     fi
+
+    # User-specified install command: run it verbatim. VIRTUAL_ENV is exported
+    # in a subshell so uv pip install targets the ASTER venv even when the
+    # command omits an explicit --python.
+    if [ -n "$ROCM_USER_CMD" ]; then
+        info "Running user-specified ROCm install command"
+        echo "    $ROCM_USER_CMD"
+        echo ""
+        if ( export VIRTUAL_ENV; eval "$ROCM_USER_CMD" ); then
+            rm -f "$VIRTUAL_ENV"/.rocm-stamp-* 2>/dev/null
+            touch "$VIRTUAL_ENV/.rocm-stamp-user"
+            ok "ROCm SDK (user-specified) installed"
+        else
+            err "User-specified install command failed"
+            exit 1
+        fi
+        return
+    fi
+
     info "Installing ROCm SDK for $ROCM_TARGET"
 
     ROCM_STAMP="$VIRTUAL_ENV/.rocm-stamp-$ROCM_TARGET"
