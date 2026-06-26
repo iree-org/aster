@@ -264,6 +264,8 @@ LogicalResult InstOpPattern::matchAndRewrite(InstOpInterface instOp,
 
   // Clone the instruction with the updated operands.
   auto newInst = instOp.cloneInst(rewriter, outs, ins);
+  if (!newInst)
+    return rewriter.notifyMatchFailure(instOp, "failed to clone instruction");
 
   SmallVector<Value, 4> newResults;
   InstOpInfo info = newInst.getInstInfo();

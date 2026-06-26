@@ -74,46 +74,54 @@ void getReadEffectsImpl(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects);
 
-/// Populates newOperands and newResultTypes with the new operands and results.
-/// Also mutates the result segment sizes if needed.
+/// Rebuilds the operands and result types of an instruction whose out and in
+/// operands are replaced by newOuts / newIns.
+/// Operands    : [leading | newOuts | newIns | trailing].
+/// Result types: [leading res | out res (inferred from newOuts) | trailing res]
+// Note: An out result exists only for a value-semantic out operand.
+// Note: outsSegmentSizes / resultOutSegmentSizes are empty unless the op has
+// more than one out group (AttrSizedResultSegments).
+// When AttrSizedResultSegments are present, they drive the per-out-group
+// value-semantic result count, updated in place.
 LogicalResult cloneInstOperandsResultsImpl(
-    ValueRange newOuts, ValueRange newIns, ValueRange operands,
-    TypeRange results, int32_t kLeadingOperandsSize, int32_t kOutsSize,
-    int32_t kInsSize, int32_t kLeadingResultsSize,
-    function_ref<std::pair<unsigned, unsigned>(unsigned)>
-        getOperandIndexAndLength,
-    function_ref<std::pair<unsigned, unsigned>(unsigned)>
-        getResultIndexAndLength,
-    SmallVectorImpl<Value> &newOperands, SmallVectorImpl<Type> &newResultTypes,
-    MutableArrayRef<int32_t> resultSegmentSizes);
+    InstOpInfo info, OperandRange operands, ResultRange results,
+    ValueRange newOuts, ValueRange newIns, ArrayRef<int32_t> outsSegmentSizes,
+    MutableArrayRef<int32_t> resultOutSegmentSizes,
+    SmallVectorImpl<Value> &newOperands, SmallVectorImpl<Type> &newResultTypes);
 
 /// Clones the instruction operation with new operands and results.
 template <typename OpTy>
 OpTy cloneInstImpl(OpTy op, OpBuilder &builder, ValueRange outs,
                    ValueRange ins) {
-
-  auto getOperandIndexAndLength = [&](unsigned index) {
-    return op.getODSOperandIndexAndLength(index);
-  };
-  auto getResultIndexAndLength = [&](unsigned index) {
-    return op.getODSResultIndexAndLength(index);
-  };
-  // Get the operation's attirbutes.
   SmallVector<NamedAttribute> attributes =
       llvm::to_vector(op->getDiscardableAttrs());
-  // Copy the operation's properties.
   typename OpTy::Properties properties = op.getProperties();
-  // Get the new operands and result types.
+
+  // Out-result segments only exist when the op has AttrSizedResultSegments
+  // (i.e. when kOutsSize > 1 in InstBase.td).
+  // Build the per-out-group operand sizes and the result_segment_sizes slice
+  // covering the out groups.
+  // Note: the slice aliases the local properties copy so inferTypesImpl updates
+  // it in place.
+  SmallVector<int32_t> outsSegmentSizes;
+  MutableArrayRef<int32_t> resultOutSegmentSizes;
+  if constexpr (OpTy::kOutsSize > 1) {
+    for (int64_t i = 0; i < OpTy::kOutsSize; ++i)
+      outsSegmentSizes.push_back(
+          op.getODSOperandIndexAndLength(i + OpTy::kLeadingOperandsSize)
+              .second);
+    resultOutSegmentSizes =
+        getResultSegmentSizes<OpTy>(
+            PropertyRef(TypeID::get<typename OpTy::Properties>(), &properties))
+            .slice(OpTy::kLeadingResultsSize, OpTy::kOutsSize);
+  }
+
+  InstOpInfo info = op.getInstInfo();
   SmallVector<Value> operands;
   SmallVector<Type> resultTypes;
-  LogicalResult result = cloneInstOperandsResultsImpl(
-      outs, ins, op->getOperands(), TypeRange(op->getResults()),
-      OpTy::kLeadingOperandsSize, OpTy::kOutsSize, OpTy::kInsSize,
-      OpTy::kLeadingResultsSize, getOperandIndexAndLength,
-      getResultIndexAndLength, operands, resultTypes,
-      getResultSegmentSizes<OpTy>(
-          PropertyRef(TypeID::get<typename OpTy::Properties>(), &properties)));
-  if (failed(result))
+  if (failed(cloneInstOperandsResultsImpl(
+          info, op->getOperands(), op->getResults(), outs, ins,
+          outsSegmentSizes, resultOutSegmentSizes, operands, resultTypes)))
     return nullptr;
   return OpTy::create(builder, op.getLoc(), resultTypes, operands, properties,
                       attributes);
@@ -123,30 +131,33 @@ OpTy cloneInstImpl(OpTy op, OpBuilder &builder, ValueRange outs,
 template <typename OpTy>
 OpTy cloneInstructionImpl(OpTy op, OpBuilder &builder, ValueRange outs,
                           ValueRange ins) {
-
-  auto getOperandIndexAndLength = [&](unsigned index) {
-    return op.getODSOperandIndexAndLength(index);
-  };
-  auto getResultIndexAndLength = [&](unsigned index) {
-    return op.getODSResultIndexAndLength(index);
-  };
-  // Get the operation's attirbutes.
   SmallVector<NamedAttribute> attributes =
       llvm::to_vector(op->getDiscardableAttrs());
-  // Copy the operation's properties.
   typename OpTy::Properties properties = op.getProperties();
-  // Get the new operands and result types.
+
+  InstOpInfo info = op.getInstInfo();
+  // Each AMDGCN ISA out group is a single fixed or Optional operand.
+  // Therefore the out groups are exactly the out operands.
+  // result_segment_sizes is set only for ops with more than one out.
+  // When present, give one out segment per out operand so inferTypesImpl
+  // recomputes each out's value-semantic result count in place.
+  SmallVector<int32_t> outsSegmentSizes;
+  MutableArrayRef<int32_t> resultOutSegmentSizes = getResultSegmentSizes<OpTy>(
+      PropertyRef(TypeID::get<typename OpTy::Properties>(), &properties));
+  if (!resultOutSegmentSizes.empty()) {
+    // ISA ops have no leading results: out result groups occupy the first
+    // `numInstOuts` entries of result_segment_sizes.
+    assert(info.numLeadingResults == 0 &&
+           "ISA result_segment_sizes layout assumes no leading results");
+    outsSegmentSizes.assign(info.numInstOuts, 1);
+    resultOutSegmentSizes = resultOutSegmentSizes.slice(0, info.numInstOuts);
+  }
+
   SmallVector<Value> operands;
   SmallVector<Type> resultTypes;
-  InstOpInfo info = op.getInstInfo();
-  LogicalResult result = cloneInstOperandsResultsImpl(
-      outs, ins, op->getOperands(), TypeRange(op->getResults()),
-      info.numLeadingOperands, info.numInstOuts, info.numInstIns,
-      info.numLeadingResults, getOperandIndexAndLength, getResultIndexAndLength,
-      operands, resultTypes,
-      getResultSegmentSizes<OpTy>(
-          PropertyRef(TypeID::get<typename OpTy::Properties>(), &properties)));
-  if (failed(result))
+  if (failed(cloneInstOperandsResultsImpl(
+          info, op->getOperands(), op->getResults(), outs, ins,
+          outsSegmentSizes, resultOutSegmentSizes, operands, resultTypes)))
     return nullptr;
   return OpTy::create(builder, op.getLoc(), resultTypes, operands, properties,
                       attributes);

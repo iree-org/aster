@@ -477,3 +477,96 @@ func.func @special_reg_alloca_to_allocated() {
   amdgcn.test_inst ins %0, %3, %5 : (!amdgcn.scc, !amdgcn.vcc, !amdgcn.sgpr) -> ()
   func.return
 }
+
+// -----
+
+// CHECK-LABEL:   func.func @global_load_out_trailing_token() {
+// CHECK:           %[[DST:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           %[[TOK:.*]] = amdgcn.global_load_b32 dest %[[DST]] {{.*}} -> !amdgcn.read_token<flat>
+// CHECK:           amdgcn.test_inst ins %[[DST]] : (!amdgcn.vgpr<?>) -> ()
+// CHECK:           amdgcn.wait_gfx1250 deps %[[TOK]]
+// CHECK:           return
+func.func @global_load_out_trailing_token() {
+  %dst = amdgcn.alloca : !amdgcn.vgpr
+  %a0 = amdgcn.alloca : !amdgcn.sgpr
+  %a1 = amdgcn.alloca : !amdgcn.sgpr
+  %addr = amdgcn.make_register_range %a0, %a1 : !amdgcn.sgpr, !amdgcn.sgpr
+  %voff = amdgcn.alloca : !amdgcn.vgpr
+  %c0 = arith.constant 0 : i32
+  %result, %tok = amdgcn.global_load_b32 dest %dst addr %addr offset d(%voff) + c(%c0) : outs(!amdgcn.vgpr) ins(!amdgcn.sgpr<[? + 2]>, !amdgcn.vgpr) mods(i32) -> !amdgcn.read_token<flat>
+  amdgcn.test_inst ins %result : (!amdgcn.vgpr) -> ()
+  %f = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<flat> -> !amdgcn.fence_token
+  func.return
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @cluster_load_async_trailing_token() {
+// CHECK:           %[[LDS:.*]] = amdgcn.alloca : !amdgcn.vgpr<?>
+// CHECK:           amdgcn.test_inst outs %[[LDS]] : (!amdgcn.vgpr<?>) -> ()
+// CHECK:           %[[TOK:.*]] = amdgcn.cluster_load_async_to_lds_b128 lds_dest %[[LDS]]
+// CHECK:           amdgcn.wait_gfx1250 deps %[[TOK]]
+// CHECK:           return
+func.func @cluster_load_async_trailing_token() {
+  %c0 = arith.constant 0 : i32
+  %mask = arith.constant 15 : i32
+  %m0 = amdgcn.alloca : !amdgcn.m0<0>
+  amdgcn.s_mov_b32 outs(%m0) ins(%mask) : outs(!amdgcn.m0<0>) ins(i32)
+
+  %lds_a = amdgcn.alloca : !amdgcn.vgpr
+  %lds_dest = amdgcn.test_inst outs %lds_a : (!amdgcn.vgpr) -> !amdgcn.vgpr
+
+  %a0 = amdgcn.alloca : !amdgcn.vgpr
+  %a1 = amdgcn.alloca : !amdgcn.vgpr
+  %addr = amdgcn.make_register_range %a0, %a1 : !amdgcn.vgpr, !amdgcn.vgpr
+
+  %tok = amdgcn.cluster_load_async_to_lds_b128 lds_dest %lds_dest addr %addr m0 %m0 offset c(%c0)
+           : ins(!amdgcn.vgpr, !amdgcn.vgpr<[? + 2]>, !amdgcn.m0<0>) mods(i32) -> !amdgcn.read_token<async>
+  %f = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<async> -> !amdgcn.fence_token
+  func.return
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @tensor_load_to_lds_trailing_token() {
+// CHECK:           %[[DESC0_0:.*]] = amdgcn.alloca : !amdgcn.sgpr<?>
+// CHECK:           amdgcn.test_inst outs %[[DESC0_0]] : (!amdgcn.sgpr<?>) -> ()
+// CHECK:           %[[DESC0:.*]] = amdgcn.make_register_range %[[DESC0_0]],
+// CHECK:           %[[TOK:.*]] = amdgcn.tensor_load_to_lds desc0 %[[DESC0]]
+// CHECK:           amdgcn.wait_gfx1250 deps %[[TOK]]
+// CHECK:           return
+func.func @tensor_load_to_lds_trailing_token() {
+  %s0 = amdgcn.alloca : !amdgcn.sgpr
+  %d0e = amdgcn.test_inst outs %s0 : (!amdgcn.sgpr) -> !amdgcn.sgpr
+  %s1 = amdgcn.alloca : !amdgcn.sgpr
+  %s2 = amdgcn.alloca : !amdgcn.sgpr
+  %s3 = amdgcn.alloca : !amdgcn.sgpr
+  %desc0 = amdgcn.make_register_range %d0e, %s1, %s2, %s3 : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+
+  %e0 = amdgcn.alloca : !amdgcn.sgpr
+  %e1 = amdgcn.alloca : !amdgcn.sgpr
+  %e2 = amdgcn.alloca : !amdgcn.sgpr
+  %e3 = amdgcn.alloca : !amdgcn.sgpr
+  %e4 = amdgcn.alloca : !amdgcn.sgpr
+  %e5 = amdgcn.alloca : !amdgcn.sgpr
+  %e6 = amdgcn.alloca : !amdgcn.sgpr
+  %e7 = amdgcn.alloca : !amdgcn.sgpr
+  %desc1 = amdgcn.make_register_range %e0, %e1, %e2, %e3, %e4, %e5, %e6, %e7 : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+
+  %g0 = amdgcn.alloca : !amdgcn.sgpr
+  %g1 = amdgcn.alloca : !amdgcn.sgpr
+  %g2 = amdgcn.alloca : !amdgcn.sgpr
+  %g3 = amdgcn.alloca : !amdgcn.sgpr
+  %desc2 = amdgcn.make_register_range %g0, %g1, %g2, %g3 : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+
+  %h0 = amdgcn.alloca : !amdgcn.sgpr
+  %h1 = amdgcn.alloca : !amdgcn.sgpr
+  %h2 = amdgcn.alloca : !amdgcn.sgpr
+  %h3 = amdgcn.alloca : !amdgcn.sgpr
+  %desc3 = amdgcn.make_register_range %h0, %h1, %h2, %h3 : !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr, !amdgcn.sgpr
+
+  %tok = amdgcn.tensor_load_to_lds desc0 %desc0 desc1 %desc1 desc2 %desc2 desc3 %desc3
+      : ins(!amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 8]>, !amdgcn.sgpr<[? + 4]>, !amdgcn.sgpr<[? + 4]>) -> !amdgcn.read_token<tensor>
+  %f = amdgcn.wait_gfx1250 deps %tok : !amdgcn.read_token<tensor> -> !amdgcn.fence_token
+  func.return
+}

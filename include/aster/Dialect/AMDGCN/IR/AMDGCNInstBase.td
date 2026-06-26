@@ -29,6 +29,11 @@ def LaneMaskWidthTrait : NativeOpTrait<"LaneMaskWidthTrait"> {
   let cppNamespace = "::mlir::aster::amdgcn";
 }
 
+// Important note: Cloning implemenetation assumes each output operand group is
+// fixed or Optional<> (size 0 or 1), so the output group count equals the present
+// output operand count.
+// DO NOT extend AMDISAInstruction with a Variadic<> output without revisiting
+// cloneInstructionImpl.
 def AMDInstTrait : InstructionTrait {
   let extraConcreteClassDeclaration = [{
     /// Returns whether the instruction is valid for the given target and encoding.
@@ -74,6 +79,11 @@ def AMDInstTrait : InstructionTrait {
     Speculation::Speculatability $cppClass::getSpeculatability() {
       return mlir::aster::detail::getInstSpeculatabilityImpl(*this);
     }
+    // Important note: Cloning implemenetation assumes each output operand group
+    // is fixed or Optional<> (size 0 or 1), so the output group count equals the
+    // present output operand count.
+    // DO NOT extend AMDISAInstruction with a Variadic<> output without revisiting
+    // cloneInstructionImpl.
     InstOpInterface $cppClass::cloneInst(OpBuilder &builder, ValueRange outs, ValueRange ins) {
       return ::mlir::aster::detail::cloneInstructionImpl<$cppClass>(*this, builder, outs, ins);
     }
