@@ -24,6 +24,7 @@ The returned module can be passed directly to aster.compiler compile_kernel_modu
 from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum
 from typing import List, Optional, TypeAlias, Union
 
 from aster import ir
@@ -101,6 +102,7 @@ from aster.dialects import lsir as lsird
 from aster.dialects.amdgcn import (
     AccessKind,
     AddressSpaceKind,
+    BarrierScope,
     KernelArgumentFlags,
     get_buffer_argument,
     get_kernel_arguments,
@@ -112,6 +114,17 @@ from aster.dialects import ptr as ptrd
 #   - a list/tuple of tokens, or
 #   - a bare ir.Value token.
 WaitArg: TypeAlias = Union[LayoutValues, list[ir.Value], tuple[ir.Value, ...], ir.Value]
+
+
+class TdmPadMode(Enum):
+    """TDM LDS-padding mechanism (pad_mode=None means dense, no padding).
+
+    Padding: PaddingMode bits in group1 word 0 (_d2 form).
+    Iterate: TensorIterateMode + group2 per-iteration LDS stride (_d4 form).
+    """
+
+    Padding = "padding"
+    Iterate = "iterate"
 
 
 def _i16(value: int, ctx: ir.Context) -> ir.IntegerAttr:
@@ -275,6 +288,17 @@ class KernelBuilder:
         idx = len(self._ptr_args)
         self._ptr_args.append(access)
         return idx
+
+    def add_and_load_ptr_args(self, accesses: List[AccessKind]) -> List[ir.Value]:
+        """Register pointer args from a list of AccessKinds and load them.
+
+        Sugar for one add_ptr_arg() per access followed by load_args().
+        Returns one SGPRRangeType(size=2) Value per pointer, in
+        registration order.
+        """
+        for access in accesses:
+            self.add_ptr_arg(access)
+        return self.load_args()
 
     def load_args(self) -> List[ir.Value]:
         """Create the load-args helper and return MLIR Values for each pointer.
@@ -625,6 +649,38 @@ class KernelBuilder:
             self.alloca_scc(),
             src,
             value,
+            results=[dst.type, None],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.operation.results[0]
+
+    def s_or_b32(self, src: ir.Value, value) -> ir.Value:
+        """Bitwise-OR a value (int immediate, i32, or SGPR) into an SGPR (SCC discarded)."""
+        if isinstance(value, int):
+            value = self.s_mov_b32(value)
+        dst = self.alloca_sgpr()
+        op = _ops_gen.SOrB32(
+            dst,
+            self.alloca_scc(),
+            src,
+            value,
+            results=[dst.type, None],
+            loc=self._loc,
+            ip=self._kip,
+        )
+        return op.operation.results[0]
+
+    def s_lshl_b32(self, src: ir.Value, shift) -> ir.Value:
+        """Left-shift an SGPR by a value (int immediate, i32, or SGPR); SCC discarded."""
+        if isinstance(shift, int):
+            shift = self.s_mov_b32(shift)
+        dst = self.alloca_sgpr()
+        op = _ops_gen.SLshlB32(
+            dst,
+            self.alloca_scc(),
+            src,
+            shift,
             results=[dst.type, None],
             loc=self._loc,
             ip=self._kip,
@@ -1296,7 +1352,7 @@ class KernelBuilder:
         "ds_load_b128": DsLoadB128,
     }
 
-    def _ds_load(self, opcode, dest, addr, const_offset=None):
+    def _ds_load(self, opcode, dest, addr, const_offset=None, fence_token=None):
         if const_offset is None:
             const_offset = self.constant_i32(0)
         addr = self._ds_addr(addr)
@@ -1305,14 +1361,24 @@ class KernelBuilder:
             dest=dest,
             addr=addr,
             const_offset=const_offset,
+            fence_token=fence_token,
             loc=self._loc,
             ip=self._kip,
         )
         return op.results[0], op.results[1]
 
-    def ds_load_b128(self, addr, const_offset=None) -> tuple[ir.Value, ir.Value]:
-        """DS load 128-bit (4 dwords) from LDS (gfx1250)."""
-        return self._ds_load("ds_load_b128", self.alloc_vgprx4(), addr, const_offset)
+    def ds_load_b128(
+        self, addr, const_offset=None, fence_token=None
+    ) -> tuple[ir.Value, ir.Value]:
+        """DS load 128-bit (4 dwords) from LDS (gfx1250).
+
+        fence_token optionally pins this load after a token_barrier,
+        mirroring _ds_read, so the layout-driven LDS->REG transfer path
+        can pin the gather.
+        """
+        return self._ds_load(
+            "ds_load_b128", self.alloc_vgprx4(), addr, const_offset, fence_token
+        )
 
     # ---------------------------------------------------------------------------
     # TDM: Tensor Data Mover (gfx1250)
@@ -1338,6 +1404,10 @@ class KernelBuilder:
         tile1: int,
         stride: int,
         global_byte_offset: Optional[ir.Value] = None,
+        lds_pad_bytes: int = 0,
+        lds_block_bytes: int = 0,
+        pad_mode: Optional[TdmPadMode] = None,
+        recipient_mask: Union[int, ir.Value] = 0,
     ) -> tuple[ir.Value, ir.Value, ir.Value, ir.Value]:
         """Build a TDM tensor descriptor (4 SGPR groups).
 
@@ -1363,6 +1433,22 @@ class KernelBuilder:
             global_byte_offset: optional wave-uniform byte offset (index or
                 i32) folded into the low address word. The add ignores carry,
                 so base + offset must not cross a 4 GiB boundary.
+            lds_pad_bytes: bytes of padding to insert into the LDS destination
+                layout every lds_block_bytes (0 = dense, no padding). TDM has no
+                write-side swizzle, so this is how LDS bank conflicts are avoided.
+            lds_block_bytes: block size (bytes) between pad insertions; defaults
+                to one tile row (tile0*element_bytes).
+            pad_mode: None (dense, no padding), TdmPadMode.Padding (PaddingMode
+                bits in group1 word 0, _d2 form), or TdmPadMode.Iterate
+                (TensorIterateMode + group2 per-iteration LDS stride, _d4 form).
+                Padding/Iterate yield the same padded layout and require
+                lds_pad_bytes > 0.
+            recipient_mask: 16-bit multicast recipient mask in group1 word 0
+                [15:0] (0 = no multicast). Bit i broadcasts the loaded tile to
+                cluster workgroup i; a nonzero mask enables multicast (there is
+                no separate enable bit). Up to 16 cluster workgroups. May be a
+                compile-time int or a runtime SGPR i32 (e.g. a per-WG
+                0x1111<<cm cluster mask); a runtime mask must already fit 16 bits.
         """
         # group0: [type=1, lds_offset, global_lo, global_hi | 0x80000000]
         if isinstance(global_addr, int):
@@ -1385,26 +1471,78 @@ class KernelBuilder:
         )
         assert element_bytes in (1, 2, 4, 8), f"bad element_bytes {element_bytes}"
         data_size = element_bytes.bit_length() - 1  # log2: 1B=0, 2B=1, 4B=2, 8B=3
-        # group1: [data_size<<16, dim0_lo<<16, dim0_hi|dim1_lo<<16,
-        #          dim1_hi|tile0<<16, tile1, stride, 0, 0]
+
+        # group1 word 0 carries the multicast recipient mask [15:0], data_size
+        # [16-17], and optional LDS-padding control: bit 19 = iterate_enable,
+        # bit 20 = pad_enable, [22-24] = pad_interval, [25-31] = pad_amount. group2
+        # carries the per-iteration increments when iterate mode is on. Two
+        # mutually-exclusive ways to pad the LDS layout (TDM has no write-side
+        # swizzle); both insert lds_pad_bytes every block.
+        # recipient_mask may be a compile-time int or a runtime SGPR (e.g. a
+        # per-WG 0x1111<<cm cluster mask). The int part folds into the constant
+        # word; a runtime mask is OR-ed into the materialized SGPR below.
+        mask_is_runtime = not isinstance(recipient_mask, int)
+        g1_word0 = data_size << 16
+        if not mask_is_runtime:
+            g1_word0 |= recipient_mask & 0xFFFF
+        g1_tile1 = tile1
+        g2_vals = [0, 0, 0, 0]
+        g3_vals = [0, 0, 0, 0]
+        if pad_mode is not None:
+            assert lds_pad_bytes, f"pad_mode {pad_mode} requires lds_pad_bytes > 0"
+            row_bytes = tile0 * element_bytes
+            block_bytes = lds_block_bytes or row_bytes
+            if pad_mode is TdmPadMode.Padding:
+                # Mechanism 1 (PaddingMode bits, _d2 form): hardware inserts
+                # lds_pad_bytes after every block_bytes of LDS output.
+                block_dwords = block_bytes // 4
+                assert block_dwords and (block_dwords & (block_dwords - 1)) == 0, (
+                    f"lds block ({block_bytes}B) must be a power-of-2 dwords for TDM padding"
+                )
+                pad_interval = block_dwords.bit_length() - 2  # log2(block_dwords) - 1
+                pad_amount = lds_pad_bytes // 4 - 1
+                g1_word0 |= (1 << 20) | (pad_interval << 22) | (pad_amount << 25)
+            elif pad_mode is TdmPadMode.Iterate:
+                # Mechanism 2 (TensorIterateMode + group2, _d4 form): the engine
+                # loops, advancing LDS by a padded stride per sub-tile iteration.
+                rows_per_iter = block_bytes // row_bytes
+                assert rows_per_iter and tile1 % rows_per_iter == 0, (
+                    f"tile1 ({tile1}) must be a multiple of rows_per_iter ({rows_per_iter})"
+                )
+                num_iter = tile1 // rows_per_iter
+                lds_inc = (block_bytes + lds_pad_bytes) // element_bytes  # elems/iter
+                global_inc = stride * rows_per_iter  # elems/iter
+                g1_word0 |= 1 << 19  # iterate_enable
+                g1_tile1 = rows_per_iter
+                g2_vals = [0, lds_inc, global_inc, (num_iter - 1) << 16]
+                g3_vals = (
+                    g2_vals  # _d4 needs a valid group3; alias group2 (no own fields)
+                )
+            else:
+                raise ValueError(f"bad pad_mode {pad_mode!r}")
+
+        # group1: [word0, dim0_lo<<16, dim0_hi|dim1_lo<<16, dim1_hi|tile0<<16,
+        #          tile1, stride, 0, 0]
+        word0 = self.s_mov_b32(g1_word0)
+        if mask_is_runtime:
+            word0 = self.s_or_b32(word0, recipient_mask)
         g1 = self._make_register_range(
             [
-                self.s_mov_b32(data_size << 16),
+                word0,
                 self.s_mov_b32((dim0 & 0xFFFF) << 16),
                 self.s_mov_b32(((dim0 >> 16) & 0xFFFF) | ((dim1 & 0xFFFF) << 16)),
                 self.s_mov_b32(((dim1 >> 16) & 0xFFFF) | (tile0 << 16)),
-                self.s_mov_b32(tile1),
+                self.s_mov_b32(g1_tile1),
                 self.s_mov_b32(stride),
                 self.s_mov_b32(0),
                 self.s_mov_b32(0),
             ]
         )
 
-        # group2/group3: zeroed (no hardware iteration).
-        def z4():
-            return self._make_register_range([self.s_mov_b32(0) for _ in range(4)])
+        def grp(vals):
+            return self._make_register_range([self.s_mov_b32(v) for v in vals])
 
-        return g0, g1, z4(), z4()
+        return g0, g1, grp(g2_vals), grp(g3_vals)
 
     def tensor_load_to_lds(self, desc0, desc1, desc2, desc3) -> ir.Value:
         """Load tensor from global memory into LDS via TDM (gfx1250)."""
@@ -1549,21 +1687,33 @@ class KernelBuilder:
         """Insert s_waitcnt lgkmcnt=count."""
         SWaitcnt(lgkmcnt=_i8(count, self._ctx), loc=self._loc, ip=self._kip)
 
-    def barrier(self) -> None:
-        """Insert a workgroup synchronization barrier."""
-        barrier(loc=self._loc, ip=self._kip)
+    def barrier(self, scope: BarrierScope = BarrierScope.Workgroup) -> None:
+        """Insert an execution-only synchronization barrier.
 
-    def token_barrier(self, *deps: WaitArg) -> ir.Value:
+        scope is BarrierScope.Workgroup (default) or
+        BarrierScope.Cluster. This orders execution, not memory
+        visibility; use token_barrier to additionally fence memory ops.
+        """
+        barrier(scope=scope, loc=self._loc, ip=self._kip)
+
+    def token_barrier(
+        self, *deps: WaitArg, scope: BarrierScope = BarrierScope.Workgroup
+    ) -> ir.Value:
         """Emit amdgcn.token_barrier with flattened deps.
 
-        Returns a fence_token on which later memory ops can pin.
+        scope is BarrierScope.Workgroup (default) or BarrierScope.Cluster.
+        Returns a fence_token on which later memory ops can pin; pass the
+        producing tokens as deps so the barrier actually fences them (a
+        token_barrier with no deps fences nothing -- use barrier(scope=...) for
+        execution-only synchronization).
         """
         op = _TokenBarrierOp(
             dependencies=self._flatten_wait_args(deps),
+            scope=scope,
             loc=self._loc,
             ip=self._kip,
         )
-        return op
+        return op.fence_token
 
     # ---------------------------------------------------------------------------
     # LDS allocation
@@ -2064,6 +2214,12 @@ class KernelBuilder:
     def set_grid_dims(self, x: int, y: int = 1, z: int = 1):
         """Set grid dimensions."""
         self._kernel_attrs["grid_dims"] = ir.DenseI32ArrayAttr.get([x, y, z], self._ctx)
+
+    def set_cluster_dims(self, x: int, y: int = 1, z: int = 1):
+        """Set workgroup cluster dimensions (gfx1250+)."""
+        self._kernel_attrs["cluster_dims"] = ir.DenseI32ArrayAttr.get(
+            [x, y, z], self._ctx
+        )
 
     # ---------------------------------------------------------------------------
     # Module finalization

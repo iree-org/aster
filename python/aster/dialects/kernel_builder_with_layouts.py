@@ -18,6 +18,7 @@ from aster.layout.algebra import (
     Swizzle,
     Symbol,
     enumerate_flat_coords,
+    flat_index,
 )
 from aster.layout.tensor import Tensor, TensorLike
 from aster.layout.values import LayoutValues
@@ -72,6 +73,7 @@ global_store_dword = Copy("global_store_dword", MemSpace.REG, MemSpace.GLOBAL)
 global_load_b128 = Copy("global_load_b128", MemSpace.GLOBAL, MemSpace.REG)
 ds_store_64b = Copy("ds_store_b64", MemSpace.REG, MemSpace.LDS)
 global_store_b32 = Copy("global_store_b32", MemSpace.REG, MemSpace.GLOBAL)
+ds_load_b128 = Copy("ds_load_b128", MemSpace.LDS, MemSpace.REG)
 
 
 @dataclass(frozen=True)
@@ -308,6 +310,23 @@ class KernelBuilderWithLayouts(KernelBuilder):
             iter_flat if n_per_tile == 1 else iter_flat + tc.value_layout.flat_sizes
         )
 
+        # Fast path for unswizzled LDS->REG reads: hoist the per-lane gather into
+        # one address register and fold the compile-time per-tile + per-value byte
+        # offset into the ds const_offset immediate. This keeps a multi-tile
+        # WMMA/MFMA fragment gather at one address VGPR per operand instead of one
+        # per (tile, value), which is load-bearing for the gfx1250 256-VGPR ceiling.
+        # An XOR swizzle is non-linear so it cannot fold into an immediate and falls
+        # through to the generic per-(tile, value) address path below.
+        if (
+            tc.copy.src_space is MemSpace.LDS
+            and tc.copy.dst_space is MemSpace.REG
+            and tc.swizzle is None
+        ):
+            assert data is None, "LDS->REG read transfer takes no data payloads"
+            return self._emit_lds_read_folded(
+                tensor, tc, sub_layout, out_layout, fence_token
+            )
+
         def per_tile_payloads(coords):
             if data is None:
                 return None
@@ -344,6 +363,50 @@ class KernelBuilderWithLayouts(KernelBuilder):
             flat_tokens.extend(transfer.tokens)
         return LayoutValues.from_flat(
             out_layout, payloads=tuple(flat_payloads), tokens=tuple(flat_tokens)
+        )
+
+    def _emit_lds_read_folded(
+        self,
+        tensor: TensorLike,
+        tc: TiledCopy,
+        sub_layout: Layout,
+        out_layout: Layout,
+        fence_token: Optional[ir.Value],
+    ) -> LayoutValues:
+        """Unswizzled LDS->REG read with the constant per-tile + per-value byte
+        offset folded into the ds const_offset immediate.
+
+        The per-lane thread gather (tc.thread_layout) is the only
+        dynamic part and is hoisted into one base address; every (tile,
+        value) read reuses it with an immediate offset. See
+        transfer_tiles for why this matters on gfx1250.
+
+        Assumes the LDS reader op (tc.copy.op_name) takes const_offset and
+        fence_token kwargs (every ds_read_b*/ds_load_b* does) and that all
+        folded offsets are non-negative (LDS tile/value strides are).
+        """
+        op = getattr(self, tc.copy.op_name)
+        thr = self.layout_apply(tc.pid, tc.thread_layout)
+        base_off = thr if tensor.offset is None else self.layout_sum(tensor.offset, thr)
+        base = self.layout_sum(tensor.ptr, base_off)
+        n_val = tc.value_layout.size()
+        payloads: list[Any] = []
+        tokens: list[Any] = []
+        for coords in enumerate_flat_coords(sub_layout.flat_sizes):
+            tile_off = sub_layout(flat_index(coords, sub_layout))
+            for v in range(n_val):
+                const = tile_off + tc.value_layout(v)
+                assert 0 <= const < (1 << 16), (
+                    f"ds const_offset {const} exceeds the 16-bit immediate range; "
+                    "tile span too large to fold"
+                )
+                rd, tok = op(
+                    base, const_offset=self.constant_i32(const), fence_token=fence_token
+                )
+                payloads.append(rd)
+                tokens.append(tok)
+        return LayoutValues.from_flat(
+            out_layout, payloads=tuple(payloads), tokens=tuple(tokens)
         )
 
     def prepare_transfer_tiles_buffer(
