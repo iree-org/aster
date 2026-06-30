@@ -44,9 +44,10 @@ N_TOTAL = WPW_N * SUB_N * 16
 STRIP_M = SUB_M * 16
 STRIP_N = SUB_N * 16
 FRAG_BYTES = 16 * TILE_K * 2
+NUM_THREADS = WPW_M * WPW_N * WAVE_SIZE
 
 
-def _build_gemm_subtile_gfx1250(K):
+def _build_gemm_subtile_gfx1250(K, target=MCPU):
     assert K % TILE_K == 0, f"K={K} must be divisible by {TILE_K}"
     k_tiles = K // TILE_K
     assert k_tiles >= N_STAGES, f"k_tiles={k_tiles} < N_STAGES={N_STAGES}"
@@ -62,7 +63,7 @@ def _build_gemm_subtile_gfx1250(K):
     GLOBAL_STORE_TILE_C = Layout((2, 16, 8), (8 * stride_c, 4, stride_c))
     GLOBAL_STORE_SUB_TILE_C = Layout((SUB_M, SUB_N), (16 * stride_c, 16 * 4))
 
-    b = KernelBuilder("gemm_subtile_mod", KERNEL_NAME, target=MCPU, wave_size=WAVE_SIZE)
+    b = KernelBuilder("gemm_subtile_mod", KERNEL_NAME, target=target, wave_size=WAVE_SIZE)
     b.set_grid_dims(1)
     b.set_block_dims(num_threads)
     b.add_ptr_arg(AccessKind.ReadOnly)
@@ -128,9 +129,14 @@ def _build_gemm_subtile_gfx1250(K):
             b.s_barrier_wait()
 
         with b.stage(STAGE_READ):
+            WMMA_FRAG_LAYOUT = Layout((2, 16), (16 * 2, TILE_K * 2))
+            laneoff = b.layout_apply(b.lane_id(), WMMA_FRAG_LAYOUT)
+            f0, f1, f2 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1), ir.AffineExpr.get_dim(2)
             a_regs = []
             for mi in range(SUB_M):
-                frag_base = b.affine_apply(d0 + (mi * FRAG_BYTES), [lds_a])
+                frag_base = b.affine_apply(
+                    f0 + f1 + f2 + (mi * FRAG_BYTES), [lds_a, a_lds_off, laneoff]
+                )
                 a_lo, a_lo_tok = b.ds_load_b128(frag_base)
                 a_hi, a_hi_tok = b.ds_load_b128(frag_base, b.constant_i32(16))
                 b.wait_deps_gfx1250(a_lo_tok, a_hi_tok)
@@ -142,7 +148,9 @@ def _build_gemm_subtile_gfx1250(K):
 
         with b.stage(STAGE_COMPUTE):
             for ni in range(SUB_N):
-                frag_base = b.affine_apply(d0 + (ni * FRAG_BYTES), [lds_b])
+                frag_base = b.affine_apply(
+                    f0 + f1 + f2 + (ni * FRAG_BYTES), [lds_b, b_lds_off, laneoff]
+                )
                 b_lo, b_lo_tok = b.ds_load_b128(frag_base)
                 b_hi, b_hi_tok = b.ds_load_b128(frag_base, b.constant_i32(16))
                 b.wait_deps_gfx1250(b_lo_tok, b_hi_tok)
@@ -171,8 +179,11 @@ def _build_gemm_subtile_gfx1250(K):
     return b.build()
 
 
-def _run_gemm_subtile_gfx1250(print_opts=None):
-    """Compile, assemble, and (if a gfx1250 GPU is present) execute + check."""
+def _run_gemm_subtile_gfx1250(print_opts=None, target=MCPU):
+    """Compile, assemble, and (if a gfx1250 GPU is present) execute + check.
+
+    Returns (status, asm): status is "ok", "no-assembler", or "no-gpu".
+    """
     np.random.seed(42 + M_TOTAL + N_TOTAL + K_DIM)
     A = (np.random.randn(M_TOTAL, K_DIM) * 0.1).astype(np.float16)
     B = (np.random.randn(N_TOTAL, K_DIM) * 0.1).astype(np.float16)
@@ -181,19 +192,19 @@ def _run_gemm_subtile_gfx1250(print_opts=None):
     ctx = ir.Context()
     ctx.allow_unregistered_dialects = True
     with ctx:
-        module = _build_gemm_subtile_gfx1250(K_DIM)
+        module = _build_gemm_subtile_gfx1250(K_DIM, target)
         asm = compile_mlir_module_to_asm(
             module,
             pass_pipeline=make_default_pass_pipeline(PipelineConfig()),
             print_opts=print_opts,
         )
 
-    path = assemble_to_hsaco(asm, target=MCPU, wavefront_size=WAVE_SIZE)
+    path = assemble_to_hsaco(asm, target=target, wavefront_size=WAVE_SIZE)
     if path is None:
         return "no-assembler", asm
 
     with hsaco_file(path):
-        if not system_has_mcpu(mcpu=MCPU):
+        if not system_has_mcpu(mcpu=target):
             return "no-gpu", asm
         execute_hsaco(
             hsaco_path=path,
@@ -204,7 +215,7 @@ def _run_gemm_subtile_gfx1250(print_opts=None):
                 OutputArray(C_output),
             ],
             grid_dim=(1, 1, 1),
-            block_dim=(WPW_M * WPW_N * WAVE_SIZE, 1, 1),
+            block_dim=(NUM_THREADS, 1, 1),
         )
 
     expected = (A.astype(np.float32) @ B.astype(np.float32).T).flatten()

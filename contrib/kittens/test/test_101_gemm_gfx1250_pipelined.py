@@ -16,17 +16,15 @@ import pytest
 from aster import ir
 from aster.dialects.kernel_builder_with_layouts import (
     KernelBuilderWithLayouts as KernelBuilder,
-    global_load_b128,
-    ds_store_64b,
 )
 from aster.dialects.amdgcn import AccessKind
+from aster.layout import Layout
 from aster.compiler.core import compile_mlir_module_to_asm, assemble_to_hsaco
 from aster.execution.core import execute_hsaco, InputArray, OutputArray
 from aster.execution.helpers import hsaco_file
 from aster.execution.utils import system_has_mcpu
 from aster.pass_pipelines import make_default_pass_pipeline, PipelineConfig
 
-from aster.layout import Layout, Swizzle, Tensor
 
 MCPU = "gfx1250"
 WAVE_SIZE = 32  # gfx1250 WMMA is Wave32.
@@ -36,11 +34,8 @@ STAGE_WRITE = 1
 STAGE_READ = 2
 STAGE_COMPUTE = 3
 
-TILE_K = 32
-TILE_N = 16
 
-
-def _build_gemm_pipelined_gfx1250(M, N, K):
+def _build_gemm_pipelined_gfx1250(M, N, K, target=MCPU):
     # fmt: off
     assert M == 16, f"M={M} must be 16"
     assert N == 16, f"N={N} must be 16"
@@ -57,27 +52,15 @@ def _build_gemm_pipelined_gfx1250(M, N, K):
     #     within each lange, register r in 0..7 holds row (l // 16) * 8 + r
     #
     # Note: the wmma fragment is column-major per lane but C is row-major in global memory.
+    TILE_M, TILE_N, TILE_K = 16, 16, 32
     GLOBAL_STORE_TILE_C = Layout((2, 16, 8), (8 * stride_c, 4, stride_c))
     GLOBAL_STORE_SUB_TILE_C = Layout(1, 0)
 
-    b = KernelBuilder("gemm_gfx1250_mod", "gemm_gfx1250", target=MCPU, wave_size=WAVE_SIZE)
+    b = KernelBuilder("gemm_gfx1250_mod", "gemm_gfx1250", target=target, wave_size=WAVE_SIZE)
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.ReadOnly)
     b.add_ptr_arg(AccessKind.WriteOnly)
     a_ptr, b_ptr, c_ptr = b.load_args()
-
-    # A operand: global_load_b128 -> ds_store_b64 (VGPR path).
-    tc_load_a = b.make_tiled_copy_descriptor(
-        global_load_b128,
-        thread_layout=Layout((16, 2), (stride_a, 32)),
-        value_layout=Layout(2, 16),  # 2 x 16 * f16 = 2 x load_128b per thread
-    )
-    tc_dsw_a = b.make_tiled_copy_descriptor(
-        ds_store_64b,
-        thread_layout=Layout((16, 2), (64, 32)),
-        value_layout=Layout(4, 8),  # 4 x 8 * f16 = 4 x store_64b per thread
-        swizzle=Swizzle(bits=3, base=3, shift=3),
-    )
 
     c0 = b.constant_index(0)
     c1 = b.constant_index(1)
@@ -93,9 +76,19 @@ def _build_gemm_pipelined_gfx1250(M, N, K):
         with b.stage(STAGE_LOAD):
             lds_a_h, lds_a = b.alloc_lds(1024)
             lds_b_h, lds_b = b.alloc_lds(1024)
-            # A: global -> VGPR via global_load_b128.
-            A_tile = Tensor(a_ptr, offset=tile_off)
-            a_load_res = b.transfer_tile(A_tile, tc_load_a)
+            # A: global -> LDS via TDM, rebuilt per iteration at a_ptr + tile_off.
+            a_g0, a_g1, a_g2, a_g3 = b.make_tdm_descriptor(
+                lds_offset=lds_a,
+                global_addr=a_ptr,
+                global_byte_offset=tile_off,
+                element_bytes=2,  # bf16
+                dim0=K,
+                dim1=TILE_M,
+                tile0=TILE_K,
+                tile1=TILE_M,
+                stride=stride_b_elements,
+            )
+            a_tdm_tok = b.tensor_load_to_lds(a_g0, a_g1, a_g2, a_g3)
             # B: global -> LDS via TDM, rebuilt per iteration at b_ptr + tile_off.
             tdm_g0, tdm_g1, tdm_g2, tdm_g3 = b.make_tdm_descriptor(
                 lds_offset=lds_b,
@@ -111,20 +104,20 @@ def _build_gemm_pipelined_gfx1250(M, N, K):
             b_tdm_tok = b.tensor_load_to_lds(tdm_g0, tdm_g1, tdm_g2, tdm_g3)
 
         with b.stage(STAGE_WRITE):
-            b.wait_deps_gfx1250(a_load_res)
-            sA = Tensor(lds_a)
-            # Two b128 loads -> four b64 stores, in value-layout order.
-            a_data = list(b.split_vx4(a_load_res.data_at(0))) + list(b.split_vx4(a_load_res.data_at(1)))
-            dsw_a_res = b.transfer_tile(sA, tc_dsw_a, data=a_data)
-
-        with b.stage(STAGE_READ):
-            b.wait_deps_gfx1250(dsw_a_res, b_tdm_tok)
+            b.wait_deps_gfx1250(a_tdm_tok, b_tdm_tok)
             b.s_barrier_signal()
             b.s_barrier_wait()
-            a_lo, a_tok_lo = b.ds_load_b128(lds_a)
-            a_hi, a_tok_hi = b.ds_load_b128(lds_a, b.constant_i32(16))
-            bt_lo, b_tok_lo = b.ds_load_b128(lds_b)
-            bt_hi, b_tok_hi = b.ds_load_b128(lds_b, b.constant_i32(16))
+
+        with b.stage(STAGE_READ):
+            WMMA_FRAG_LAYOUT = Layout((2, 16), (16 * 2, TILE_K * 2))
+            laneoff = b.layout_apply(b.lane_id(), WMMA_FRAG_LAYOUT)
+            d0, d1 = ir.AffineExpr.get_dim(0), ir.AffineExpr.get_dim(1)
+            a_base = b.affine_apply(d0 + d1, [lds_a, laneoff])
+            a_lo, a_tok_lo = b.ds_load_b128(a_base)
+            a_hi, a_tok_hi = b.ds_load_b128(a_base, b.constant_i32(16))
+            b_base = b.affine_apply(d0 + d1, [lds_b, laneoff])
+            bt_lo, b_tok_lo = b.ds_load_b128(b_base)
+            bt_hi, b_tok_hi = b.ds_load_b128(b_base, b.constant_i32(16))
 
         with b.stage(STAGE_COMPUTE):
             b.wait_deps_gfx1250(a_tok_lo, a_tok_hi, b_tok_lo, b_tok_hi)
