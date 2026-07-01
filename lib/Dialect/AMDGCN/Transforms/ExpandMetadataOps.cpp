@@ -206,9 +206,51 @@ static LogicalResult handleArgs(RewriterBase &rewriter, KernelOp op,
   return success();
 }
 
-/// Handle the BlockIdOps in a kernel.
-static void handleBlockId(RewriterBase &rewriter, KernelOp op,
-                          ArrayRef<BlockIdOp> ops) {
+/// Field descriptor for a TTMP-backed identity read, lowered to s_bfe_u32.
+struct ClusterField {
+  int16_t ttmpIdx;
+  uint32_t offset;
+  uint32_t width;
+};
+
+/// Common s_bfe_u32 control immediate:
+///   - bits [4:0] offset in ttmp register
+///   - bits [22:16] width in ttmp register.
+static uint32_t bfeU32Imm(uint32_t offset, uint32_t width) {
+  assert(offset < 32 && "offset must be less than 32");
+  assert(width <= 32 && "width must be less than or equal to 32");
+  return offset | (width << 16);
+}
+
+/// Read a TTMP-backed bitfield into a fresh SGPR via s_bfe_u32 and return it.
+/// The caller is responsible for setting the insertion point.
+static Value readTTMPField(RewriterBase &rewriter, Location loc,
+                           const ClusterField &field) {
+  Value ttmpSrc = createAllocation(
+      rewriter, loc,
+      TTMPType::get(rewriter.getContext(), Register(field.ttmpIdx)));
+  Value dst = createAllocation(
+      rewriter, loc, SGPRType::get(rewriter.getContext(), Register()));
+  Value ctrl = arith::ConstantIntOp::create(
+      rewriter, loc, bfeU32Imm(field.offset, field.width), 32);
+  return createSOP2Out2In2<SBfeU32>(rewriter, loc, dst, ttmpSrc, ctrl);
+}
+
+/// On GFX12.5+, TTMP holds the workgroup grid position for block_id dimension `dim`:
+/// cluster position within the grid when the kernel is launched with workgroup clusters.
+///   x -> TTMP9[31:0], y -> TTMP7[15:0], z -> TTMP7[31:16].
+static ClusterField gridPositionField(int32_t dim) {
+  if (dim == 0)
+    return ClusterField{9, 0, 32};
+  if (dim == 1)
+    return ClusterField{7, 0, 16};
+  return ClusterField{7, 16, 16};
+}
+
+/// CDNA3/CDNA4 block-id lowering: workgroup ids are preloaded into
+/// system SGPRs, packed after the user SGPRs (only enabled dims get a slot).
+static void handleBlockIdCdna3(RewriterBase &rewriter, KernelOp op,
+                                ArrayRef<BlockIdOp> ops) {
   // Get the entry block.
   Block *entry = &op.getBodyRegion().front();
   rewriter.setInsertionPointToStart(entry);
@@ -253,35 +295,79 @@ static void handleBlockId(RewriterBase &rewriter, KernelOp op,
   }
 }
 
-/// Field descriptor for a TTMP-backed cluster id read, lower to s_bfe_u32.
-struct ClusterField {
-  int16_t ttmpIdx;
-  uint32_t offset;
-  uint32_t width;
-};
+/// GFX12.5+ block-id lowering.
+/// Workgroup grid positions live in TTMP9 (X) / TTMP7 (Y, Z). When the kernel
+/// is launched with workgroup clusters, the workgroup's position within its
+/// cluster is inTTMP6.
+/// The flat grid workgroup id is reconstructed as:
+///
+///   block_id[d] = grid_position[d] * cluster_size[d] + wg_in_cluster[d]
+///
+/// where cluster_size[d] comes from the compile-time `cluster_dims` attribute.
+/// When a dimension is not clustered (cluster_size <= 1), grid_position already
+/// equals the workgroup id, so no combination is needed (TTMP6, which is
+/// uninitialized without clusters, is not read).
+static void handleBlockIdGfx1250(RewriterBase &rewriter, KernelOp op,
+                                 ArrayRef<BlockIdOp> ops) {
+  ArrayRef<int32_t> clusterDims = op.getClusterDims(); // {0,0,0} if unset.
+  for (BlockIdOp blockId : ops) {
+    rewriter.setInsertionPoint(blockId);
+    Location loc = blockId.getLoc();
+    int32_t dim = static_cast<int32_t>(blockId.getDim());
 
-/// s_bfe_u32 control immediate:
-///   - bits [4:0] offset in ttmp register
-///   - bits [22:16] width in ttmp register.
-static uint32_t bfeU32Imm(uint32_t offset, uint32_t width) {
-  assert(offset < 32 && "offset must be less than 32");
-  assert(width <= 32 && "width must be less than or equal to 32");
-  return offset | (width << 16);
+    Value id = readTTMPField(rewriter, loc, gridPositionField(dim));
+
+    int32_t clusterSize =
+        (dim < static_cast<int32_t>(clusterDims.size())) ? clusterDims[dim] : 0;
+    if (clusterSize > 1) {
+      Value sizeCst =
+          arith::ConstantIntOp::create(rewriter, loc, clusterSize, 32);
+      Value mulDst = createAllocation(
+          rewriter, loc, SGPRType::get(rewriter.getContext(), Register()));
+      Value scaled =
+          SMulI32::create(rewriter, loc, mulDst, id, sizeCst).getDst0Res();
+      Value wg = readTTMPField(rewriter, loc,
+                               ClusterField{6, static_cast<uint32_t>(dim) * 4,
+                                            4});
+      Value addDst = createAllocation(
+          rewriter, loc, SGPRType::get(rewriter.getContext(), Register()));
+      id = createSOP2Out2In2<SAddU32>(rewriter, loc, addDst, scaled, wg);
+    }
+
+    // If the value flows into a branch successor operand, it needs an explicit
+    // copy to a generic SGPR to satisfy typing requirements.
+    bool carriedThroughBranch =
+        llvm::any_of(blockId->getUses(), [](OpOperand &use) {
+          return isa<BranchOpInterface>(use.getOwner());
+        });
+    if (carriedThroughBranch) {
+      Value genericDst = createAllocation(
+          rewriter, loc, SGPRType::get(rewriter.getContext(), Register()));
+      id = lsir::CopyOp::create(rewriter, loc, genericDst, id).getDestResult();
+    }
+    rewriter.replaceOp(blockId, id);
+  }
+}
+
+/// Handle the BlockIdOps in a kernel, dispatching on the target ISA.
+static void handleBlockId(RewriterBase &rewriter, KernelOp op,
+                          ArrayRef<BlockIdOp> ops) {
+  if (ops.empty())
+    return;
+  ISAVersion isa = ISAVersion::Invalid;
+  if (auto moduleOp = op->getParentOfType<amdgcn::ModuleOp>())
+    isa = getIsaForTarget(moduleOp.getTarget());
+  if (isa == ISAVersion::GFX12_50)
+    handleBlockIdGfx1250(rewriter, op, ops);
+  else
+    handleBlockIdCdna3(rewriter, op, ops);
 }
 
 /// Lower a single TTMP-backed cluster identity op via s_bfe_u32.
 static void lowerClusterField(RewriterBase &rewriter, Operation *op,
                               const ClusterField &field) {
   rewriter.setInsertionPoint(op);
-  Location loc = op->getLoc();
-  Value ttmpSrc = createAllocation(
-      rewriter, loc,
-      TTMPType::get(rewriter.getContext(), Register(field.ttmpIdx)));
-  Value dst = createAllocation(
-      rewriter, loc, SGPRType::get(rewriter.getContext(), Register()));
-  Value ctrl = arith::ConstantIntOp::create(
-      rewriter, loc, bfeU32Imm(field.offset, field.width), 32);
-  Value id = createSOP2Out2In2<SBfeU32>(rewriter, loc, dst, ttmpSrc, ctrl);
+  Value id = readTTMPField(rewriter, op->getLoc(), field);
   assert(llvm::none_of(op->getUses(),
                        [](OpOperand &use) {
                          return isa<BranchOpInterface>(use.getOwner());
@@ -576,6 +662,13 @@ static void handledDim(RewriterBase &rewriter, KernelOp op,
 
 void ExpandMetadataOps::runOnOperation() {
   KernelOp op = getOperation();
+  // On GFX12.5+ the workgroup id is passed via TTMP registers, not a system
+  // SGPR, so the enable_sgpr_workgroup_id_* bits stays off (see
+  // handleBlockIdGfx1250).
+  bool ttmpWorkgroupId = false;
+  if (auto moduleOp = op->getParentOfType<amdgcn::ModuleOp>())
+    ttmpWorkgroupId =
+        getIsaForTarget(moduleOp.getTarget()) == ISAVersion::GFX12_50;
   // Collect all relevant ops.
   SmallVector<LoadArgOp> loadArgs;
   SmallVector<ThreadIdOp> threadIds;
@@ -640,9 +733,9 @@ void ExpandMetadataOps::runOnOperation() {
                         !loadArgs.empty() || !blockDims.empty() ||
                         !gridDims.empty() || !makeBufferRsrcs.empty();
   if (hasMetadataOps) {
-    op.setEnableWorkgroupIdX(blockIdSeen[0]);
-    op.setEnableWorkgroupIdY(blockIdSeen[1]);
-    op.setEnableWorkgroupIdZ(blockIdSeen[2]);
+    op.setEnableWorkgroupIdX(!ttmpWorkgroupId && blockIdSeen[0]);
+    op.setEnableWorkgroupIdY(!ttmpWorkgroupId && blockIdSeen[1]);
+    op.setEnableWorkgroupIdZ(!ttmpWorkgroupId && blockIdSeen[2]);
     if (threadIdSeen[2])
       op.setWorkitemIdMode(WorkitemIDMode::XYZ);
     else if (threadIdSeen[1])

@@ -245,6 +245,7 @@ class GpuFunction:
         grid: Tuple[int, int, int],
         block: Tuple[int, int, int],
         args: list,
+        cluster_dim: Optional[Tuple[int, int, int]] = None,
     ) -> None:
         """Launch the kernel with the given grid/block dimensions.
 
@@ -252,20 +253,40 @@ class GpuFunction:
         argument values into its own buffer during the launch call, so
         the local ctypes structures can be freed as soon as this method
         returns.
-        """
-        from aster._mlir_libs._runtime_module import hip_module_launch_kernel
 
+        When ``cluster_dim`` is set, uses ``hipDrvLaunchKernelEx`` with the
+        ``hipLaunchAttributeClusterDimension`` launch attribute.
+        """
         capsule, kernel_args, kernel_ptr_arr = create_kernel_args_capsule(*args)
-        hip_module_launch_kernel(
-            self._handle,
-            grid[0],
-            grid[1],
-            grid[2],
-            block[0],
-            block[1],
-            block[2],
-            capsule,
-        )
+        if cluster_dim is not None:
+            from aster._mlir_libs._runtime_module import hip_module_launch_kernel_ex
+
+            hip_module_launch_kernel_ex(
+                self._handle,
+                grid[0],
+                grid[1],
+                grid[2],
+                block[0],
+                block[1],
+                block[2],
+                cluster_dim[0],
+                cluster_dim[1],
+                cluster_dim[2],
+                capsule,
+            )
+        else:
+            from aster._mlir_libs._runtime_module import hip_module_launch_kernel
+
+            hip_module_launch_kernel(
+                self._handle,
+                grid[0],
+                grid[1],
+                grid[2],
+                block[0],
+                block[1],
+                block[2],
+                capsule,
+            )
         # kernel_args and kernel_ptr_arr kept alive until here.
         del kernel_args, kernel_ptr_arr
 
@@ -587,6 +608,7 @@ def execute_hsaco(
     arguments: list,
     grid_dim: Tuple[int, int, int] = (1, 1, 1),
     block_dim: Tuple[int, int, int] = (64, 1, 1),
+    cluster_dim: Optional[Tuple[int, int, int]] = None,
     num_iterations: int = 1,
     device_id: Optional[int] = None,
     flush_llc: Optional[Any] = None,
@@ -608,6 +630,8 @@ def execute_hsaco(
             * A scalar (``int``, ``float``, numpy scalar, or ctypes scalar).
         grid_dim: (gridX, gridY, gridZ).
         block_dim: (blockX, blockY, blockZ).
+        cluster_dim: Optional (clusterX, clusterY, clusterZ) for cluster launch.
+            When set, uses ``hipDrvLaunchKernelEx`` with cluster dimensions.
         num_iterations: Number of kernel launches (for timing).
         device_id: GPU device to use. None keeps the current device.
         flush_llc: Optional object with initialize()/flush_llc()/cleanup()
@@ -673,7 +697,9 @@ def execute_hsaco(
     try:
         for it in range(num_iterations):
             with _TimedLaunch(start_event, stop_event, flush_llc) as t:
-                function.launch(grid_dim, block_dim, launch_args)
+                function.launch(
+                    grid_dim, block_dim, launch_args, cluster_dim=cluster_dim
+                )
             times_ns.append(t.elapsed_ns)
 
             if it == 0:

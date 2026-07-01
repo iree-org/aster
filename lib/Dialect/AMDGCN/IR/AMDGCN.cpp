@@ -393,6 +393,39 @@ LogicalResult KernelOp::verify() {
   if (numEndKernel == 0)
     return emitError("kernel must have at least one EndKernelOp terminator");
 
+  // GFX12.5+ workgroup clusters: the product of the per-axis cluster
+  // dimensions (i.e. the number of workgroups per cluster) is limited by
+  // hardware to at most 16. cluster_dims defaults to {0,0,0} (no clustering).
+  // TODO: remove magic constant.
+  constexpr int64_t kMaxClusterSize = 16;
+  ArrayRef<int32_t> clusterDims = getClusterDims();
+  int64_t clusterSize = 1;
+  bool anyCluster = false;
+  for (int32_t d : clusterDims) {
+    if (d > 1)
+      anyCluster = true;
+    clusterSize *= (d > 0 ? d : 1);
+  }
+  if (anyCluster && clusterSize > kMaxClusterSize)
+    return emitError("cluster size (product of cluster_dims) must be <= ")
+           << kMaxClusterSize << ", got " << clusterSize;
+
+  // When the compile-time grid is known (grid_dims set), it must tile evenly
+  // into clusters: each grid axis must be an exact multiple of the
+  // corresponding cluster dimension, otherwise the runtime launch
+  // (hipDrvLaunchKernelEx) is rejected with an invalid-argument error.
+  ArrayRef<int32_t> gridDims = getGridDims();
+  if (anyCluster && gridDims.size() == clusterDims.size()) {
+    for (size_t axis = 0; axis < clusterDims.size(); ++axis) {
+      int32_t c = clusterDims[axis] > 0 ? clusterDims[axis] : 1;
+      if (gridDims[axis] % c != 0)
+        return emitError("grid_dims[")
+               << axis << "] (" << gridDims[axis]
+               << ") must be an exact multiple of cluster_dims[" << axis
+               << "] (" << c << ")";
+    }
+  }
+
   return success();
 }
 

@@ -206,6 +206,52 @@ enum hipMemcpyKind {
   hipMemcpyDefault = 4,
 };
 
+enum hipLaunchAttributeID {
+  hipLaunchAttributeClusterDimension = 4,
+};
+
+struct hipLaunchAttributeValue {
+  struct {
+    unsigned int x;
+    unsigned int y;
+    unsigned int z;
+  } clusterDim;
+};
+
+struct hipLaunchAttribute {
+  hipLaunchAttributeID id;
+  char pad[8 - sizeof(hipLaunchAttributeID)];
+  hipLaunchAttributeValue value;
+};
+
+struct HIP_LAUNCH_CONFIG {
+  unsigned int gridDimX;
+  unsigned int gridDimY;
+  unsigned int gridDimZ;
+  unsigned int blockDimX;
+  unsigned int blockDimY;
+  unsigned int blockDimZ;
+  unsigned int sharedMemBytes;
+  hipStream_t hStream;
+  hipLaunchAttribute *attrs;
+  unsigned int numAttrs;
+};
+
+// These structs are hand-mirrored from ROCm's <hip/hip_runtime_api.h> so the
+// dynamic loader does not need the HIP SDK headers at build time. The layout
+// must match the real ABI exactly (offsets are what the driver dereferences),
+// so assert the field offsets that matter for hipDrvLaunchKernelEx. If a future
+// ROCm release changes these, these asserts fire instead of silently passing
+// garbage to the driver.
+static_assert(offsetof(hipLaunchAttribute, value) == 8,
+              "hipLaunchAttribute.value must be 8-byte aligned (id + pad)");
+static_assert(offsetof(HIP_LAUNCH_CONFIG, hStream) == 32,
+              "HIP_LAUNCH_CONFIG.hStream offset must match ROCm ABI");
+static_assert(offsetof(HIP_LAUNCH_CONFIG, attrs) == 40,
+              "HIP_LAUNCH_CONFIG.attrs offset must match ROCm ABI");
+static_assert(offsetof(HIP_LAUNCH_CONFIG, numAttrs) == 48,
+              "HIP_LAUNCH_CONFIG.numAttrs offset must match ROCm ABI");
+
 //===----------------------------------------------------------------------===//
 // HIP API function pointer table
 //===----------------------------------------------------------------------===//
@@ -232,6 +278,8 @@ struct HipApi {
                                    uint32_t blockZ, uint32_t sharedMem,
                                    hipStream_t stream, void **kernelParams,
                                    void **extra);
+  hipError_t (*drvLaunchKernelEx)(const HIP_LAUNCH_CONFIG *config,
+                                  hipFunction_t f, void **params, void **extra);
   hipError_t (*malloc)(void **ptr, size_t size);
   hipError_t (*free)(void *ptr);
   hipError_t (*memcpy)(void *dst, const void *src, size_t bytes,
