@@ -16,6 +16,7 @@ def test_gfx1250_cluster_e2e(target):
         mcpu=target,
         preprocess=preprocess,
         library_paths=[],
+        wavefront_size=32,
     )
 
 

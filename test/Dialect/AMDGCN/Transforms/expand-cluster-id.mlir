@@ -39,3 +39,33 @@ amdgcn.module @m_maxid target = #amdgcn.target<gfx1250> {
     amdgcn.end_kernel
   }
 }
+
+// On GFX12.5 block_id x with clusters is reconstructed as
+// TTMP9 (grid/cluster position) * cluster_size + TTMP6.wg_x (ttmp6[3:0]).
+// CHECK-LABEL: kernel @block_id_cluster
+//       CHECK:   arith.constant 2097152 : i32
+//       CHECK:   s_bfe_u32{{.*}}ins(!amdgcn.ttmp<9>, i32)
+//       CHECK:   s_mul_i32
+//       CHECK:   arith.constant 262144 : i32
+//       CHECK:   s_bfe_u32{{.*}}ins(!amdgcn.ttmp<6>, i32)
+//       CHECK:   s_add_u32
+amdgcn.module @m_bid_c target = #amdgcn.target<gfx1250> {
+  amdgcn.kernel @block_id_cluster attributes {cluster_dims = array<i32: 4, 1, 1>} {
+    %x = amdgcn.block_id x : !amdgcn.sgpr
+    amdgcn.end_kernel
+  }
+}
+
+// On GFX12.5 without clusters block_id x is just TTMP9 (grid position == wg id);
+// no scale/offset is emitted.
+// CHECK-LABEL: kernel @block_id_no_cluster
+//       CHECK:   arith.constant 2097152 : i32
+//       CHECK:   s_bfe_u32{{.*}}ins(!amdgcn.ttmp<9>, i32)
+//   CHECK-NOT:   s_mul_i32
+//   CHECK-NOT:   s_add_u32
+amdgcn.module @m_bid target = #amdgcn.target<gfx1250> {
+  amdgcn.kernel @block_id_no_cluster {
+    %x = amdgcn.block_id x : !amdgcn.sgpr
+    amdgcn.end_kernel
+  }
+}

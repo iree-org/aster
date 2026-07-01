@@ -58,6 +58,15 @@ const HipApi *HipApi::load() {
     *reinterpret_cast<void **>(&fp) = p;
   };
 
+  // Resolves an optional symbol: leaves the pointer null (checked at the call
+  // site) instead of failing the whole load. Used for APIs that may be absent
+  // on older HIP runtimes, e.g. cluster launch.
+  auto loadOptionalSym = [&](auto &fp, const char *sym) {
+    fp = nullptr;
+    if (void *p = ::dlsym(handle, sym))
+      *reinterpret_cast<void **>(&fp) = p;
+  };
+
   loadSym(api.init, "hipInit");
   loadSym(api.setDevice, "hipSetDevice");
   loadSym(api.getDevice, "hipGetDevice");
@@ -68,6 +77,7 @@ const HipApi *HipApi::load() {
   loadSym(api.moduleGetFunction, "hipModuleGetFunction");
   loadSym(api.moduleUnload, "hipModuleUnload");
   loadSym(api.moduleLaunchKernel, "hipModuleLaunchKernel");
+  loadOptionalSym(api.drvLaunchKernelEx, "hipDrvLaunchKernelEx");
   loadSym(api.malloc, "hipMalloc");
   loadSym(api.free, "hipFree");
   loadSym(api.memcpy, "hipMemcpy");
@@ -175,6 +185,8 @@ NB_MODULE(_runtime_module, m) {
     d["max_threads_per_block"] = props.maxThreadsPerBlock;
     // Max threads per multiprocessor (= max waves per CU * warpSize).
     d["max_threads_per_multiprocessor"] = props.maxThreadsPerMultiProcessor;
+    d["asic_revision"] = props.asicRevision;
+    d["cluster_launch"] = props.clusterLaunch;
     return d;
   });
 
@@ -239,6 +251,52 @@ NB_MODULE(_runtime_module, m) {
       },
       nb::arg("function"), nb::arg("gx"), nb::arg("gy"), nb::arg("gz"),
       nb::arg("bx"), nb::arg("by"), nb::arg("bz"),
+      nb::arg("kernelParams") = nb::none());
+
+  m.def(
+      "hip_module_launch_kernel_ex",
+      [](void *function, size_t gx, size_t gy, size_t gz, size_t bx, size_t by,
+         size_t bz, size_t clusterX, size_t clusterY, size_t clusterZ,
+         nb::handle kernelParams) {
+        const HipApi &h = requireHip();
+        if (!h.drvLaunchKernelEx)
+          throw std::runtime_error(
+              "cluster launch requires hipDrvLaunchKernelEx, which is not "
+              "available in the loaded libamdhip64.so");
+        hipFunction_t *f = reinterpret_cast<hipFunction_t *>(function);
+
+        void **kernelParamsPtr = nullptr;
+        if (!kernelParams.is_none()) {
+          PyObject *capsule = kernelParams.ptr();
+          if (PyCapsule_CheckExact(capsule)) {
+            void *ptr = PyCapsule_GetPointer(capsule, "nb_handle");
+            kernelParamsPtr = reinterpret_cast<void **>(ptr);
+          }
+        }
+
+        hipLaunchAttribute attr{};
+        attr.id = hipLaunchAttributeClusterDimension;
+        attr.value.clusterDim.x = static_cast<unsigned int>(clusterX);
+        attr.value.clusterDim.y = static_cast<unsigned int>(clusterY);
+        attr.value.clusterDim.z = static_cast<unsigned int>(clusterZ);
+
+        HIP_LAUNCH_CONFIG config{};
+        config.gridDimX = static_cast<unsigned int>(gx);
+        config.gridDimY = static_cast<unsigned int>(gy);
+        config.gridDimZ = static_cast<unsigned int>(gz);
+        config.blockDimX = static_cast<unsigned int>(bx);
+        config.blockDimY = static_cast<unsigned int>(by);
+        config.blockDimZ = static_cast<unsigned int>(bz);
+        config.sharedMemBytes = 0;
+        config.hStream = nullptr;
+        config.attrs = &attr;
+        config.numAttrs = 1;
+
+        hipCheck(h.drvLaunchKernelEx(&config, *f, kernelParamsPtr, nullptr));
+      },
+      nb::arg("function"), nb::arg("gx"), nb::arg("gy"), nb::arg("gz"),
+      nb::arg("bx"), nb::arg("by"), nb::arg("bz"), nb::arg("cluster_x"),
+      nb::arg("cluster_y"), nb::arg("cluster_z"),
       nb::arg("kernelParams") = nb::none());
 
   m.def("hip_device_synchronize", []() {

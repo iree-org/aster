@@ -60,6 +60,7 @@ def compile_and_run(
     output_data=None,
     grid_dim=(1, 1, 1),
     block_dim=(64, 1, 1),
+    cluster_dim=None,
     library_paths: Optional[List[str]] = None,
     preprocess: Optional[Callable[[str], str]] = None,
     print_ir_after_all: bool = False,
@@ -88,6 +89,7 @@ def compile_and_run(
         output_data: Output numpy array(s). Single array or list of arrays.
         grid_dim: Grid dimensions for kernel launch.
         block_dim: Block dimensions for kernel launch.
+        cluster_dim: Optional cluster dimensions for cluster kernel launch.
         library_paths: Library paths for preload. If None, auto-detected.
         preprocess: Optional preprocessing function for MLIR content.
         print_ir_after_all: Whether to print IR after all passes.
@@ -205,6 +207,7 @@ def compile_and_run(
                 arguments=arguments,
                 grid_dim=grid_dim,
                 block_dim=block_dim,
+                cluster_dim=cluster_dim,
                 verify_fn=wrapped_verify_fn,
                 num_iterations=num_iterations,
             )
