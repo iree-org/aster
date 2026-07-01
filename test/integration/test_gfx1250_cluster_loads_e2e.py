@@ -20,7 +20,7 @@ SENTINEL = -1  # host pre-fill; phase 1 must overwrite it
         # Sync multicast: cluster_load_b32 -> VGPR.
         ("../Target/ASM/gfx1250-cluster-loads-asm.mlir", "cload"),
         # Async multicast: cluster_load_async_to_lds_b32 -> LDS, s_wait_asynccnt,
-        # ds_load_b32 back. Same numeric result as the sync variant.
+        # ds_load_b32 back.
         ("../Target/ASM/gfx1250-cluster-async-loads-asm.mlir", "cload_async"),
     ],
 )
@@ -35,19 +35,30 @@ def test_gfx1250_cluster_loads_e2e(mlir_file, kernel, target):
 
     def verify(inputs, outputs):
         out = outputs[0].reshape(N_WG, THREADS_PER_WG)
+        tid = np.arange(THREADS_PER_WG, dtype=np.int32)
         for c in range(N_CLUSTERS):
             base_wg = c * N_WG_PER_CLUSTER  # cluster's lowest WG
             rows = out[base_wg : base_wg + N_WG_PER_CLUSTER]
-            # intra-cluster equality: all 4 WGs cluster_load the same row.
-            for w in range(1, N_WG_PER_CLUSTER):
+            # The multicast broadcasts the cluster-base WG's row (global id
+            # base_wg*THREADS_PER_WG + tid) to every WG in the cluster. Checking
+            # the exact value (not just intra-cluster equality) distinguishes a
+            # real cluster_load broadcast from an ordinary per-WG global load.
+            expected = base_wg * THREADS_PER_WG + tid
+            for w in range(N_WG_PER_CLUSTER):
                 np.testing.assert_array_equal(
                     rows[w],
-                    rows[0],
+                    expected,
                     err_msg=(
-                        f"cluster {c}: WG {base_wg + w} and WG {base_wg} must "
-                        "receive the same cluster_load broadcast"
+                        f"cluster {c}: WG {base_wg + w} must receive the "
+                        f"cluster_load broadcast of WG {base_wg}'s row "
+                        f"(value base_wg*{THREADS_PER_WG}+tid)"
                     ),
                 )
+            # Sanity: no lane may still hold the pre-fill sentinel.
+            assert not np.any(rows == SENTINEL), (
+                f"cluster {c}: found undrained sentinel {SENTINEL}; "
+                "cluster barrier / multicast did not populate all lanes"
+            )
 
     compile_and_run(
         mlir_file,
@@ -59,6 +70,7 @@ def test_gfx1250_cluster_loads_e2e(mlir_file, kernel, target):
         wavefront_size=32,
         grid_dim=(N_WG, 1, 1),
         block_dim=(THREADS_PER_WG, 1, 1),
+        cluster_dim=(N_WG_PER_CLUSTER, 1, 1),
         preprocess=preprocess,
         verify_fn=verify,
         library_paths=[],

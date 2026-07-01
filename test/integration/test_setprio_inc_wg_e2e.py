@@ -16,6 +16,7 @@ def test_setprio_inc_wg_e2e(target):
         mcpu=target,
         preprocess=preprocess,
         library_paths=[],
+        wavefront_size=32,
     )
 
 
