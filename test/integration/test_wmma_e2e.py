@@ -19,6 +19,7 @@ def test_wmma_e2e(kernel, target):
         mcpu=target,
         preprocess=preprocess,
         library_paths=[],
+        wavefront_size=32,
     )
 
 

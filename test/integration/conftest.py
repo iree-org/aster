@@ -6,6 +6,11 @@ import sys
 _EXITSTATUS = 0
 
 
+def pytest_sessionfinish(session, exitstatus):
+    global _EXITSTATUS
+    _EXITSTATUS = int(exitstatus)
+
+
 def pytest_unconfigure(config):
     try:
         sys.stdout.flush()
